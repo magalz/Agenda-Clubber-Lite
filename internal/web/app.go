@@ -3,6 +3,7 @@ package web
 
 import (
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"runtime/debug"
@@ -11,17 +12,29 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/magalz/agenda-clubber-lite/internal/config"
+	webfs "github.com/magalz/agenda-clubber-lite/web"
 )
 
 // App carries the dependencies shared by the handlers.
 type App struct {
-	Cfg config.Config
-	Log *slog.Logger
+	Cfg    config.Config
+	Log    *slog.Logger
+	Assets *Assets
 }
 
-// NewApp builds an App from a validated configuration.
+// NewApp builds an App from a validated configuration. It panics if the
+// embedded static tree cannot be read: it is compiled into the binary, so a
+// failure is a programming error, not a runtime condition.
 func NewApp(cfg config.Config, log *slog.Logger) *App {
-	return &App{Cfg: cfg, Log: log}
+	static, err := fs.Sub(webfs.Static, "static")
+	if err != nil {
+		panic(fmt.Sprintf("web: embedded static tree: %v", err))
+	}
+	assets, err := NewAssets(static)
+	if err != nil {
+		panic(fmt.Sprintf("web: hashing embedded static files: %v", err))
+	}
+	return &App{Cfg: cfg, Log: log, Assets: assets}
 }
 
 // Router builds the Gin engine: middleware first, then the routes.
@@ -35,12 +48,19 @@ func (a *App) Router() *gin.Engine {
 	}
 	r.RemoteIPHeaders = []string{"CF-Connecting-IP"}
 
+	// Gin answers a trailing-slash mismatch ("/healthz/") with a 301 before
+	// any middleware runs, which would leave that response without the
+	// security headers. Such a path is a plain 404 instead.
+	r.RedirectTrailingSlash = false
+
 	// The request log wraps recovery so a recovered panic is logged as a 500.
-	// Later middleware (security headers, origin check, body cap, sessions)
-	// goes here, before the routes.
-	r.Use(a.requestLog(), a.recovery())
+	// Later middleware (origin check, sessions) goes here, before the routes.
+	r.Use(a.requestLog(), a.recovery(), securityHeaders(), limitBody(maxBodyBytes))
 
 	r.GET("/healthz", healthz)
+	static := a.Assets.Handler()
+	r.GET("/static/*filepath", static)
+	r.HEAD("/static/*filepath", static)
 	// Later tasks register their routes here.
 
 	return r
