@@ -1,0 +1,70 @@
+# Local development stack: the app plus Mailpit, which catches every email the
+# app sends (UI at http://127.0.0.1:8025), so nothing leaves the machine.
+#
+#   cp .env.example .env          # once; env_file below needs it to exist
+#   podman compose -f deploy/compose.dev.yml up -d --build
+#   podman compose -f deploy/compose.dev.yml down -v    # -v also drops the data volume
+#
+# .env may hold real credentials; the environment block overrides everything
+# that could reach a real mail server or break the dev origin.
+name: agenda-dev
+
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: deploy/Containerfile
+    image: localhost/agenda:dev
+    env_file: ../.env
+    environment:
+      APP_ENV: dev
+      APP_ORIGIN: http://localhost:8120
+      # Inside the container the server must listen on all interfaces and on
+      # the port the published mapping and the healthcheck use, whatever .env says.
+      APP_ADDR: ":8120"
+      DATA_DIR: /data
+      SMTP_HOST: mailpit
+      SMTP_PORT: "1025"
+      SMTP_USERNAME: ""
+      SMTP_PASSWORD: ""
+      TRUSTED_PROXY_CIDRS: ""
+    ports:
+      - "127.0.0.1:8120:8120"
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - agenda-data:/data
+    healthcheck:
+      test: ["CMD", "/app/agenda", "healthcheck"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    depends_on:
+      - mailpit
+    restart: unless-stopped
+
+  mailpit:
+    # v1.33.1, multi-arch index digest
+    image: docker.io/axllent/mailpit:v1.33.1@sha256:aef2aacc11f075ec0fb6874275ee4a421e688e11a96ebb296134d1735c7761ce
+    ports:
+      # Web UI only; SMTP (1025) stays on the compose network.
+      - "127.0.0.1:8025:8025"
+    read_only: true
+    # Mailpit writes its message store under /tmp; Podman mounts one on a
+    # read-only container by itself, Docker does not.
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+
+volumes:
+  agenda-data: {}
