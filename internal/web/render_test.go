@@ -425,8 +425,12 @@ func TestExecutionErrorIs500(t *testing.T) {
 	if logged["page"] != "base/boom" {
 		t.Errorf("logged page = %v, want base/boom", logged["page"])
 	}
-	if e, _ := logged["error"].(string); !strings.Contains(e, "Name") {
-		t.Errorf("logged error = %q, want the template error", e)
+	// "err", as in cmd/agenda: one key for errors across the service's logs.
+	if e, _ := logged["err"].(string); !strings.Contains(e, "Name") {
+		t.Errorf("logged err = %q, want the template error", e)
+	}
+	if _, ok := logged["error"]; ok {
+		t.Errorf("render error is also logged under \"error\": %v", logged)
 	}
 
 	c, prec := newCtx()
