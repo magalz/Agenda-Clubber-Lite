@@ -1,5 +1,5 @@
 /* Components, ported from CircuitoNE (primitives, form, AppShell, EventSheet). Needs tokens.css and base.css loaded first.
-   Plain CSS, no build step. Colors only through the variables in tokens.css; the one literal is the select chevron.
+   Plain CSS, no build step. Colors only through the variables in tokens.css.
    Breakpoints are literals (variables do not work in media queries): 640px, 768px, 1024px, mobile first.
    Square corners everywhere, except the three panel dots. Live examples of every class: docs/styleguide.html. */
 
@@ -416,15 +416,18 @@
   resize: vertical;
 }
 
-/* The chevron is a data: SVG (CSP img-src allows data:). A background image cannot read a CSS variable, so its stroke
-   is the literal of --color-muted (#8a8a92, percent-encoded as %238a8a92); keep the two in sync. */
+/* The arrow is two gradient halves, so it follows --color-muted (a data: SVG cannot read a CSS variable). */
 .select {
   appearance: none;
   padding-right: var(--space-10);
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%238a8a92' stroke-width='2'%3E%3Cpath d='M3 6l5 5 5-5'/%3E%3C/svg%3E");
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--color-muted) 50%),
+    linear-gradient(135deg, var(--color-muted) 50%, transparent 50%);
   background-repeat: no-repeat;
-  background-position: right var(--space-3) center;
-  background-size: 1rem;
+  background-position:
+    right 1.25rem center,
+    right 0.875rem center;
+  background-size: 0.375rem 0.375rem;
 }
 
 .check {
