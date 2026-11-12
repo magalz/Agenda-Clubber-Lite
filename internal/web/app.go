@@ -48,12 +48,19 @@ func (a *App) Router() *gin.Engine {
 	}
 	r.RemoteIPHeaders = []string{"CF-Connecting-IP"}
 
+	// Gin answers a trailing-slash mismatch ("/healthz/") with a 301 before
+	// any middleware runs, which would leave that response without the
+	// security headers. Such a path is a plain 404 instead.
+	r.RedirectTrailingSlash = false
+
 	// The request log wraps recovery so a recovered panic is logged as a 500.
-	// Later middleware (security headers, origin check, body cap, sessions)
-	// goes here, before the routes.
-	r.Use(a.requestLog(), a.recovery())
+	// Later middleware (origin check, sessions) goes here, before the routes.
+	r.Use(a.requestLog(), a.recovery(), securityHeaders(), limitBody(maxBodyBytes))
 
 	r.GET("/healthz", healthz)
+	static := a.Assets.Handler()
+	r.GET("/static/*filepath", static)
+	r.HEAD("/static/*filepath", static)
 	// Later tasks register their routes here.
 
 	return r
