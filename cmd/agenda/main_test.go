@@ -319,6 +319,12 @@ func TestHealthzURL(t *testing.T) {
 			t.Errorf("healthzURL(%q) = %q, want an error", addr, got)
 		}
 	}
+	// The unset-APP_ADDR fallback is the one config.Load applies.
+	unset, err1 := healthzURL("")
+	dflt, err2 := healthzURL(config.DefaultAddr)
+	if err1 != nil || err2 != nil || unset != dflt {
+		t.Errorf("healthzURL(\"\") = %q, %v; healthzURL(config.DefaultAddr) = %q, %v; want the same URL", unset, err1, dflt, err2)
+	}
 }
 
 // healthcheckAgainst runs the healthcheck subcommand with APP_ADDR pointing at

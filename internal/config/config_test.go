@@ -36,8 +36,8 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.IsDev() {
 		t.Error("IsDev() = true, want false")
 	}
-	if cfg.Addr != ":8120" {
-		t.Errorf("Addr = %q, want :8120", cfg.Addr)
+	if cfg.Addr != DefaultAddr || DefaultAddr != ":8120" {
+		t.Errorf("Addr = %q, DefaultAddr = %q; want both :8120", cfg.Addr, DefaultAddr)
 	}
 	if cfg.Origin != okOrigin {
 		t.Errorf("Origin = %q, want %q", cfg.Origin, okOrigin)

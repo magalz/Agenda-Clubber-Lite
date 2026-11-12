@@ -32,10 +32,6 @@ const (
 	// dbFile is the database's name inside DATA_DIR.
 	dbFile = "agenda.db"
 
-	// defaultAddr is the listen address when APP_ADDR is unset, as in
-	// internal/config.
-	defaultAddr = ":8120"
-
 	usage = `usage: agenda [command]
 
 commands:
@@ -78,11 +74,12 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout,
 var healthcheckTimeout = 3 * time.Second
 
 // healthzURL returns the URL a probe inside the container uses to reach the
-// server listening on addr (APP_ADDR, ":8120" when empty): always loopback,
-// whatever host the server binds.
+// server listening on addr (APP_ADDR, config.DefaultAddr when empty): always
+// loopback, whatever host the server binds. config.Load accepts port 0 (an
+// ephemeral port for a server) but a probe cannot dial it, so it is refused.
 func healthzURL(addr string) (string, error) {
 	if addr == "" {
-		addr = defaultAddr
+		addr = config.DefaultAddr
 	}
 	_, port, err := net.SplitHostPort(addr)
 	if err != nil {
