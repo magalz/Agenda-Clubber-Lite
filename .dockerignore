@@ -1,0 +1,32 @@
+# Keep the build context small and free of anything secret: the image needs
+# only go.mod, go.sum and the Go source (including the embedded web/ assets).
+.git
+.github
+.gitattributes
+.gitignore
+
+# Secrets and local state
+.env
+.env.*
+login-smtp
+data
+**/*.db
+**/*.db-*
+
+# Docs, deploy files and everything else the build does not read
+docs
+deploy/compose*.yml
+**/*.md
+.idea
+.vscode
+*.swp
+.DS_Store
+Thumbs.db
+
+# Build output
+bin
+dist
+*.exe
+*.test
+*.out
+coverage.*
