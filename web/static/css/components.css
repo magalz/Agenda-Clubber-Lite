@@ -229,7 +229,9 @@
   color: var(--accent-text);
 }
 
-/* ==== Wordmark ==== (the cursor is .cursor-blink from base.css) */
+/* ==== Wordmark ==== (the cursor is .cursor-blink from base.css)
+   Markup: the name and its separator share ONE span, because every direct child gets the flex gap:
+   <a class="wordmark"><span class="wordmark__mark" aria-hidden="true">◢◤</span><span>AGENDA<span class="wordmark__sep">_</span>CLUBBER</span></a> */
 .wordmark {
   display: inline-flex;
   align-items: center;
@@ -479,7 +481,7 @@
   accent-color: var(--accent);
 }
 
-/* A field plus a button on one row (search, invite code). */
+/* A field plus an adjacent control on one row: input + button (search, invite code) or input + select. */
 .input-group {
   display: flex;
   align-items: stretch;
@@ -490,8 +492,10 @@
   width: auto;
   min-width: 0;
 }
-.input-group > .btn {
+/* The other control keeps its own width; .select would otherwise inherit width:100% and starve the input. */
+.input-group > :not(.input) {
   flex: none;
+  width: auto;
 }
 
 .input--money {

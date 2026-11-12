@@ -18,7 +18,7 @@
       <main id="conteudo" class="shell__main stack stack--lg">
 
         <header class="stack">
-          <a class="wordmark" href="#conteudo"><span class="wordmark__mark" aria-hidden="true">◢◤</span> AGENDA<span class="wordmark__sep">_</span>CLUBBER<span class="cursor-blink" aria-hidden="true"></span></a>
+          <a class="wordmark" href="#conteudo"><span class="wordmark__mark" aria-hidden="true">◢◤</span><span>AGENDA<span class="wordmark__sep">_</span>CLUBBER</span><span class="cursor-blink" aria-hidden="true"></span></a>
           <div class="section-heading">
             <h1 class="section-heading__title text-glow"><span class="section-heading__prompt" aria-hidden="true">~/ </span>guia_de_estilo</h1>
             <p class="section-heading__sub">Todos os componentes de <code>components.css</code>, com seus estados. Página estática: nenhum script roda aqui, então os botões e os campos só mostram o visual.</p>
@@ -44,7 +44,7 @@
           </header>
           <div class="panel__body stack">
             <p class="muted text-sm">Wordmark em Space Mono. O cursor pisca quatro vezes e fica aceso (<code>.cursor-blink</code>, de <code>base.css</code>).</p>
-            <a class="wordmark" href="#s-marca"><span class="wordmark__mark" aria-hidden="true">◢◤</span> AGENDA<span class="wordmark__sep">_</span>CLUBBER<span class="cursor-blink" aria-hidden="true"></span></a>
+            <a class="wordmark" href="#s-marca"><span class="wordmark__mark" aria-hidden="true">◢◤</span><span>AGENDA<span class="wordmark__sep">_</span>CLUBBER</span><span class="cursor-blink" aria-hidden="true"></span></a>
           </div>
         </section>
 
@@ -144,10 +144,22 @@
             </div>
 
             <div class="field">
-              <label class="label" for="f-busca">Grupo de campo</label>
+              <label class="label" for="f-busca">Campo com botão</label>
               <div class="input-group">
                 <input class="input" id="f-busca" type="search" autocomplete="off" placeholder="buscar coletivo">
                 <button class="btn btn--outline" type="button">Buscar</button>
+              </div>
+            </div>
+
+            <div class="field">
+              <label class="label" for="f-cidade">Campo com seleção</label>
+              <div class="input-group">
+                <input class="input" id="f-cidade" type="text" autocomplete="off" placeholder="cidade">
+                <select class="select" aria-label="Estado">
+                  <option>Pernambuco</option>
+                  <option>Bahia</option>
+                  <option>Ceará</option>
+                </select>
               </div>
             </div>
 
@@ -296,13 +308,13 @@
             <p class="muted text-sm">No app, a barra do topo só aparece abaixo de 1024px, e o menu lateral vira gaveta até essa largura. Aqui os dois ficam visíveis, fora do <code>.shell</code>.</p>
             <div>
               <header class="topbar">
-                <a class="wordmark" href="#s-layout"><span class="wordmark__mark" aria-hidden="true">◢◤</span> AGENDA<span class="wordmark__sep">_</span>CLUBBER</a>
+                <a class="wordmark" href="#s-layout"><span class="wordmark__mark" aria-hidden="true">◢◤</span><span>AGENDA<span class="wordmark__sep">_</span>CLUBBER</span></a>
                 <button class="btn btn--outline btn--sm" type="button" aria-label="Abrir menu">[☰] Menu</button>
               </header>
             </div>
             <aside class="sidebar" aria-label="Menu de exemplo">
               <div class="sidebar__brand">
-                <a class="wordmark" href="#s-layout"><span class="wordmark__mark" aria-hidden="true">◢◤</span> AGENDA<span class="wordmark__sep">_</span>CLUBBER</a>
+                <a class="wordmark" href="#s-layout"><span class="wordmark__mark" aria-hidden="true">◢◤</span><span>AGENDA<span class="wordmark__sep">_</span>CLUBBER</span></a>
               </div>
               <nav aria-label="Navegação de exemplo">
                 <p class="sidebar__section-label">Agenda</p>
