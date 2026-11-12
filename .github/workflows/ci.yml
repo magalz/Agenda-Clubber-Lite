@@ -39,7 +39,33 @@ jobs:
       - name: go vet
         run: go vet ./...
 
+      # The database tests need a real MongoDB. A single-node replica set, because
+      # transactions need one; the image is the digest deploy/compose.dev.yml pins
+      # (mongo:8.0). Every wait is bounded and the step fails with the container log.
+      - name: Start MongoDB
+        run: |
+          docker run -d --name mongo -p 27017:27017 \
+            docker.io/library/mongo@sha256:d97fea17ccb8d004cd137be8dab54d70d0df11be69c9f422aefe4484c8414ab7 \
+            --replSet rs0 --bind_ip_all
+          mongosh() { docker exec mongo mongosh --quiet --eval "$1"; }
+          fail() { echo "$1"; docker logs mongo; exit 1; }
+          up=""
+          for _ in $(seq 1 60); do
+            if mongosh 'db.adminCommand({ping: 1}).ok' >/dev/null 2>&1; then up=1; break; fi
+            sleep 1
+          done
+          [ -n "$up" ] || fail "mongod did not answer ping"
+          mongosh "rs.initiate({_id: 'rs0', members: [{_id: 0, host: 'localhost:27017'}]}).ok" >/dev/null
+          primary=""
+          for _ in $(seq 1 60); do
+            if mongosh 'if (!db.hello().isWritablePrimary) quit(1)' >/dev/null 2>&1; then primary=1; break; fi
+            sleep 1
+          done
+          [ -n "$primary" ] || fail "no writable primary"
+
       - name: go test
+        env:
+          MONGO_TEST_URI: mongodb://localhost:27017/?directConnection=true
         run: go test -race -count=1 ./...
 
       - name: govulncheck

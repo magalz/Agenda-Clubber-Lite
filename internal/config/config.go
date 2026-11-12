@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/netip"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -22,7 +23,7 @@ type SMTPConfig struct {
 	Host     string
 	Port     int
 	Username string
-	Password string
+	Password string `json:"-"` // secret: kept out of encoding/json output
 	From     string
 }
 
@@ -44,15 +45,61 @@ func (s SMTPConfig) LogValue() slog.Value {
 	)
 }
 
+// MongoConfig holds the MongoDB connection settings.
+type MongoConfig struct {
+	URI string `json:"-"` // secret: it may carry credentials; kept out of encoding/json output
+	DB  string
+}
+
+// String redacts the URI so a printed Config cannot leak its credentials.
+func (m MongoConfig) String() string {
+	return fmt.Sprintf("{URI:[redacted] DB:%s}", m.DB)
+}
+
+// GoString makes %#v redact the URI as well.
+func (m MongoConfig) GoString() string { return m.String() }
+
+// LogValue keeps the URI out of slog output.
+func (m MongoConfig) LogValue() slog.Value {
+	return slog.GroupValue(slog.String("db", m.DB))
+}
+
+// mongoDBName is what MONGO_DB may hold: MongoDB itself caps a database name
+// at 63 bytes, and this keeps room for a suffix such as a test database's.
+var mongoDBName = regexp.MustCompile(`^[A-Za-z0-9_-]{1,38}$`)
+
+// LoadMongo reads and validates MONGO_URI and MONGO_DB, and no other variable:
+// a command that needs only the database (migrate, the test helper) must not
+// fail on, say, an SMTP setting it never uses. Errors name the variable and
+// never echo a value, so credentials in the URI cannot end up in a log.
+func LoadMongo(getenv func(string) string) (MongoConfig, error) {
+	uri := trimmedEnv(getenv, "MONGO_URI", "")
+	if uri == "" {
+		return MongoConfig{}, fmt.Errorf("MONGO_URI: required")
+	}
+	rest, ok := strings.CutPrefix(uri, "mongodb://")
+	if !ok {
+		rest, ok = strings.CutPrefix(uri, "mongodb+srv://")
+	}
+	if !ok || rest == "" {
+		return MongoConfig{}, fmt.Errorf("MONGO_URI: must start with mongodb:// or mongodb+srv://")
+	}
+	db := trimmedEnv(getenv, "MONGO_DB", "agenda")
+	if !mongoDBName.MatchString(db) {
+		return MongoConfig{}, fmt.Errorf("MONGO_DB: must be 1 to 38 letters, digits, _ or -")
+	}
+	return MongoConfig{URI: uri, DB: db}, nil
+}
+
 // Config is the validated service configuration.
 type Config struct {
 	Env               string // "dev" or "prod"
 	Addr              string // listen address, host:port
 	Origin            string // scheme://host[:port], no trailing slash
 	Location          *time.Location
-	DataDir           string
 	TrustedProxyCIDRs []string // validated CIDR strings
 	SMTP              SMTPConfig
+	Mongo             MongoConfig
 }
 
 // IsDev reports whether the service runs in development mode.
@@ -62,12 +109,7 @@ func (c Config) IsDev() bool { return c.Env == "dev" }
 // invalid variable ends the load; its error names the variable. Errors never
 // echo values, so a secret set in the wrong variable cannot end up in a log.
 func Load(getenv func(string) string) (Config, error) {
-	get := func(key, def string) string {
-		if v := strings.TrimSpace(getenv(key)); v != "" {
-			return v
-		}
-		return def
-	}
+	get := func(key, def string) string { return trimmedEnv(getenv, key, def) }
 	var cfg Config
 	var err error
 
@@ -91,8 +133,6 @@ func Load(getenv func(string) string) (Config, error) {
 		return Config{}, fmt.Errorf("APP_TZ: unknown IANA time zone")
 	}
 
-	cfg.DataDir = get("DATA_DIR", "./data")
-
 	for _, entry := range strings.Split(getenv("TRUSTED_PROXY_CIDRS"), ",") {
 		if entry = strings.TrimSpace(entry); entry == "" {
 			continue
@@ -111,7 +151,20 @@ func Load(getenv func(string) string) (Config, error) {
 	cfg.SMTP.Password = getenv("SMTP_PASSWORD") // verbatim: a password may carry spaces
 	cfg.SMTP.From = get("SMTP_FROM", "IgnisDev <ignisdev@magalz.space>")
 
+	if cfg.Mongo, err = LoadMongo(getenv); err != nil {
+		return Config{}, err
+	}
+
 	return cfg, nil
+}
+
+// trimmedEnv returns the value of key without surrounding spaces, or def when
+// it is empty.
+func trimmedEnv(getenv func(string) string, key, def string) string {
+	if v := strings.TrimSpace(getenv(key)); v != "" {
+		return v
+	}
+	return def
 }
 
 // parseOrigin returns raw as scheme://host[:port]: lower case, no trailing
