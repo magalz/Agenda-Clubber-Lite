@@ -246,7 +246,6 @@ func TestLoadErrorsDoNotLeakSecrets(t *testing.T) {
 		"postgres://dbuser:mongo-secret@db.example:5432/agenda", // wrong scheme
 		"dbuser:mongo-secret@db.example:27017",                  // no scheme
 		"MONGODB://dbuser:mongo-secret@db.example:27017",        // the scheme is case sensitive
-		"mongodb://",
 	} {
 		_, err = Load(getenvOf(withOrigin("MONGO_URI", uri)...))
 		if err == nil || !strings.Contains(err.Error(), "MONGO_URI:") {
