@@ -41,6 +41,12 @@
     max-width: 100%;
   }
 
+  /* The rule above is an author rule, so it beats the UA `[hidden] { display: none }`. Restore that, as Tailwind's
+     preflight does. Without the important flag, so an unlayered component `display:` rule still wins, as it does over the UA rule. */
+  [hidden]:where(:not([hidden='until-found'])) {
+    display: none;
+  }
+
   table {
     border-collapse: collapse;
   }
