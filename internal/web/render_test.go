@@ -7,7 +7,6 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/http"
-	"net/http/httptest"
 	"reflect"
 	"regexp"
 	"strconv"
@@ -15,66 +14,7 @@ import (
 	"testing"
 	"testing/fstest"
 	"time"
-
-	"github.com/gin-gonic/gin"
-
-	"github.com/magalz/agenda-clubber-lite/internal/config"
-	webfs "github.com/magalz/agenda-clubber-lite/web"
 )
-
-// renderAssets hashes a static tree with every file the base layout links.
-func renderAssets(t *testing.T) *Assets {
-	t.Helper()
-	files := []string{
-		"favicon.svg",
-		"css/tokens.css", "css/base.css", "css/components.css",
-		"js/app.js", "js/vendor/htmx-2.0.11.min.js", "js/vendor/alpine-csp-3.17.5.min.js",
-	}
-	static := fstest.MapFS{}
-	for _, name := range files {
-		static[name] = &fstest.MapFile{Data: []byte("content of " + name)}
-	}
-	assets, err := NewAssets(static)
-	if err != nil {
-		t.Fatalf("NewAssets: %v", err)
-	}
-	return assets
-}
-
-func fortaleza(t *testing.T) *time.Location {
-	t.Helper()
-	loc, err := time.LoadLocation("America/Fortaleza")
-	if err != nil {
-		t.Fatalf("LoadLocation: %v", err)
-	}
-	return loc
-}
-
-// withFiles adds text files to a MapFS.
-func withFiles(m fstest.MapFS, files map[string]string) fstest.MapFS {
-	for name, data := range files {
-		m[name] = &fstest.MapFile{Data: []byte(data)}
-	}
-	return m
-}
-
-// realTemplates is a template tree with the shipped base layout and footer.
-func realTemplates(t *testing.T, extra map[string]string) fstest.MapFS {
-	t.Helper()
-	sub, err := fs.Sub(webfs.Templates, "templates")
-	if err != nil {
-		t.Fatalf("fs.Sub: %v", err)
-	}
-	m := fstest.MapFS{}
-	for _, name := range []string{"layouts/base.html", "partials/footer.html"} {
-		data, err := fs.ReadFile(sub, name)
-		if err != nil {
-			t.Fatalf("shipped template %s: %v", name, err)
-		}
-		m[name] = &fstest.MapFile{Data: data}
-	}
-	return withFiles(m, extra)
-}
 
 // miniTemplates is a tiny tree that does not depend on the shipped layout.
 func miniTemplates(extra map[string]string) fstest.MapFS {
@@ -86,54 +26,10 @@ func miniTemplates(extra map[string]string) fstest.MapFS {
 	})
 }
 
-func newTestRenderer(t *testing.T, fsys fs.FS) (*Renderer, *bytes.Buffer) {
-	t.Helper()
-	logs := &bytes.Buffer{}
-	r, err := NewRenderer(fsys, renderAssets(t), fortaleza(t), slog.New(slog.NewJSONHandler(logs, nil)))
-	if err != nil {
-		t.Fatalf("NewRenderer: %v", err)
-	}
-	return r, logs
-}
-
-func newCtx() (*gin.Context, *httptest.ResponseRecorder) {
-	rec := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(rec)
-	c.Request = httptest.NewRequest(http.MethodGet, "/", nil)
-	return c, rec
-}
-
-func renderPage(t *testing.T, r *Renderer, page string, data PageData) *httptest.ResponseRecorder {
-	t.Helper()
-	c, rec := newCtx()
-	r.Page(c, http.StatusOK, page, data)
-	return rec
-}
-
-func panics(f func()) (panicked bool) {
-	defer func() { panicked = recover() != nil }()
-	f()
-	return false
-}
-
-// inOrder fails unless every needle appears in body, in the given order.
-func inOrder(t *testing.T, body string, needles ...string) {
-	t.Helper()
-	pos := 0
-	for _, n := range needles {
-		i := strings.Index(body[pos:], n)
-		if i < 0 {
-			t.Errorf("%q not found (in order) in:\n%s", n, body)
-			return
-		}
-		pos += i + len(n)
-	}
-}
-
 const basePage = `{{define "content"}}<h1>{{.Title}}</h1><p>{{.Data}}</p>{{end}}`
 
 func TestPageRendersInsideBaseLayout(t *testing.T) {
-	r, _ := newTestRenderer(t, realTemplates(t, map[string]string{"pages/base/x.html": basePage}))
+	r, _ := newTestRenderer(t, shippedTemplates(t, nil, map[string]string{"pages/base/x.html": basePage}))
 	rec := renderPage(t, r, "base/x", PageData{Title: "Calendário", Data: "olá"})
 	body := rec.Body.String()
 
@@ -186,7 +82,7 @@ func TestPageRendersInsideBaseLayout(t *testing.T) {
 }
 
 func TestPageTitleWithoutTitleAndEscaping(t *testing.T) {
-	r, _ := newTestRenderer(t, realTemplates(t, map[string]string{"pages/base/x.html": basePage}))
+	r, _ := newTestRenderer(t, shippedTemplates(t, nil, map[string]string{"pages/base/x.html": basePage}))
 
 	if body := renderPage(t, r, "base/x", PageData{}).Body.String(); !strings.Contains(body, `<title>AGENDA CLUBBER</title>`) {
 		t.Errorf("empty Title should give a bare brand title:\n%s", body)
@@ -198,7 +94,7 @@ func TestPageTitleWithoutTitleAndEscaping(t *testing.T) {
 }
 
 func TestHTMXConfigMetaIsExact(t *testing.T) {
-	r, _ := newTestRenderer(t, realTemplates(t, map[string]string{"pages/base/x.html": basePage}))
+	r, _ := newTestRenderer(t, shippedTemplates(t, nil, map[string]string{"pages/base/x.html": basePage}))
 	body := renderPage(t, r, "base/x", PageData{}).Body.String()
 
 	const want = `<meta name="htmx-config" content='{"allowEval":false,"allowScriptTags":false,"includeIndicatorStyles":false,"selfRequestsOnly":true,"historyCacheSize":0,"refreshOnHistoryMiss":true}'>`
@@ -220,7 +116,7 @@ func TestHTMXConfigMetaIsExact(t *testing.T) {
 }
 
 func TestFooter(t *testing.T) {
-	r, _ := newTestRenderer(t, realTemplates(t, map[string]string{"pages/base/x.html": basePage}))
+	r, _ := newTestRenderer(t, shippedTemplates(t, nil, map[string]string{"pages/base/x.html": basePage}))
 	body := renderPage(t, r, "base/x", PageData{}).Body.String()
 
 	year := strconv.Itoa(time.Now().In(fortaleza(t)).Year())
@@ -235,7 +131,7 @@ func TestFooter(t *testing.T) {
 }
 
 func TestYearUsesTheConfiguredZone(t *testing.T) {
-	r, _ := newTestRenderer(t, realTemplates(t, map[string]string{"pages/base/x.html": basePage}))
+	r, _ := newTestRenderer(t, shippedTemplates(t, nil, map[string]string{"pages/base/x.html": basePage}))
 	// 01:00 UTC on 1 January is still 31 December at 22:00 in Fortaleza (UTC-3).
 	r.now = func() time.Time { return time.Date(2027, 1, 1, 1, 0, 0, 0, time.UTC) }
 
@@ -246,7 +142,7 @@ func TestYearUsesTheConfiguredZone(t *testing.T) {
 }
 
 func TestPageHeadExtra(t *testing.T) {
-	r, _ := newTestRenderer(t, realTemplates(t, map[string]string{
+	r, _ := newTestRenderer(t, shippedTemplates(t, nil, map[string]string{
 		"pages/base/x.html": `{{define "head-extra"}}<meta name="robots" content="noindex">{{end}}` + basePage,
 		"pages/base/y.html": basePage,
 	}))
@@ -261,7 +157,7 @@ func TestPageHeadExtra(t *testing.T) {
 const demoLayout = `{{define "shell"}}<div class="demo-shell"><nav>nav:{{.Nav}}</nav><main id="conteudo">{{template "content" .}}</main>{{template "footer" .}}</div>{{end}}`
 
 func TestCustomLayoutOverridesShell(t *testing.T) {
-	r, _ := newTestRenderer(t, realTemplates(t, map[string]string{
+	r, _ := newTestRenderer(t, shippedTemplates(t, nil, map[string]string{
 		"layouts/demo.html": demoLayout,
 		"pages/demo/y.html": `{{define "content"}}<p>demo {{.Title}}</p>{{end}}`,
 		"pages/base/x.html": basePage,
@@ -289,7 +185,7 @@ func TestCustomLayoutOverridesShell(t *testing.T) {
 }
 
 func TestSamePageNameInTwoLayouts(t *testing.T) {
-	r, _ := newTestRenderer(t, realTemplates(t, map[string]string{
+	r, _ := newTestRenderer(t, shippedTemplates(t, nil, map[string]string{
 		"layouts/demo.html":    demoLayout,
 		"pages/base/same.html": `{{define "content"}}one{{end}}`,
 		"pages/demo/same.html": `{{define "content"}}two{{end}}`,
@@ -391,7 +287,7 @@ func TestPartial(t *testing.T) {
 }
 
 func TestPartialRendersTheShippedFooter(t *testing.T) {
-	r, _ := newTestRenderer(t, realTemplates(t, nil))
+	r, _ := newTestRenderer(t, shippedTemplates(t, nil, nil))
 	c, rec := newCtx()
 	r.Partial(c, http.StatusOK, "footer", nil)
 
@@ -425,8 +321,12 @@ func TestExecutionErrorIs500(t *testing.T) {
 	if logged["page"] != "base/boom" {
 		t.Errorf("logged page = %v, want base/boom", logged["page"])
 	}
-	if e, _ := logged["error"].(string); !strings.Contains(e, "Name") {
-		t.Errorf("logged error = %q, want the template error", e)
+	// "err", as in cmd/agenda: one key for errors across the service's logs.
+	if e, _ := logged["err"].(string); !strings.Contains(e, "Name") {
+		t.Errorf("logged err = %q, want the template error", e)
+	}
+	if _, ok := logged["error"]; ok {
+		t.Errorf("render error is also logged under \"error\": %v", logged)
 	}
 
 	c, prec := newCtx()
@@ -438,15 +338,11 @@ func TestExecutionErrorIs500(t *testing.T) {
 
 func TestUnknownNamesPanic(t *testing.T) {
 	r, _ := newTestRenderer(t, miniTemplates(nil))
-	if !panics(func() { renderPage(t, r, "base/missing", PageData{}) }) {
-		t.Error("Page with an unknown page name did not panic")
-	}
-	if !panics(func() {
+	mustPanic(t, `unknown page "base/missing"`, func() { renderPage(t, r, "base/missing", PageData{}) })
+	mustPanic(t, `unknown partial "missing"`, func() {
 		c, _ := newCtx()
 		r.Partial(c, http.StatusOK, "missing", nil)
-	}) {
-		t.Error("Partial with an unknown name did not panic")
-	}
+	})
 }
 
 func TestDict(t *testing.T) {
@@ -477,37 +373,12 @@ func TestDictErrorInTemplateIs500(t *testing.T) {
 	}
 }
 
-var (
-	styleAttr   = regexp.MustCompile(`(?i)\sstyle\s*=`)
-	handlerAttr = regexp.MustCompile(`(?i)\son[a-z]+\s*=`)
-	scriptTag   = regexp.MustCompile(`(?i)<script\b[^>]*>`)
-	srcAttr     = regexp.MustCompile(`(?i)\ssrc\s*=`)
-)
-
-// cspViolations lists what the CSP would block in rendered HTML: style
-// attributes, event handler attributes and inline scripts.
-func cspViolations(body string) []string {
-	var found []string
-	if styleAttr.MatchString(body) {
-		found = append(found, "style attribute")
-	}
-	if m := handlerAttr.FindString(body); m != "" {
-		found = append(found, "event handler attribute "+strings.TrimSpace(m))
-	}
-	for _, tag := range scriptTag.FindAllString(body, -1) {
-		if !srcAttr.MatchString(tag) {
-			found = append(found, "inline script "+tag)
-		}
-	}
-	return found
-}
-
 // The other tests hash a hand-written file list. This one uses the App's own
 // Assets, so a misspelled asset name in the shipped base layout, or a script
 // that is not in web/static, fails here (as a 500 on every page in production).
 func TestShippedBaseRendersWithTheEmbeddedAssets(t *testing.T) {
-	app := NewApp(config.Config{Env: "prod", Location: fortaleza(t)}, slog.New(slog.NewJSONHandler(&bytes.Buffer{}, nil)))
-	templates := realTemplates(t, map[string]string{"pages/base/x.html": basePage})
+	app := newTestApp(t)
+	templates := shippedTemplates(t, nil, map[string]string{"pages/base/x.html": basePage})
 	logs := &bytes.Buffer{}
 	r, err := NewRenderer(templates, app.Assets, fortaleza(t), slog.New(slog.NewJSONHandler(logs, nil)))
 	if err != nil {
@@ -533,7 +404,7 @@ func TestShippedBaseRendersWithTheEmbeddedAssets(t *testing.T) {
 }
 
 func TestRenderedHTMLIsCSPSafe(t *testing.T) {
-	r, _ := newTestRenderer(t, realTemplates(t, map[string]string{
+	r, _ := newTestRenderer(t, shippedTemplates(t, nil, map[string]string{
 		"layouts/demo.html": demoLayout,
 		"pages/base/x.html": basePage,
 		"pages/demo/y.html": basePage,

@@ -30,6 +30,7 @@
             <a class="btn btn--ghost btn--sm" href="#s-numeros">Números e senha</a>
             <a class="btn btn--ghost btn--sm" href="#s-blocos">Blocos</a>
             <a class="btn btn--ghost btn--sm" href="#s-layout">Menu</a>
+            <a class="btn btn--ghost btn--sm" href="#s-paginas">Páginas</a>
             <a class="btn btn--ghost btn--sm" href="#s-sheet">Sheet</a>
             <a class="btn btn--ghost btn--sm" href="#s-rodape">Rodapé</a>
           </nav>
@@ -294,6 +295,29 @@
                 <p class="section-heading__sub">Todos os eventos, inclusive os que já passaram.</p>
               </div>
             </div>
+
+            <div class="stack stack--sm">
+              <h3 class="uppercase-label muted">Texto</h3>
+              <p class="text-sm">Texto pequeno (<code>text-sm</code>): a descrição de um evento.</p>
+              <p class="text-xs muted">Texto bem pequeno (<code>text-xs</code>): nome de quem está logado, avisos de rodapé.</p>
+            </div>
+
+            <div class="stack stack--sm">
+              <h3 class="uppercase-label muted">Efeitos (base.css)</h3>
+              <p class="muted text-sm"><code>.neon-border</code> põe a moldura neon em qualquer bloco, e o <code>.panel</code> já vem com ela. <code>.scanlines</code> cobre o bloco com as linhas de um monitor CRT e some quando o sistema pede menos movimento.</p>
+              <div class="neon-border">
+                <div class="panel__body">
+                  <p class="text-sm">Bloco com <code>neon-border</code>.</p>
+                </div>
+              </div>
+              <div class="scanlines">
+                <div class="panel__body cluster">
+                  <button class="btn btn--solid btn--sm" type="button">Entrar</button>
+                  <span class="badge badge--accent">Ao vivo</span>
+                  <p class="text-sm">Bloco com <code>scanlines</code>.</p>
+                </div>
+              </div>
+            </div>
           </div>
         </section>
 
@@ -328,6 +352,70 @@
                 <button class="nav-item nav-item--logout" type="button">[→] Sair</button>
               </div>
             </aside>
+          </div>
+        </section>
+
+        <section class="panel panel--plain" aria-labelledby="s-paginas">
+          <header class="panel__header">
+            <div class="cluster">
+              <span class="panel__dots" aria-hidden="true"><span></span><span></span><span></span></span>
+              <h2 class="panel__title" id="s-paginas">Páginas</h2>
+            </div>
+          </header>
+          <div class="panel__body stack">
+            <p class="muted text-sm">Os dois layouts do app. Cada um ocupa a altura inteira da tela, por isso o exemplo começa fechado.</p>
+
+            <div class="stack stack--sm">
+              <p class="muted text-sm"><code>.shell</code> junta a barra do topo, o menu lateral e o conteúdo (<code>.shell__main</code>). Abaixo de 1024px o menu é uma gaveta: o app põe <code>.is-open</code> no <code>.sidebar</code> para abri-la, e o <code>.sidebar-backdrop</code>, logo depois dele, escurece a tela enquanto ela está aberta. A partir de 1024px o menu vira uma coluna fixa e a barra do topo some. No exemplo a gaveta fica fechada: o fundo escuro cobriria esta página e nenhum script roda para fechá-la.</p>
+              <details>
+                <summary class="btn btn--outline btn--sm">Mostrar o layout do app</summary>
+                <div class="shell">
+                  <header class="topbar">
+                    <a class="wordmark" href="#s-paginas"><span class="wordmark__mark" aria-hidden="true">◢◤</span><span>AGENDA<span class="wordmark__sep">_</span>CLUBBER</span></a>
+                    <button class="btn btn--ghost btn--sm" type="button">[≡] menu</button>
+                  </header>
+                  <aside class="sidebar" aria-label="Menu do layout de exemplo">
+                    <div class="sidebar__brand">
+                      <a class="wordmark" href="#s-paginas"><span class="wordmark__mark" aria-hidden="true">◢◤</span><span>AGENDA<span class="wordmark__sep">_</span>CLUBBER</span></a>
+                    </div>
+                    <nav aria-label="Navegação do layout de exemplo">
+                      <p class="sidebar__section-label">Agenda</p>
+                      <a class="nav-item" href="#s-paginas" aria-current="page">Calendário</a>
+                      <a class="nav-item" href="#s-paginas">Meus eventos</a>
+                    </nav>
+                  </aside>
+                  <div class="sidebar-backdrop"></div>
+                  <div class="shell__main stack">
+                    <p class="text-sm">Conteúdo da página.</p>
+                  </div>
+                </div>
+              </details>
+            </div>
+
+            <div class="stack stack--sm">
+              <p class="muted text-sm"><code>.auth</code> centra a marca e um painel só, sem menu, para entrar e criar conta. O app também põe <code>.crt-flicker</code> nele, então a tela pisca uma vez ao abrir.</p>
+              <details>
+                <summary class="btn btn--outline btn--sm">Mostrar o layout de login</summary>
+                <div class="auth crt-flicker">
+                  <a class="wordmark" href="#s-paginas"><span class="wordmark__mark" aria-hidden="true">◢◤</span><span>AGENDA<span class="wordmark__sep">_</span>CLUBBER</span></a>
+                  <div class="panel">
+                    <header class="panel__header">
+                      <div class="cluster">
+                        <span class="panel__dots" aria-hidden="true"><span></span><span></span><span></span></span>
+                        <h3 class="panel__title">Entrar</h3>
+                      </div>
+                    </header>
+                    <div class="panel__body stack">
+                      <div class="field">
+                        <label class="label" for="f-login-email">E-mail</label>
+                        <input class="input" id="f-login-email" type="email" autocomplete="off">
+                      </div>
+                      <button class="btn btn--solid" type="button">Entrar</button>
+                    </div>
+                  </div>
+                </div>
+              </details>
+            </div>
           </div>
         </section>
 

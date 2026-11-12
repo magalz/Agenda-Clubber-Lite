@@ -12,6 +12,11 @@ import (
 	"time"
 )
 
+// DefaultAddr is the listen address when APP_ADDR is unset. The healthcheck
+// subcommand, which reads APP_ADDR without loading the full Config, falls back
+// to it too.
+const DefaultAddr = ":8120"
+
 // SMTPConfig holds the outgoing mail settings.
 type SMTPConfig struct {
 	Host     string
@@ -71,7 +76,7 @@ func Load(getenv func(string) string) (Config, error) {
 		return Config{}, fmt.Errorf(`APP_ENV: must be "dev" or "prod"`)
 	}
 
-	cfg.Addr = get("APP_ADDR", ":8120")
+	cfg.Addr = get("APP_ADDR", DefaultAddr)
 	if _, port, err := net.SplitHostPort(cfg.Addr); err != nil {
 		return Config{}, fmt.Errorf("APP_ADDR: must be host:port")
 	} else if _, err := strconv.ParseUint(port, 10, 16); err != nil {

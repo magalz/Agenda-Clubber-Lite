@@ -8,7 +8,6 @@ import (
 	"regexp"
 	"strings"
 	"testing"
-	"testing/fstest"
 
 	"github.com/magalz/agenda-clubber-lite/internal/config"
 	webfs "github.com/magalz/agenda-clubber-lite/web"
@@ -22,11 +21,6 @@ var navItems = []struct{ key, label, href string }{
 	{"coletivos", "Meus Coletivos", "/coletivos"},
 	{"perfil", "Editar Perfil", "/perfil"},
 	{"admin", "Admin", "/admin"},
-}
-
-func newTestApp(t *testing.T) *App {
-	t.Helper()
-	return NewApp(config.Config{Env: "prod", Location: fortaleza(t)}, slog.New(slog.NewJSONHandler(&bytes.Buffer{}, nil)))
 }
 
 // renderHome renders the shipped app/home page through the App's renderer.
@@ -277,32 +271,6 @@ func TestAlpineAttributesNameRegisteredMembers(t *testing.T) {
 	}
 }
 
-// shippedTemplates copies the shipped base layout, the named layouts and every
-// partial into a tree of its own, plus the extra files.
-func shippedTemplates(t *testing.T, layouts []string, extra map[string]string) fstest.MapFS {
-	t.Helper()
-	sub, err := fs.Sub(webfs.Templates, "templates")
-	if err != nil {
-		t.Fatalf("fs.Sub: %v", err)
-	}
-	names, err := fs.Glob(sub, "partials/*.html")
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, l := range append([]string{"base"}, layouts...) {
-		names = append(names, "layouts/"+l+".html")
-	}
-	m := fstest.MapFS{}
-	for _, name := range names {
-		data, err := fs.ReadFile(sub, name)
-		if err != nil {
-			t.Fatalf("shipped template %s: %v", name, err)
-		}
-		m[name] = &fstest.MapFile{Data: data}
-	}
-	return withFiles(m, extra)
-}
-
 func TestAuthLayout(t *testing.T) {
 	r, logs := newTestRenderer(t, shippedTemplates(t, []string{"auth"}, map[string]string{
 		"pages/auth/x.html": `{{define "content"}}<p>formulário de teste</p>{{end}}`,
@@ -320,7 +288,7 @@ func TestAuthLayout(t *testing.T) {
 		t.Errorf("%d <main id=\"conteudo\">, want exactly 1", n)
 	}
 	inOrder(t, body,
-		`<main id="conteudo" class="auth">`,
+		`<main id="conteudo" class="auth crt-flicker">`, // the one-shot CRT flicker on a fresh screen
 		`<a class="wordmark" href="/">`,
 		`<div class="panel">`,
 		`<span class="panel__dots" aria-hidden="true"><span></span><span></span><span></span></span>`,

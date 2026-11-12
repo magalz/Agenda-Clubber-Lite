@@ -4,9 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
-	"io"
 	"io/fs"
-	"log/slog"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -16,7 +14,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/magalz/agenda-clubber-lite/internal/config"
 	webfs "github.com/magalz/agenda-clubber-lite/web"
 )
 
@@ -68,21 +65,6 @@ func newFixtureAssets(t *testing.T) *Assets {
 func hash10(data []byte) string {
 	sum := sha256.Sum256(data)
 	return hex.EncodeToString(sum[:])[:10]
-}
-
-func mustPanic(t *testing.T, want string, f func()) {
-	t.Helper()
-	defer func() {
-		t.Helper()
-		v := recover()
-		if v == nil {
-			t.Fatal("no panic")
-		}
-		if msg, _ := v.(string); !strings.Contains(msg, want) {
-			t.Errorf("panic = %v, want it to mention %q", v, want)
-		}
-	}()
-	f()
 }
 
 func TestAssetsURL(t *testing.T) {
@@ -299,7 +281,7 @@ func TestStaticRoutesAreGetAndHeadOnly(t *testing.T) {
 // TestEmbeddedStatic serves the real embedded tree through the application
 // router, so it also covers the wiring in NewApp and Router.
 func TestEmbeddedStatic(t *testing.T) {
-	app := NewApp(config.Config{Env: "prod", Location: fortaleza(t)}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	app := newTestApp(t)
 	r := app.Router()
 
 	tests := []struct{ name, contentType string }{

@@ -197,10 +197,6 @@ input:is([type='date'], [type='datetime-local'], [type='time'], [type='month'], 
   0%, 49% { opacity: 1; }
   50%, 100% { opacity: 0; }
 }
-@keyframes scan {
-  0% { transform: translateY(-100%); }
-  100% { transform: translateY(100vh); }
-}
 @keyframes flicker {
   0%, 100% { opacity: 1; }
   92% { opacity: 1; }
@@ -215,13 +211,6 @@ input:is([type='date'], [type='datetime-local'], [type='time'], [type='month'], 
 /* Side panel (event sheet): slides in from the right edge. */
 @keyframes sheet-in {
   from { transform: translateX(2rem); opacity: 0; }
-}
-@keyframes sheet-fade {
-  from { opacity: 0; }
-}
-/* Mobile sidebar drawer. */
-@keyframes slide-in-left {
-  from { transform: translateX(-100%); }
 }
 
 /* Stagger: set --i (0, 1, 2, ...) on each element from JS through the CSSOM (no inline style attribute under the CSP). */
