@@ -41,7 +41,7 @@ web/static/            css/, js/ (app.js + vendor/), fonts/, favicon.svg
 deploy/                Containerfile, compose.dev.yml
 ```
 
-Dependency rule: business code (`internal/auth`, `internal/approvals`, `internal/catalog`, events, `internal/web`) imports only `internal/domain`, never a database driver or `internal/store/mongostore`. Only `cmd/agenda` imports the backend and wires it in. Switching databases means implementing the `internal/domain` interfaces until `internal/store/storetest` passes.
+Dependency rule: for data access, business code (accounts, approvals, events, `internal/web`) uses only `internal/domain`, never a database driver or `internal/store/mongostore`. Only `cmd/agenda` imports the backend and wires it in. Switching databases means implementing the `internal/domain` interfaces until `internal/store/storetest` passes.
 
 ## Configuration (environment)
 
@@ -51,7 +51,7 @@ Dependency rule: business code (`internal/auth`, `internal/approvals`, `internal
 | `APP_ADDR` | `:8120` | listen address |
 | `APP_ORIGIN` | (required) | e.g. `https://agenda.magalz.space`; used for the Origin check and absolute links in emails |
 | `APP_TZ` | `America/Fortaleza` | IANA zone; `time/tzdata` is embedded |
-| `MONGO_URI` | (required) | secret (it may carry credentials; never printed or logged). `mongodb://` or `mongodb+srv://`, a single-node replica set, and it must carry `directConnection=true` |
+| `MONGO_URI` | (required) | secret (it may carry credentials; never printed or logged). `mongodb://` only (the driver refuses `directConnection` with `mongodb+srv://`), a single-node replica set, and it must carry `directConnection=true` (checked at startup) |
 | `MONGO_DB` | `agenda` | database name: 1 to 38 letters, digits, `_` or `-` |
 | `TRUSTED_PROXY_CIDRS` | empty | comma-separated CIDRs whose `CF-Connecting-IP` header is trusted |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM` | | SMTP2GO in prod (587, STARTTLS mandatory); Mailpit in dev |

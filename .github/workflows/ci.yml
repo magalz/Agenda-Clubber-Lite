@@ -55,7 +55,7 @@ jobs:
             sleep 1
           done
           [ -n "$up" ] || fail "mongod did not answer ping"
-          mongosh "rs.initiate({_id: 'rs0', members: [{_id: 0, host: 'localhost:27017'}]}).ok" >/dev/null
+          mongosh "rs.initiate({_id: 'rs0', members: [{_id: 0, host: 'localhost:27017'}]}).ok" >/dev/null || fail "rs.initiate failed"
           primary=""
           for _ in $(seq 1 60); do
             if mongosh 'if (!db.hello().isWritablePrimary) quit(1)' >/dev/null 2>&1; then primary=1; break; fi
