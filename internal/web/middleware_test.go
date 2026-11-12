@@ -47,6 +47,13 @@ func do(h http.Handler, method, target string, body io.Reader, mod ...func(*http
 	return rec
 }
 
+// chunked makes a request look like a chunked upload: no declared length, so
+// limitBody cannot reject it up front.
+func chunked(req *http.Request) {
+	req.ContentLength = -1
+	req.TransferEncoding = []string{"chunked"}
+}
+
 func TestContentSecurityPolicyConstant(t *testing.T) {
 	if ContentSecurityPolicy != wantCSP {
 		t.Errorf("ContentSecurityPolicy = %q, want %q", ContentSecurityPolicy, wantCSP)
@@ -140,22 +147,14 @@ func TestLimitBody(t *testing.T) {
 	})
 
 	t.Run("chunked body over the cap fails the read", func(t *testing.T) {
-		unknownLength := func(req *http.Request) {
-			req.ContentLength = -1
-			req.TransferEncoding = []string{"chunked"}
-		}
-		rec := do(newBodyRouter(t), http.MethodPost, "/probe", strings.NewReader(strings.Repeat("x", 2*maxBodyBytes)), unknownLength)
+		rec := do(newBodyRouter(t), http.MethodPost, "/probe", strings.NewReader(strings.Repeat("x", 2*maxBodyBytes)), chunked)
 		if want := fmt.Sprintf("max-bytes-error limit=%d", maxBodyBytes); rec.Code != http.StatusOK || rec.Body.String() != want {
 			t.Errorf("got %d %q, want 200 %q", rec.Code, rec.Body.String(), want)
 		}
 	})
 
 	t.Run("chunked body within the cap is read in full", func(t *testing.T) {
-		unknownLength := func(req *http.Request) {
-			req.ContentLength = -1
-			req.TransferEncoding = []string{"chunked"}
-		}
-		rec := do(newBodyRouter(t), http.MethodPut, "/probe", strings.NewReader(strings.Repeat("x", 100)), unknownLength)
+		rec := do(newBodyRouter(t), http.MethodPut, "/probe", strings.NewReader(strings.Repeat("x", 100)), chunked)
 		if rec.Code != http.StatusOK || rec.Body.String() != "read=100" {
 			t.Errorf("got %d %q, want 200 read=100", rec.Code, rec.Body.String())
 		}
