@@ -872,6 +872,9 @@ body:has(dialog.sheet:modal) {
     flex-direction: row;
     align-items: center;
     justify-content: space-between;
+  }
+  /* .footer's padding shorthand comes after .container's, so restate the wider side padding for .footer.container. */
+  .footer.container {
     padding-inline: var(--space-6);
   }
 }
