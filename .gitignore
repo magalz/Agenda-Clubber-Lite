@@ -25,3 +25,6 @@ coverage.*
 *.swp
 .DS_Store
 Thumbs.db
+
+# Local tool state (Memtrace query audit)
+.memdb/
