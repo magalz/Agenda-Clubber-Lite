@@ -143,7 +143,7 @@ func (r *Renderer) Partial(c *gin.Context, status int, name string, data any) {
 func (r *Renderer) write(c *gin.Context, status int, set *template.Template, tmpl, kind, name string, data any) {
 	var buf bytes.Buffer
 	if err := set.ExecuteTemplate(&buf, tmpl, data); err != nil {
-		r.log.Error("render failed", kind, name, "error", err)
+		r.log.Error("render failed", kind, name, "err", err)
 		c.String(http.StatusInternalServerError, "erro interno")
 		return
 	}
