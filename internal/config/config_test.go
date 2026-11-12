@@ -311,7 +311,11 @@ var mongoInvalid = []struct {
 	{"uri postgres scheme", []string{"MONGO_URI", "postgres://localhost:5432/agenda"}, "MONGO_URI"},
 	{"uri upper case scheme", []string{"MONGO_URI", "MONGODB://localhost:27017"}, "MONGO_URI"},
 	{"uri scheme only", []string{"MONGO_URI", "mongodb://"}, "MONGO_URI"},
-	{"uri srv scheme only", []string{"MONGO_URI", "mongodb+srv://"}, "MONGO_URI"},
+	// The Go driver refuses directConnection with an SRV URI, and every URI must carry it.
+	{"uri srv scheme", []string{"MONGO_URI", "mongodb+srv://cluster.example/?directConnection=true"}, "MONGO_URI"},
+	{"uri without directConnection", []string{"MONGO_URI", "mongodb://localhost:27017/"}, "MONGO_URI"},
+	{"uri directConnection false", []string{"MONGO_URI", "mongodb://localhost:27017/?directConnection=false"}, "MONGO_URI"},
+	{"uri directConnection in path", []string{"MONGO_URI", "mongodb://localhost:27017/directConnection=true"}, "MONGO_URI"},
 	{"db with space", []string{"MONGO_URI", okMongo, "MONGO_DB", "my db"}, "MONGO_DB"},
 	{"db with dot", []string{"MONGO_URI", okMongo, "MONGO_DB", "my.db"}, "MONGO_DB"},
 	{"db with slash", []string{"MONGO_URI", okMongo, "MONGO_DB", "a/b"}, "MONGO_DB"},
@@ -341,7 +345,7 @@ func TestLoadMongoValid(t *testing.T) {
 	}{
 		{"db defaults to agenda", []string{"MONGO_URI", okMongo}, MongoConfig{URI: okMongo, DB: "agenda"}},
 		{"blank db defaults to agenda", []string{"MONGO_URI", okMongo, "MONGO_DB", "  "}, MongoConfig{URI: okMongo, DB: "agenda"}},
-		{"srv scheme", []string{"MONGO_URI", "mongodb+srv://cluster.example/?retryWrites=true"}, MongoConfig{URI: "mongodb+srv://cluster.example/?retryWrites=true", DB: "agenda"}},
+		{"directConnection among other options, any key case", []string{"MONGO_URI", "mongodb://db:27017/?retryWrites=true&DirectConnection=true"}, MongoConfig{URI: "mongodb://db:27017/?retryWrites=true&DirectConnection=true", DB: "agenda"}},
 		{"values are trimmed", []string{"MONGO_URI", "  " + okMongo + "  ", "MONGO_DB", " agenda_test "}, MongoConfig{URI: okMongo, DB: "agenda_test"}},
 		{"db letters digits underscore hyphen", []string{"MONGO_URI", okMongo, "MONGO_DB", "Agenda_2-test"}, MongoConfig{URI: okMongo, DB: "Agenda_2-test"}},
 		{"db one character", []string{"MONGO_URI", okMongo, "MONGO_DB", "a"}, MongoConfig{URI: okMongo, DB: "a"}},
