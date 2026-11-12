@@ -1,0 +1,889 @@
+/* Components, ported from CircuitoNE (primitives, form, AppShell, EventSheet). Needs tokens.css and base.css loaded first.
+   Plain CSS, no build step. Colors only through the variables in tokens.css.
+   Breakpoints are literals (variables do not work in media queries): 640px, 768px, 1024px, mobile first.
+   Square corners everywhere, except the three panel dots. Live examples of every class: docs/styleguide.html. */
+
+/* ==== Layout utilities ==== */
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+.stack--sm {
+  gap: var(--space-2);
+}
+.stack--lg {
+  gap: var(--space-6);
+}
+
+.cluster {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.row-between {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.container {
+  width: 100%;
+  max-width: var(--w-page);
+  margin-inline: auto;
+  padding-inline: var(--space-4);
+}
+@media (min-width: 640px) {
+  .container {
+    padding-inline: var(--space-6);
+  }
+}
+
+.muted {
+  color: var(--color-muted);
+}
+.text-xs {
+  font-size: var(--text-xs);
+  line-height: var(--leading-xs);
+}
+.text-sm {
+  font-size: var(--text-sm);
+  line-height: var(--leading-sm);
+}
+.uppercase-label {
+  font-size: var(--text-xs);
+  line-height: var(--leading-xs);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+}
+
+/* ==== App shell ====
+   Markup the layout template follows (the drawer rules below hang on it):
+     <div class="shell">
+       <header class="topbar">...</header>            mobile only, hidden from 1024px
+       <aside class="sidebar" id="...">...</aside>    toggle .is-open to open the drawer
+       <div class="sidebar-backdrop"></div>           immediately after .sidebar, shown while it is open
+       <main class="shell__main">...</main>
+     </div>
+   From 1024px the sidebar is a sticky column; below it, an off-canvas drawer. */
+.shell {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  min-height: 100dvh;
+}
+@media (min-width: 1024px) {
+  .shell {
+    grid-template-columns: var(--w-sidebar) minmax(0, 1fr);
+  }
+}
+
+.shell__main {
+  min-width: 0;
+  padding: var(--space-4);
+}
+@media (min-width: 768px) {
+  .shell__main {
+    padding: var(--space-8);
+  }
+}
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-header);
+  display: flex;
+  flex-wrap: wrap; /* at 320 px the button drops to a second line instead of overflowing */
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  border-bottom: 1px solid var(--color-line);
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+}
+.topbar > .btn {
+  white-space: nowrap;
+}
+@media (min-width: 1024px) {
+  .shell .topbar {
+    display: none;
+  }
+}
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  width: 100%;
+  max-width: var(--w-sidebar);
+  padding-block: var(--space-4);
+  border-right: 1px solid var(--color-line);
+  background: var(--color-bg-elev);
+  overflow-y: auto;
+}
+.sidebar__brand {
+  padding: 0 var(--space-4) var(--space-2);
+}
+.sidebar__section-label {
+  padding: var(--space-3) var(--space-4) var(--space-1);
+  font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-section);
+  text-transform: uppercase;
+  color: var(--color-muted);
+}
+.sidebar__footer {
+  margin-top: auto;
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--color-line);
+}
+
+/* Closed drawer: visibility hides it from the tab order and from screen readers, not only from the screen. */
+@media (max-width: 1023.98px) {
+  /* The drawer is fixed, so topbar and main are the only rows: without this the spare height of a short page is split between them. */
+  .shell {
+    grid-template-rows: auto 1fr;
+  }
+  .shell .sidebar {
+    position: fixed;
+    inset: 0 auto 0 0;
+    z-index: var(--z-sidebar);
+    width: var(--w-sidebar);
+    max-width: 100%;
+    transform: translateX(-100%);
+    visibility: hidden;
+  }
+  .shell .sidebar.is-open {
+    transform: none;
+    visibility: visible;
+  }
+  .shell .sidebar.is-open + .sidebar-backdrop {
+    display: block;
+  }
+}
+@media (max-width: 1023.98px) and (prefers-reduced-motion: no-preference) {
+  .shell .sidebar {
+    transition:
+      transform var(--dur-sheet) ease-out,
+      visibility 0s linear var(--dur-sheet);
+  }
+  .shell .sidebar.is-open {
+    transition:
+      transform var(--dur-sheet) ease-out,
+      visibility 0s;
+  }
+}
+@media (min-width: 1024px) {
+  .shell .sidebar {
+    position: sticky;
+    top: 0;
+    align-self: start;
+    max-width: none;
+    height: 100dvh;
+  }
+}
+
+.sidebar-backdrop {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: calc(var(--z-sidebar) - 1);
+  background: var(--backdrop);
+}
+
+.nav-item {
+  display: block;
+  padding: var(--space-2-5) var(--space-4);
+  border-left: 2px solid transparent;
+  font-size: var(--text-xs);
+  line-height: var(--leading-xs);
+  letter-spacing: var(--tracking-label);
+  text-align: left;
+  text-transform: uppercase;
+  text-decoration: none;
+  color: var(--color-muted);
+  transition:
+    color var(--dur-fast) var(--ease-standard),
+    background-color var(--dur-fast) var(--ease-standard);
+}
+.nav-item:hover {
+  background: var(--tint-white-5);
+  color: var(--foreground);
+}
+.nav-item[aria-current='page'] {
+  border-left-color: var(--accent);
+  background: var(--tint-accent-12);
+  color: var(--foreground);
+}
+.nav-item[aria-disabled='true'] {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.nav-item[aria-disabled='true']:hover {
+  background: none;
+  color: var(--color-muted);
+}
+/* A <button> in a POST form, so it needs the full width a link gets from display:block. */
+.nav-item--logout {
+  width: 100%;
+  color: var(--accent-text);
+}
+
+/* ==== Wordmark ==== (the cursor is .cursor-blink from base.css)
+   Markup: the name and its separator share ONE span, because every direct child gets the flex gap. The blinking cursor is optional:
+   <a class="wordmark"><span class="wordmark__mark" aria-hidden="true">◢◤</span><span>AGENDA<span class="wordmark__sep">_</span>CLUBBER</span><span class="cursor-blink" aria-hidden="true"></span></a> */
+.wordmark {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  line-height: var(--leading-lg);
+  font-weight: 700;
+  letter-spacing: var(--tracking-tight);
+  text-decoration: none;
+  color: var(--foreground);
+}
+.wordmark__mark,
+.wordmark__sep {
+  color: var(--accent-text);
+}
+
+/* ==== Auth layout ==== */
+.auth {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: var(--space-6);
+  width: 100%;
+  max-width: var(--w-auth);
+  min-height: 100dvh;
+  margin-inline: auto;
+  padding: var(--space-8) var(--space-4);
+}
+
+/* ==== Buttons ==== */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  min-height: 2.5rem;
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid transparent;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  line-height: var(--leading-sm);
+  letter-spacing: var(--tracking-btn);
+  text-align: center;
+  text-transform: uppercase;
+  text-decoration: none;
+  cursor: pointer;
+  user-select: none;
+  transition:
+    color var(--dur-fast) var(--ease-standard),
+    background-color var(--dur-fast) var(--ease-standard),
+    border-color var(--dur-fast) var(--ease-standard),
+    box-shadow var(--dur-fast) var(--ease-standard);
+}
+.btn:disabled,
+.btn[aria-disabled='true'] {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.btn--sm {
+  min-height: 2rem;
+  padding: var(--space-1-5) var(--space-3);
+  font-size: var(--text-xs);
+  line-height: var(--leading-xs);
+}
+.btn--lg {
+  min-height: 3rem;
+  padding: var(--space-2-5) var(--space-5);
+  font-size: var(--text-base);
+  line-height: var(--leading-base);
+}
+
+.btn--solid {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-contrast);
+  font-weight: 700;
+}
+.btn--solid:hover:not(:disabled, [aria-disabled='true']) {
+  box-shadow: 0 0 14px color-mix(in srgb, var(--accent) 70%, transparent);
+}
+
+.btn--outline {
+  border-color: color-mix(in srgb, var(--accent) 60%, transparent);
+  color: var(--foreground);
+}
+.btn--outline:hover:not(:disabled, [aria-disabled='true']) {
+  border-color: var(--accent);
+  background: var(--tint-accent-15);
+}
+
+.btn--ghost {
+  color: var(--color-muted);
+}
+.btn--ghost:hover:not(:disabled, [aria-disabled='true']) {
+  background: var(--tint-white-5);
+  color: var(--foreground);
+}
+
+.btn--danger {
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+.btn--danger:hover:not(:disabled, [aria-disabled='true']) {
+  background: var(--tint-accent-15);
+}
+
+/* Square close button: <button class="btn btn--ghost btn--icon" aria-label="Fechar">[✕]</button> */
+.btn--icon {
+  min-width: 2rem;
+  min-height: 2rem;
+  padding: var(--space-1);
+}
+
+/* ==== Forms ==== */
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.label {
+  display: block;
+  font-size: var(--text-xs);
+  line-height: var(--leading-xs);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--color-muted);
+}
+/* The second value of content is the accessible text: empty, so screen readers skip the decoration
+   (a required field is already announced through the required attribute). */
+.label::before {
+  content: '$ ';
+  content: '$ ' / '';
+  color: var(--accent-text);
+}
+.label--required::after {
+  content: ' *';
+  content: ' *' / '';
+  color: var(--accent-text);
+}
+
+.hint {
+  font-size: var(--text-xs);
+  line-height: var(--leading-xs);
+  color: var(--color-muted);
+}
+
+.field-error {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: var(--leading-xs);
+  color: var(--accent-text);
+}
+.field-error::before {
+  content: '[erro] ';
+}
+
+.input,
+.textarea,
+.select {
+  display: block;
+  width: 100%;
+  min-height: 2.5rem;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-control);
+  background-color: var(--color-bg-elev);
+  font-size: var(--text-sm);
+  line-height: var(--leading-sm);
+  color: var(--foreground);
+  transition: border-color var(--dur-fast) var(--ease-standard);
+}
+.input:focus,
+.textarea:focus,
+.select:focus,
+:is(.input, .textarea, .select)[aria-invalid='true'] {
+  border-color: var(--accent);
+}
+.input:disabled,
+.textarea:disabled,
+.select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.textarea {
+  min-height: 6rem;
+  resize: vertical;
+}
+
+/* The arrow is two gradient halves, so it follows --color-muted (a data: SVG cannot read a CSS variable). */
+.select {
+  appearance: none;
+  padding-right: var(--space-10);
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--color-muted) 50%),
+    linear-gradient(135deg, var(--color-muted) 50%, transparent 50%);
+  background-repeat: no-repeat;
+  background-position:
+    right 1.25rem center,
+    right 0.875rem center;
+  background-size: 0.375rem 0.375rem;
+}
+
+.check {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 1.5rem;
+  font-size: var(--text-sm);
+  line-height: var(--leading-sm);
+  cursor: pointer;
+}
+.check input,
+.radio-card input {
+  flex: none;
+  width: 1.25rem;
+  height: 1.25rem;
+  accent-color: var(--accent);
+}
+
+/* Option card around a radio: <label class="radio-card"><input type="radio" ...> ...</label> */
+.radio-card {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-control);
+  font-size: var(--text-sm);
+  line-height: var(--leading-sm);
+  cursor: pointer;
+  transition:
+    border-color var(--dur-fast) var(--ease-standard),
+    background-color var(--dur-fast) var(--ease-standard);
+}
+.radio-card:hover {
+  border-color: var(--color-muted);
+}
+.radio-card:has(input:checked) {
+  border-color: var(--accent);
+  background: var(--tint-accent-12);
+}
+/* :has(:focus-visible), not :focus-within, so a mouse click does not leave an outline on the card. */
+.radio-card:has(input:focus-visible) {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+/* A field plus an adjacent control on one row: input + button (search, invite code) or input + select. */
+.input-group {
+  display: flex;
+  align-items: stretch;
+  gap: var(--space-2);
+}
+.input-group > .input {
+  flex: 1;
+  width: auto;
+  min-width: 0;
+}
+/* The other control keeps its own width; .select would otherwise inherit width:100% and starve the input. */
+.input-group > :not(.input) {
+  flex: none;
+  width: auto;
+}
+
+.input--money {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ==== Spinner (hours, minutes): value field, two stacked buttons, unit ==== */
+.spinner {
+  display: inline-flex;
+  align-items: stretch;
+  gap: var(--space-1);
+}
+.spinner__value {
+  box-sizing: content-box;
+  width: 4ch;
+  padding: 0 var(--space-1);
+  border: 1px solid var(--color-control);
+  background-color: var(--color-bg-elev);
+  font-size: var(--text-lg);
+  line-height: var(--leading-lg);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  color: var(--foreground);
+  appearance: textfield;
+  transition: border-color var(--dur-fast) var(--ease-standard);
+}
+.spinner__value:focus {
+  border-color: var(--accent);
+}
+.spinner__value::-webkit-inner-spin-button,
+.spinner__value::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.spinner__btns {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-0-5);
+}
+.spinner__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  border: 1px solid var(--color-control);
+  font-size: var(--text-2xs);
+  line-height: 1;
+  color: var(--color-muted);
+  transition:
+    color var(--dur-fast) var(--ease-standard),
+    border-color var(--dur-fast) var(--ease-standard);
+}
+.spinner__btn:hover {
+  border-color: var(--accent);
+  color: var(--foreground);
+}
+.spinner__unit {
+  align-self: center;
+  margin-left: var(--space-1);
+  font-size: var(--text-sm);
+  color: var(--color-muted);
+}
+
+/* ==== Password checklist ==== (state by class, so a script only toggles .is-ok)
+   The [ ] and [✓] marks are decoration with an empty accessible text: each item carries its own state for screen
+   readers, as <span class="sr-only"> (atendido)</span> or <span class="sr-only"> (pendente)</span>. */
+@keyframes checklist-in {
+  from {
+    transform: scale(0.6);
+    opacity: 0;
+  }
+}
+.checklist {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-size: var(--text-xs);
+  line-height: var(--leading-xs);
+}
+.checklist__item {
+  color: var(--color-muted);
+}
+.checklist__item::before {
+  content: '[ ] ';
+  content: '[ ] ' / '';
+  white-space: pre;
+}
+.checklist__item.is-ok {
+  color: var(--color-ok);
+}
+.checklist__item.is-ok::before {
+  content: '[\2713] ';
+  content: '[\2713] ' / '';
+  display: inline-block;
+  animation: checklist-in var(--dur-fast) ease-out;
+}
+
+/* ==== Panel ====
+   The neon frame repeats .neon-border from base.css, so a bare .panel is neon, as in CircuitoNE. Note: backdrop-filter
+   makes a panel the containing block of position:fixed descendants, so never put a sheet inside one. */
+.panel {
+  position: relative;
+  border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--accent) 10%, transparent),
+    0 0 24px -8px color-mix(in srgb, var(--accent) 50%, transparent),
+    inset 0 0 32px -20px color-mix(in srgb, var(--accent) 60%, transparent);
+  background: var(--panel-glass);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+}
+.panel--plain {
+  border-color: var(--color-line);
+  box-shadow: none;
+}
+@media (forced-colors: active) {
+  .panel {
+    border-color: CanvasText;
+  }
+}
+.panel__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--color-line);
+}
+.panel__dots {
+  display: flex;
+  gap: var(--space-1);
+}
+.panel__dots > span {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.panel__dots > span:nth-child(2) {
+  background: var(--color-warn);
+}
+.panel__dots > span:nth-child(3) {
+  background: var(--color-ok);
+}
+.panel__title {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: var(--leading-xs);
+  font-weight: 400;
+  letter-spacing: var(--tracking-panel);
+  text-transform: uppercase;
+  color: var(--color-muted);
+}
+.panel__body {
+  padding: var(--space-4);
+}
+
+/* ==== Badge ==== */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-0-5) var(--space-2);
+  border: 1px solid var(--color-line);
+  font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--color-muted);
+}
+.badge--accent {
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+.badge--ok {
+  border-color: var(--color-ok);
+  color: var(--color-ok);
+}
+.badge--warn {
+  border-color: var(--color-warn);
+  color: var(--color-warn);
+}
+
+/* ==== Status message ==== (no transform of its own, so it can carry .animate-fade-up) */
+.status {
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-line);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  line-height: var(--leading-sm);
+}
+.status--ok {
+  border-color: var(--color-ok);
+  color: var(--color-ok);
+}
+.status--error {
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+
+/* ==== Empty state ==== */
+.empty {
+  padding: var(--space-8);
+  border: 1px dashed var(--color-line);
+  font-size: var(--text-sm);
+  line-height: var(--leading-sm);
+  text-align: center;
+  color: var(--color-muted);
+}
+
+/* ==== Section heading ====
+   <div class="section-heading"><h1 class="section-heading__title text-glow"><span class="section-heading__prompt" aria-hidden="true">~/ </span>Título</h1>
+   <p class="section-heading__sub">...</p></div> */
+.section-heading {
+  margin-bottom: var(--space-6);
+}
+.section-heading__title {
+  font-family: var(--font-display);
+  font-size: var(--text-2xl);
+  line-height: var(--leading-2xl);
+  font-weight: 700;
+  letter-spacing: var(--tracking-tight);
+}
+@media (min-width: 640px) {
+  .section-heading__title {
+    font-size: var(--text-3xl);
+    line-height: var(--leading-3xl);
+  }
+}
+.section-heading__prompt {
+  color: var(--accent-text);
+}
+.section-heading__sub {
+  max-width: 42rem;
+  margin-top: var(--space-1);
+  font-size: var(--text-sm);
+  color: var(--color-muted);
+}
+
+/* ==== Sheet ====
+   A native <dialog class="sheet"> opened with showModal(): the top layer, ::backdrop, focus trap and Esc come free.
+   The UA gives dialogs max-width/max-height, margin:auto and CanvasText, hence the explicit values. */
+.sheet {
+  position: fixed;
+  inset: 0 0 0 auto;
+  width: 100%;
+  max-width: var(--w-sheet);
+  height: 100dvh;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border-left: 1px solid var(--color-control);
+  background: var(--color-bg);
+  color: var(--foreground);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.sheet::backdrop {
+  background: var(--backdrop);
+}
+.sheet--wide {
+  max-width: 64rem;
+}
+
+/* Enter and exit: a closed dialog is display:none, so display and overlay are transitioned discretely and the
+   @starting-style rules (which must come after the [open] rules they mirror) give the entry its first frame. */
+@media (prefers-reduced-motion: no-preference) {
+  .sheet {
+    opacity: 0;
+    transform: translateX(2rem);
+    transition:
+      opacity var(--dur-sheet) ease-out,
+      transform var(--dur-sheet) ease-out,
+      overlay var(--dur-sheet) ease-out allow-discrete,
+      display var(--dur-sheet) ease-out allow-discrete;
+  }
+  .sheet[open] {
+    opacity: 1;
+    transform: none;
+  }
+  @starting-style {
+    .sheet[open] {
+      opacity: 0;
+      transform: translateX(2rem);
+    }
+  }
+
+  .sheet::backdrop {
+    opacity: 0;
+    transition:
+      opacity var(--dur-sheet) ease-out,
+      overlay var(--dur-sheet) ease-out allow-discrete,
+      display var(--dur-sheet) ease-out allow-discrete;
+  }
+  .sheet[open]::backdrop {
+    opacity: 1;
+  }
+  @starting-style {
+    .sheet[open]::backdrop {
+      opacity: 0;
+    }
+  }
+}
+
+/* Only a modal sheet locks the page scroll: the static styleguide opens one without showModal(). */
+body:has(dialog.sheet:modal) {
+  overflow: hidden;
+}
+
+.sheet__bar {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  border-bottom: 1px solid var(--color-line);
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+}
+.sheet__title {
+  min-width: 0;
+  font-size: var(--text-base);
+  line-height: var(--leading-base);
+  font-weight: 700;
+}
+.sheet__body {
+  padding: var(--space-4);
+}
+@media (min-width: 640px) {
+  .sheet__body {
+    padding: var(--space-6);
+  }
+}
+
+.sheet__columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-6);
+}
+@media (min-width: 1024px) {
+  .sheet__columns {
+    grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  }
+  .sheet__side {
+    padding-left: var(--space-6);
+    border-left: 1px solid var(--color-line);
+    animation: sheet-in var(--dur-sheet) ease-out both;
+  }
+}
+
+/* ==== Footer ==== */
+.footer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-8) var(--space-4);
+  border-top: 1px solid var(--color-line);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: var(--leading-xs);
+  color: var(--color-muted);
+}
+@media (min-width: 640px) {
+  .footer {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+  }
+  /* .footer's padding shorthand comes after .container's, so restate the wider side padding for .footer.container. */
+  .footer.container {
+    padding-inline: var(--space-6);
+  }
+}
+.footer__prompt {
+  color: var(--accent-text);
+}
+.footer a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.5rem;
+  text-decoration: underline;
+}
