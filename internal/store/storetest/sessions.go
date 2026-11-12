@@ -60,6 +60,11 @@ func RunSessions(t *testing.T, newStore NewStore) {
 				t.Errorf("the failed create changed the session: UserID = %q, want %q", got.UserID, ana.ID)
 			}
 		}},
+		{"create looks for the user before it checks the hash", func(t *testing.T, e env) {
+			ana := e.user("ana")
+			e.session(ana.ID, "s1")
+			isErr(t, "create with a used hash, unknown user", e.r.Sessions.Create(e.ctx, newSession(unknownRefs[1], "s1")), domain.ErrNotFound)
+		}},
 		{"Get returns ErrNotFound for an unknown hash", func(t *testing.T, e env) {
 			u := e.user("ana")
 			e.session(u.ID, "s1")

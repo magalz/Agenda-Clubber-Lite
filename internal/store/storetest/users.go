@@ -78,6 +78,11 @@ func RunUsers(t *testing.T, newStore NewStore) {
 			_, err := e.r.Users.ByEmail(e.ctx, "ana@example.com")
 			isErr(t, "ByEmail after the failed creates", err, domain.ErrNotFound)
 		}},
+		{"create checks references before uniqueness", func(t *testing.T, e env) {
+			e.user("ana")
+			u := newUser("ana", func(u *domain.User) { u.ApprovedBy = unknownRefs[1] })
+			isErr(t, "create taken email, unknown approver", e.r.Users.Create(e.ctx, &u), domain.ErrNotFound)
+		}},
 		{"concurrent creates with one email store one user", func(t *testing.T, e env) {
 			errs := parallelErr(10, func(i int) error {
 				u := newUser("ana", func(u *domain.User) { u.Name = fmt.Sprintf("Ana %d", i) })

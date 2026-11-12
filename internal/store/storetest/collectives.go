@@ -198,10 +198,11 @@ func RunCollectives(t *testing.T, newStore NewStore) {
 			}
 		}},
 		{"SearchApproved orders by name key in byte order", func(t *testing.T, e env) {
-			for _, name := range []string{"Luza", "Luz_1", "Luz 2", "Luz-1", "Luz 10"} {
+			// "ação luz" has the lowest key but, as a name, sorts after "Luz".
+			for _, name := range []string{"Luza", "Luz_1", "Luz 2", "ação luz", "Luz-1", "Beta Luz", "Luz 10"} {
 				e.collective(name, coletivo, cApproved)
 			}
-			wantNames(t, "luz", e.search("luz", "", 50), "Luz 10", "Luz 2", "Luz-1", "Luz_1", "Luza")
+			wantNames(t, "luz", e.search("luz", "", 50), "ação luz", "Beta Luz", "Luz 10", "Luz 2", "Luz-1", "Luz_1", "Luza")
 		}},
 		{"SearchApproved returns at most limit results, with limit clamped to 1..50", func(t *testing.T, e env) {
 			for i := 1; i <= 60; i++ {
