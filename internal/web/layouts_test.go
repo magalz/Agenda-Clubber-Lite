@@ -355,13 +355,7 @@ func TestWordmarkContract(t *testing.T) {
 // config.Load always sets Location, so a Config without one is a programming
 // error that must not fall back to a silent default.
 func TestNewAppRefusesANilLocation(t *testing.T) {
-	var got any
-	func() {
-		defer func() { got = recover() }()
+	mustPanic(t, "Location", func() {
 		NewApp(config.Config{Env: "prod"}, slog.New(slog.NewJSONHandler(&bytes.Buffer{}, nil)))
-	}()
-	msg, _ := got.(string)
-	if !strings.Contains(msg, "Location") {
-		t.Errorf("NewApp with a nil Location panicked with %v, want a message naming Location", got)
-	}
+	})
 }
