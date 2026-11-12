@@ -90,6 +90,15 @@ Tokens are defined once in `web/static/css/tokens.css`; every other stylesheet u
 - Wordmark: `◢◤ AGENDA_CLUBBER` + blinking block cursor (4 blinks). Page titles end with `· AGENDA CLUBBER`.
 - Footer on every page: `$ feito_por --dev=IgnisDev` and `contato: ignisdev@magalz.space` (mailto link).
 
+## Decisions already made (do not undo)
+
+- Routing: `RedirectTrailingSlash` is off (Gin's redirect would bypass the security headers), so `/x/` is a 404. Register routes without trailing slashes and link to them exactly.
+- Static files: `Assets` is an exact-name allowlist; `asset "path"` in templates panics on unknown names. A new file extension needs an entry in the content-type map in `internal/web/assets.go`.
+- Timestamps: TEXT, UTC, RFC 3339, second precision, always written with `store.FormatTime` and read with `store.ParseTime`.
+- Token hashes (`sessions.token_hash`, `tokens.token_hash`) are 32-byte BLOBs: bind `[]byte`, never a string (a CHECK rejects strings).
+- CSS class names live in `web/static/css/components.css` (section comments list them and their markup contracts: wordmark, drawer, checklist `sr-only` state, `required` on `.label--required` controls). Use `.field-error` and `.spinner*` (not `.error` / `.spinner-input`).
+- The itsaplan commit hook only accepts the message (trailers included) through `-m` arguments, not `-F file`.
+
 ## Testing and checks
 
 - Test first where behavior changes. Tests live next to the code (`*_test.go`), use the standard `testing` package and `net/http/httptest`; no assertion libraries.
