@@ -43,7 +43,7 @@ func TestMigrateAppliesFilesInNumericOrderAndOnlyOnce(t *testing.T) {
 	ctx := context.Background()
 	db := openTemp(t)
 	fsys := fstest.MapFS{
-		"0010_c.sql": {Data: []byte("INSERT INTO log VALUES ('c');")},
+		"0003_c.sql": {Data: []byte("INSERT INTO log VALUES ('c');")},
 		"0001_a.sql": {Data: []byte("CREATE TABLE log (v TEXT); INSERT INTO log VALUES ('a');")},
 		"0002_b.sql": {Data: []byte("INSERT INTO log VALUES ('b');")},
 	}
@@ -68,8 +68,8 @@ func TestMigrateAppliesFilesInNumericOrderAndOnlyOnce(t *testing.T) {
 	if want := []string{"a", "b", "c"}; !slices.Equal(got, want) {
 		t.Errorf("rows = %v, want %v (each file once, in numeric order)", got, want)
 	}
-	if applied := appliedMigrations(t, db); len(applied) != 3 || applied[0].version != 1 || applied[1].version != 2 || applied[2].version != 10 {
-		t.Errorf("schema_migrations = %+v, want versions 1, 2, 10", applied)
+	if applied := appliedMigrations(t, db); len(applied) != 3 || applied[0].version != 1 || applied[1].version != 2 || applied[2].version != 3 {
+		t.Errorf("schema_migrations = %+v, want versions 1, 2, 3", applied)
 	}
 }
 
