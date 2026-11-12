@@ -30,8 +30,8 @@ EXPOSE 8120
 VOLUME ["/data"]
 
 # Podman builds OCI images by default and OCI has no HEALTHCHECK, so this line
-# only takes effect with `--format docker`; the compose files define the same
-# check themselves.
+# only takes effect with `--format docker`; compose.dev.yml defines the same
+# check itself, and a production deploy must do likewise (or build with that flag).
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 CMD ["/app/agenda", "healthcheck"]
 
 ENTRYPOINT ["/app/agenda"]
