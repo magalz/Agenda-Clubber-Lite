@@ -8,7 +8,13 @@ import "time"
 const TimeLayout = time.RFC3339
 
 // FormatTime renders t as a database timestamp.
-func FormatTime(t time.Time) string { return "" }
+func FormatTime(t time.Time) string { return t.UTC().Format(TimeLayout) }
 
 // ParseTime reads a database timestamp and returns it in UTC.
-func ParseTime(s string) (time.Time, error) { return time.Time{}, nil }
+func ParseTime(s string) (time.Time, error) {
+	t, err := time.Parse(TimeLayout, s)
+	if err != nil {
+		return time.Time{}, err
+	}
+	return t.UTC(), nil
+}
