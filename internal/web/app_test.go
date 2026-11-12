@@ -59,14 +59,9 @@ func requestLine(t *testing.T, logs *bytes.Buffer) map[string]any {
 	return found[0]
 }
 
+// serve sends a request without a body; do (middleware_test.go) builds it.
 func serve(r http.Handler, method, target string, mod ...func(*http.Request)) *httptest.ResponseRecorder {
-	req := httptest.NewRequest(method, target, nil)
-	for _, m := range mod {
-		m(req)
-	}
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, req)
-	return rec
+	return do(r, method, target, nil, mod...)
 }
 
 func TestHealthz(t *testing.T) {
