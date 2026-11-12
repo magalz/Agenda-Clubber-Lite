@@ -77,18 +77,40 @@ func LoadMongo(getenv func(string) string) (MongoConfig, error) {
 	if uri == "" {
 		return MongoConfig{}, fmt.Errorf("MONGO_URI: required")
 	}
+	// Only mongodb://: the server is a single-node replica set reached with
+	// directConnection=true, which the Go driver refuses for mongodb+srv://.
 	rest, ok := strings.CutPrefix(uri, "mongodb://")
-	if !ok {
-		rest, ok = strings.CutPrefix(uri, "mongodb+srv://")
-	}
 	if !ok || rest == "" {
-		return MongoConfig{}, fmt.Errorf("MONGO_URI: must start with mongodb:// or mongodb+srv://")
+		return MongoConfig{}, fmt.Errorf("MONGO_URI: must start with mongodb://")
+	}
+	if !hasDirectConnection(rest) {
+		return MongoConfig{}, fmt.Errorf("MONGO_URI: must carry directConnection=true (single-node replica set)")
 	}
 	db := trimmedEnv(getenv, "MONGO_DB", "agenda")
 	if !mongoDBName.MatchString(db) {
 		return MongoConfig{}, fmt.Errorf("MONGO_DB: must be 1 to 38 letters, digits, _ or -")
 	}
 	return MongoConfig{URI: uri, DB: db}, nil
+}
+
+// hasDirectConnection reports whether the options part of a mongodb:// URI
+// (after the scheme) sets directConnection=true. Option keys are
+// case-insensitive in the connection string format; the value is not.
+func hasDirectConnection(rest string) bool {
+	_, query, found := strings.Cut(rest, "?")
+	if !found {
+		return false
+	}
+	values, err := url.ParseQuery(query)
+	if err != nil {
+		return false
+	}
+	for key, vals := range values {
+		if strings.EqualFold(key, "directConnection") {
+			return len(vals) == 1 && vals[0] == "true"
+		}
+	}
+	return false
 }
 
 // Config is the validated service configuration.
