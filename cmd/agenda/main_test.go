@@ -71,15 +71,57 @@ func TestRunUsageOnUnknownSubcommand(t *testing.T) {
 	}
 }
 
+const testMongoURI = "mongodb://localhost:27017/?directConnection=true"
+
 func TestRunServeWithoutOriginFails(t *testing.T) {
 	for _, args := range [][]string{nil, {"serve"}} {
 		var stdout, stderr bytes.Buffer
-		code := run(context.Background(), args, getenvOf(), &stdout, &stderr)
+		code := run(context.Background(), args, getenvOf("MONGO_URI", testMongoURI), &stdout, &stderr)
 		if code != 1 {
 			t.Errorf("run(%v) = %d, want 1", args, code)
 		}
 		if !strings.Contains(stderr.String(), "APP_ORIGIN") {
 			t.Errorf("stderr = %q, want the config error naming APP_ORIGIN", stderr.String())
+		}
+	}
+}
+
+func TestRunServeWithoutMongoURIFails(t *testing.T) {
+	addr := freeAddr(t)
+	for _, args := range [][]string{nil, {"serve"}} {
+		var stdout, stderr bytes.Buffer
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		code := run(ctx, args, getenvOf("APP_ORIGIN", "http://"+addr, "APP_ADDR", addr), &stdout, &stderr)
+		cancel()
+		if code != 1 {
+			t.Errorf("run(%v) = %d, want 1", args, code)
+		}
+		if !strings.Contains(stderr.String(), "MONGO_URI") {
+			t.Errorf("stderr = %q, want the config error naming MONGO_URI", stderr.String())
+		}
+	}
+}
+
+// A MONGO_URI that is rejected must not reach the output: it may hold the
+// database password.
+func TestRunServeRejectedMongoURIIsNotEchoed(t *testing.T) {
+	addr := freeAddr(t)
+	var stdout, stderr bytes.Buffer
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	env := getenvOf("APP_ORIGIN", "http://"+addr, "APP_ADDR", addr,
+		"MONGO_URI", "postgres://dbuser:uri-secret@db.example:5432/agenda")
+	if code := run(ctx, []string{"serve"}, env, &stdout, &stderr); code != 1 {
+		t.Errorf("exit code = %d, want 1", code)
+	}
+	if !strings.Contains(stderr.String(), "MONGO_URI") {
+		t.Errorf("stderr = %q, want the config error naming MONGO_URI", stderr.String())
+	}
+	for _, out := range []string{stdout.String(), stderr.String()} {
+		for _, leak := range []string{"uri-secret", "dbuser", "db.example"} {
+			if strings.Contains(out, leak) {
+				t.Errorf("output %q leaks %q", out, leak)
+			}
 		}
 	}
 }
@@ -92,7 +134,7 @@ func TestRunServeListenErrorExits1(t *testing.T) {
 	defer busy.Close()
 
 	var stdout, stderr bytes.Buffer
-	env := getenvOf("APP_ORIGIN", "http://localhost", "APP_ADDR", busy.Addr().String())
+	env := getenvOf("APP_ORIGIN", "http://localhost", "APP_ADDR", busy.Addr().String(), "MONGO_URI", testMongoURI)
 	done := make(chan int, 1)
 	go func() { done <- run(context.Background(), []string{"serve"}, env, &stdout, &stderr) }()
 	select {
@@ -108,7 +150,7 @@ func TestRunServeListenErrorExits1(t *testing.T) {
 func TestRunServesAndShutsDownGracefully(t *testing.T) {
 	addr := freeAddr(t)
 	var stdout, stderr bytes.Buffer
-	env := getenvOf("APP_ORIGIN", "http://"+addr, "APP_ADDR", addr)
+	env := getenvOf("APP_ORIGIN", "http://"+addr, "APP_ADDR", addr, "MONGO_URI", testMongoURI)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	done := make(chan int, 1)
@@ -180,7 +222,7 @@ func TestHealthzURL(t *testing.T) {
 // not depend on the full configuration.
 func healthcheckAgainst(addr string) (code int, stdout, stderr string) {
 	var out, errb bytes.Buffer
-	env := getenvOf("APP_ADDR", addr, "APP_ENV", "bogus", "SMTP_PORT", "not-a-port", "APP_ORIGIN", "not a url")
+	env := getenvOf("APP_ADDR", addr, "APP_ENV", "bogus", "SMTP_PORT", "not-a-port", "APP_ORIGIN", "not a url", "MONGO_URI", "not a uri")
 	code = run(context.Background(), []string{"healthcheck"}, env, &out, &errb)
 	return code, out.String(), errb.String()
 }

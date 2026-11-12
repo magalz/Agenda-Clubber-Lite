@@ -44,6 +44,22 @@ func (s SMTPConfig) LogValue() slog.Value {
 	)
 }
 
+// MongoConfig holds the MongoDB connection settings.
+type MongoConfig struct {
+	URI string // secret: it may carry credentials
+	DB  string
+}
+
+// Stubs: the next commit implements them.
+func (m MongoConfig) String() string       { return m.URI }
+func (m MongoConfig) GoString() string     { return m.URI }
+func (m MongoConfig) LogValue() slog.Value { return slog.StringValue(m.URI) }
+
+// LoadMongo reads and validates MONGO_URI and MONGO_DB only.
+func LoadMongo(getenv func(string) string) (MongoConfig, error) {
+	return MongoConfig{}, nil
+}
+
 // Config is the validated service configuration.
 type Config struct {
 	Env               string // "dev" or "prod"
@@ -53,6 +69,7 @@ type Config struct {
 	DataDir           string
 	TrustedProxyCIDRs []string // validated CIDR strings
 	SMTP              SMTPConfig
+	Mongo             MongoConfig
 }
 
 // IsDev reports whether the service runs in development mode.
