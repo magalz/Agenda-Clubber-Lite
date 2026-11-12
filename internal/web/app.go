@@ -20,6 +20,7 @@ type App struct {
 	Cfg    config.Config
 	Log    *slog.Logger
 	Assets *Assets
+	Render *Renderer
 }
 
 // NewApp builds an App from a validated configuration. It panics if the

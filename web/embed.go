@@ -10,3 +10,6 @@ import "embed"
 //
 //go:embed static
 var Static embed.FS
+
+// Templates is a stub until the templates exist.
+var Templates embed.FS
