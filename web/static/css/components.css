@@ -144,6 +144,10 @@
 
 /* Closed drawer: visibility hides it from the tab order and from screen readers, not only from the screen. */
 @media (max-width: 1023.98px) {
+  /* The drawer is fixed, so topbar and main are the only rows: without this the spare height of a short page is split between them. */
+  .shell {
+    grid-template-rows: auto 1fr;
+  }
   .shell .sidebar {
     position: fixed;
     inset: 0 auto 0 0;
@@ -230,8 +234,8 @@
 }
 
 /* ==== Wordmark ==== (the cursor is .cursor-blink from base.css)
-   Markup: the name and its separator share ONE span, because every direct child gets the flex gap:
-   <a class="wordmark"><span class="wordmark__mark" aria-hidden="true">◢◤</span><span>AGENDA<span class="wordmark__sep">_</span>CLUBBER</span></a> */
+   Markup: the name and its separator share ONE span, because every direct child gets the flex gap. The blinking cursor is optional:
+   <a class="wordmark"><span class="wordmark__mark" aria-hidden="true">◢◤</span><span>AGENDA<span class="wordmark__sep">_</span>CLUBBER</span><span class="cursor-blink" aria-hidden="true"></span></a> */
 .wordmark {
   display: inline-flex;
   align-items: center;
@@ -361,12 +365,16 @@
   text-transform: uppercase;
   color: var(--color-muted);
 }
+/* The second value of content is the accessible text: empty, so screen readers skip the decoration
+   (a required field is already announced through the required attribute). */
 .label::before {
   content: '$ ';
+  content: '$ ' / '';
   color: var(--accent-text);
 }
 .label--required::after {
   content: ' *';
+  content: ' *' / '';
   color: var(--accent-text);
 }
 
@@ -441,7 +449,8 @@
   line-height: var(--leading-sm);
   cursor: pointer;
 }
-.check input {
+.check input,
+.radio-card input {
   flex: none;
   width: 1.25rem;
   height: 1.25rem;
@@ -473,12 +482,6 @@
 .radio-card:has(input:focus-visible) {
   outline: 2px solid var(--color-focus);
   outline-offset: 2px;
-}
-.radio-card input {
-  flex: none;
-  width: 1.25rem;
-  height: 1.25rem;
-  accent-color: var(--accent);
 }
 
 /* A field plus an adjacent control on one row: input + button (search, invite code) or input + select. */
@@ -521,7 +524,6 @@
   text-align: center;
   color: var(--foreground);
   appearance: textfield;
-  -moz-appearance: textfield;
   transition: border-color var(--dur-fast) var(--ease-standard);
 }
 .spinner__value:focus {
@@ -562,7 +564,9 @@
   color: var(--color-muted);
 }
 
-/* ==== Password checklist ==== (state by class, so a script only toggles .is-ok) */
+/* ==== Password checklist ==== (state by class, so a script only toggles .is-ok)
+   The [ ] and [✓] marks are decoration with an empty accessible text: each item carries its own state for screen
+   readers, as <span class="sr-only"> (atendido)</span> or <span class="sr-only"> (pendente)</span>. */
 @keyframes checklist-in {
   from {
     transform: scale(0.6);
@@ -581,6 +585,7 @@
 }
 .checklist__item::before {
   content: '[ ] ';
+  content: '[ ] ' / '';
   white-space: pre;
 }
 .checklist__item.is-ok {
@@ -588,6 +593,7 @@
 }
 .checklist__item.is-ok::before {
   content: '[\2713] ';
+  content: '[\2713] ' / '';
   display: inline-block;
   animation: checklist-in var(--dur-fast) ease-out;
 }
@@ -866,6 +872,7 @@ body:has(dialog.sheet:modal) {
     flex-direction: row;
     align-items: center;
     justify-content: space-between;
+    padding-inline: var(--space-6);
   }
 }
 .footer__prompt {
