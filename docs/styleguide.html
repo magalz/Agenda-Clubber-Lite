@@ -1,0 +1,390 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Guia de estilo · AGENDA CLUBBER</title>
+  <link rel="icon" href="../web/static/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="../web/static/css/tokens.css">
+  <link rel="stylesheet" href="../web/static/css/base.css">
+  <link rel="stylesheet" href="../web/static/css/components.css">
+</head>
+<body>
+  <a class="skip-link" href="#conteudo">Pular para o conteúdo</a>
+
+  <div class="page">
+    <div class="container">
+      <main id="conteudo" class="shell__main stack stack--lg">
+
+        <header class="stack">
+          <a class="wordmark" href="#conteudo"><span class="wordmark__mark" aria-hidden="true">◢◤</span> AGENDA<span class="wordmark__sep">_</span>CLUBBER<span class="cursor-blink" aria-hidden="true"></span></a>
+          <div class="section-heading">
+            <h1 class="section-heading__title text-glow"><span class="section-heading__prompt" aria-hidden="true">~/ </span>guia_de_estilo</h1>
+            <p class="section-heading__sub">Todos os componentes de <code>components.css</code>, com seus estados. Página estática: nenhum script roda aqui, então os botões e os campos só mostram o visual.</p>
+          </div>
+          <nav class="cluster" aria-label="Seções do guia">
+            <a class="btn btn--ghost btn--sm" href="#s-marca">Marca</a>
+            <a class="btn btn--ghost btn--sm" href="#s-botoes">Botões</a>
+            <a class="btn btn--ghost btn--sm" href="#s-campos">Campos</a>
+            <a class="btn btn--ghost btn--sm" href="#s-numeros">Números e senha</a>
+            <a class="btn btn--ghost btn--sm" href="#s-blocos">Blocos</a>
+            <a class="btn btn--ghost btn--sm" href="#s-layout">Menu</a>
+            <a class="btn btn--ghost btn--sm" href="#s-sheet">Sheet</a>
+            <a class="btn btn--ghost btn--sm" href="#s-rodape">Rodapé</a>
+          </nav>
+        </header>
+
+        <section class="panel panel--plain" aria-labelledby="s-marca">
+          <header class="panel__header">
+            <div class="cluster">
+              <span class="panel__dots" aria-hidden="true"><span></span><span></span><span></span></span>
+              <h2 class="panel__title" id="s-marca">Marca</h2>
+            </div>
+          </header>
+          <div class="panel__body stack">
+            <p class="muted text-sm">Wordmark em Space Mono. O cursor pisca quatro vezes e fica aceso (<code>.cursor-blink</code>, de <code>base.css</code>).</p>
+            <a class="wordmark" href="#s-marca"><span class="wordmark__mark" aria-hidden="true">◢◤</span> AGENDA<span class="wordmark__sep">_</span>CLUBBER<span class="cursor-blink" aria-hidden="true"></span></a>
+          </div>
+        </section>
+
+        <section class="panel panel--plain" aria-labelledby="s-botoes">
+          <header class="panel__header">
+            <div class="cluster">
+              <span class="panel__dots" aria-hidden="true"><span></span><span></span><span></span></span>
+              <h2 class="panel__title" id="s-botoes">Botões</h2>
+            </div>
+          </header>
+          <div class="panel__body stack">
+            <div class="stack stack--sm">
+              <h3 class="uppercase-label muted">Variantes</h3>
+              <div class="cluster">
+                <button class="btn btn--solid" type="button">Entrar</button>
+                <button class="btn btn--outline" type="button">Criar conta</button>
+                <button class="btn btn--ghost" type="button">Cancelar</button>
+                <button class="btn btn--danger" type="button">Excluir evento</button>
+                <a class="btn btn--outline" href="#s-botoes">[→] Link como botão</a>
+              </div>
+            </div>
+            <div class="stack stack--sm">
+              <h3 class="uppercase-label muted">Tamanhos</h3>
+              <div class="cluster">
+                <button class="btn btn--solid btn--sm" type="button">Pequeno</button>
+                <button class="btn btn--solid" type="button">Padrão</button>
+                <button class="btn btn--solid btn--lg" type="button">Grande</button>
+              </div>
+            </div>
+            <div class="stack stack--sm">
+              <h3 class="uppercase-label muted">Desativados</h3>
+              <div class="cluster">
+                <button class="btn btn--solid" type="button" disabled>Salvar</button>
+                <button class="btn btn--outline" type="button" disabled>Voltar</button>
+                <button class="btn btn--ghost" type="button" disabled>Cancelar</button>
+                <button class="btn btn--danger" type="button" disabled>Excluir</button>
+                <a class="btn btn--outline" aria-disabled="true" role="link">Link desativado</a>
+              </div>
+            </div>
+            <div class="stack stack--sm">
+              <h3 class="uppercase-label muted">Ícone</h3>
+              <div class="cluster">
+                <button class="btn btn--ghost btn--icon" type="button" aria-label="Fechar">[✕]</button>
+                <button class="btn btn--outline btn--icon" type="button" aria-label="Fechar">[✕]</button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel panel--plain" aria-labelledby="s-campos">
+          <header class="panel__header">
+            <div class="cluster">
+              <span class="panel__dots" aria-hidden="true"><span></span><span></span><span></span></span>
+              <h2 class="panel__title" id="s-campos">Campos</h2>
+            </div>
+          </header>
+          <div class="panel__body stack">
+            <div class="field">
+              <label class="label" for="f-nome">Nome</label>
+              <input class="input" id="f-nome" type="text" autocomplete="off" placeholder="como você quer ser chamado">
+            </div>
+
+            <div class="field">
+              <label class="label label--required" for="f-coletivo">Nome do coletivo</label>
+              <input class="input" id="f-coletivo" type="text" autocomplete="off" required aria-describedby="f-coletivo-dica">
+              <p class="hint" id="f-coletivo-dica">Aparece na agenda, ao lado de cada evento.</p>
+            </div>
+
+            <div class="field">
+              <label class="label label--required" for="f-email">E-mail</label>
+              <input class="input" id="f-email" type="email" autocomplete="off" value="alguem@exemplo" required aria-invalid="true" aria-describedby="f-email-erro">
+              <p class="field-error" id="f-email-erro">informe um e-mail válido, como nome@exemplo.com.</p>
+            </div>
+
+            <div class="field">
+              <label class="label" for="f-bloqueado">Campo desativado</label>
+              <input class="input" id="f-bloqueado" type="text" value="não pode ser editado" disabled>
+            </div>
+
+            <div class="field">
+              <label class="label" for="f-estado">Estado</label>
+              <select class="select" id="f-estado">
+                <option>Pernambuco</option>
+                <option>Bahia</option>
+                <option>Ceará</option>
+              </select>
+            </div>
+
+            <div class="field">
+              <label class="label" for="f-descricao">Descrição</label>
+              <textarea class="textarea" id="f-descricao" placeholder="conte um pouco sobre o evento"></textarea>
+            </div>
+
+            <div class="field">
+              <label class="label" for="f-valor">Ingresso (R$)</label>
+              <input class="input input--money" id="f-valor" type="text" inputmode="decimal" autocomplete="off" value="25,00">
+            </div>
+
+            <div class="field">
+              <label class="label" for="f-busca">Grupo de campo</label>
+              <div class="input-group">
+                <input class="input" id="f-busca" type="search" autocomplete="off" placeholder="buscar coletivo">
+                <button class="btn btn--outline" type="button">Buscar</button>
+              </div>
+            </div>
+
+            <div class="stack stack--sm">
+              <label class="check"><input type="checkbox" checked> Aceito os termos de uso</label>
+              <label class="check"><input type="checkbox"> Quero receber avisos por e-mail</label>
+              <label class="check"><input type="checkbox" disabled> Opção indisponível</label>
+            </div>
+
+            <fieldset class="stack stack--sm">
+              <legend class="label">Tipo de conta</legend>
+              <label class="radio-card">
+                <input type="radio" name="tipo" value="coletivo" checked>
+                <span class="stack stack--sm">
+                  <span class="uppercase-label">Coletivo</span>
+                  <span class="hint">Grupo de pessoas que organiza festas e rolês.</span>
+                </span>
+              </label>
+              <label class="radio-card">
+                <input type="radio" name="tipo" value="produtora">
+                <span class="stack stack--sm">
+                  <span class="uppercase-label">Produtora</span>
+                  <span class="hint">Empresa ou pessoa que produz eventos.</span>
+                </span>
+              </label>
+            </fieldset>
+          </div>
+        </section>
+
+        <section class="panel panel--plain" aria-labelledby="s-numeros">
+          <header class="panel__header">
+            <div class="cluster">
+              <span class="panel__dots" aria-hidden="true"><span></span><span></span><span></span></span>
+              <h2 class="panel__title" id="s-numeros">Números e senha</h2>
+            </div>
+          </header>
+          <div class="panel__body stack">
+            <div class="stack stack--sm">
+              <h3 class="uppercase-label muted">Seletor numérico</h3>
+              <div class="cluster">
+                <div class="spinner">
+                  <input class="spinner__value" type="number" min="0" max="23" value="23" aria-label="Horas">
+                  <span class="spinner__btns">
+                    <button class="spinner__btn" type="button" aria-label="Aumentar horas">▲</button>
+                    <button class="spinner__btn" type="button" aria-label="Diminuir horas">▼</button>
+                  </span>
+                  <span class="spinner__unit">h</span>
+                </div>
+                <div class="spinner">
+                  <input class="spinner__value" type="number" min="0" max="59" value="59" aria-label="Minutos">
+                  <span class="spinner__btns">
+                    <button class="spinner__btn" type="button" aria-label="Aumentar minutos">▲</button>
+                    <button class="spinner__btn" type="button" aria-label="Diminuir minutos">▼</button>
+                  </span>
+                  <span class="spinner__unit">min</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="stack stack--sm">
+              <h3 class="uppercase-label muted">Lista de requisitos da senha</h3>
+              <ul class="checklist" aria-label="Requisitos da senha">
+                <li class="checklist__item is-ok">Pelo menos 12 caracteres<span class="sr-only"> (atendido)</span></li>
+                <li class="checklist__item is-ok">Uma letra maiúscula<span class="sr-only"> (atendido)</span></li>
+                <li class="checklist__item">Um número<span class="sr-only"> (pendente)</span></li>
+                <li class="checklist__item">Um símbolo<span class="sr-only"> (pendente)</span></li>
+              </ul>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel panel--plain" aria-labelledby="s-blocos">
+          <header class="panel__header">
+            <div class="cluster">
+              <span class="panel__dots" aria-hidden="true"><span></span><span></span><span></span></span>
+              <h2 class="panel__title" id="s-blocos">Blocos</h2>
+            </div>
+          </header>
+          <div class="panel__body stack stack--lg">
+            <div class="stack stack--sm">
+              <h3 class="uppercase-label muted">Painel (borda neon) e painel liso</h3>
+              <article class="panel">
+                <header class="panel__header">
+                  <div class="cluster">
+                    <span class="panel__dots" aria-hidden="true"><span></span><span></span><span></span></span>
+                    <h4 class="panel__title">Próximos eventos</h4>
+                  </div>
+                  <button class="btn btn--ghost btn--sm" type="button">[→] Ver todos</button>
+                </header>
+                <div class="panel__body">
+                  <p class="text-sm">O painel padrão tem borda neon e fundo de vidro.</p>
+                </div>
+              </article>
+              <article class="panel panel--plain">
+                <header class="panel__header">
+                  <div class="cluster">
+                    <span class="panel__dots" aria-hidden="true"><span></span><span></span><span></span></span>
+                    <h4 class="panel__title">Painel liso</h4>
+                  </div>
+                </header>
+                <div class="panel__body">
+                  <p class="text-sm">Com <code>panel--plain</code> a borda é só uma linha de 1px.</p>
+                </div>
+              </article>
+            </div>
+
+            <div class="stack stack--sm">
+              <h3 class="uppercase-label muted">Selos</h3>
+              <div class="cluster">
+                <span class="badge">Coletivo</span>
+                <span class="badge badge--accent">Admin</span>
+                <span class="badge badge--ok">Aprovado</span>
+                <span class="badge badge--warn">Aguardando</span>
+              </div>
+            </div>
+
+            <div class="stack stack--sm">
+              <h3 class="uppercase-label muted">Mensagens de status</h3>
+              <p class="status status--ok animate-fade-up" role="status">Conta criada. Confira seu e-mail para confirmar o cadastro.</p>
+              <p class="status status--error" role="alert">Não foi possível salvar o evento. Tente de novo.</p>
+            </div>
+
+            <div class="stack stack--sm">
+              <h3 class="uppercase-label muted">Estado vazio</h3>
+              <p class="empty">Nenhum evento nesta data.</p>
+            </div>
+
+            <div class="stack stack--sm">
+              <h3 class="uppercase-label muted">Título de seção</h3>
+              <div class="section-heading">
+                <h4 class="section-heading__title text-glow"><span class="section-heading__prompt" aria-hidden="true">~/ </span>calendario</h4>
+                <p class="section-heading__sub">Todos os eventos, inclusive os que já passaram.</p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel panel--plain" aria-labelledby="s-layout">
+          <header class="panel__header">
+            <div class="cluster">
+              <span class="panel__dots" aria-hidden="true"><span></span><span></span><span></span></span>
+              <h2 class="panel__title" id="s-layout">Menu</h2>
+            </div>
+          </header>
+          <div class="panel__body stack">
+            <p class="muted text-sm">No app, a barra do topo só aparece abaixo de 1024px, e o menu lateral vira gaveta até essa largura. Aqui os dois ficam visíveis, fora do <code>.shell</code>.</p>
+            <div>
+              <header class="topbar">
+                <a class="wordmark" href="#s-layout"><span class="wordmark__mark" aria-hidden="true">◢◤</span> AGENDA<span class="wordmark__sep">_</span>CLUBBER</a>
+                <button class="btn btn--outline btn--sm" type="button" aria-label="Abrir menu">[☰] Menu</button>
+              </header>
+            </div>
+            <aside class="sidebar" aria-label="Menu de exemplo">
+              <div class="sidebar__brand">
+                <a class="wordmark" href="#s-layout"><span class="wordmark__mark" aria-hidden="true">◢◤</span> AGENDA<span class="wordmark__sep">_</span>CLUBBER</a>
+              </div>
+              <nav aria-label="Navegação de exemplo">
+                <p class="sidebar__section-label">Agenda</p>
+                <a class="nav-item" href="#s-layout" aria-current="page">Calendário</a>
+                <a class="nav-item" href="#s-layout">Analisar data</a>
+                <p class="sidebar__section-label">Conta</p>
+                <a class="nav-item" href="#s-layout">Meu perfil</a>
+                <a class="nav-item" aria-disabled="true" role="link">Coletivos (em breve)</a>
+              </nav>
+              <div class="sidebar__footer">
+                <button class="nav-item nav-item--logout" type="button">[→] Sair</button>
+              </div>
+            </aside>
+          </div>
+        </section>
+
+        <section class="stack" aria-labelledby="s-sheet">
+          <h2 class="panel__title" id="s-sheet">Sheet</h2>
+          <p class="muted text-sm">Painel lateral nativo (<code>&lt;dialog class="sheet"&gt;</code>). No app ele abre com <code>showModal()</code>, que traz o fundo escuro, a trava de foco e o Esc. Aqui o <code>&lt;dialog&gt;</code> só tem o atributo <code>open</code>, então não há fundo escuro nem trava de foco, e o painel cobre a lateral da tela. Use o [✕] para fechar; para abrir de novo, recarregue a página.</p>
+
+          <details>
+            <summary class="btn btn--outline btn--sm">Mostrar o sheet</summary>
+            <dialog class="sheet" open aria-labelledby="sheet-titulo">
+              <div class="sheet__bar">
+                <h3 class="sheet__title" id="sheet-titulo">Noite Verde #12</h3>
+                <form method="dialog">
+                  <button class="btn btn--ghost btn--icon" type="submit" aria-label="Fechar">[✕]</button>
+                </form>
+              </div>
+              <div class="sheet__body stack">
+                <div class="cluster">
+                  <span class="badge badge--accent">Festa</span>
+                  <span class="badge">Techno</span>
+                </div>
+                <p class="text-sm">Sábado, 14/11/2026, das 22:00 às 06:00.</p>
+                <p class="text-sm muted">Coletivo Noite Verde, no Recife.</p>
+                <div class="cluster">
+                  <button class="btn btn--solid btn--sm" type="button">Editar</button>
+                  <button class="btn btn--danger btn--sm" type="button">Excluir</button>
+                </div>
+              </div>
+            </dialog>
+          </details>
+
+          <details>
+            <summary class="btn btn--outline btn--sm">Mostrar o sheet largo, com duas colunas</summary>
+            <dialog class="sheet sheet--wide" open aria-labelledby="sheet-largo-titulo">
+              <div class="sheet__bar">
+                <h3 class="sheet__title" id="sheet-largo-titulo">Novo evento</h3>
+                <form method="dialog">
+                  <button class="btn btn--ghost btn--icon" type="submit" aria-label="Fechar">[✕]</button>
+                </form>
+              </div>
+              <div class="sheet__body">
+                <div class="sheet__columns">
+                  <div class="stack">
+                    <div class="field">
+                      <label class="label label--required" for="s-titulo">Título</label>
+                      <input class="input" id="s-titulo" type="text" autocomplete="off">
+                    </div>
+                    <div class="field">
+                      <label class="label" for="s-obs">Observações</label>
+                      <textarea class="textarea" id="s-obs"></textarea>
+                    </div>
+                  </div>
+                  <aside class="sheet__side stack stack--sm">
+                    <h4 class="uppercase-label muted">Na mesma data</h4>
+                    <p class="empty">Nenhum evento nesta data.</p>
+                  </aside>
+                </div>
+              </div>
+            </dialog>
+          </details>
+        </section>
+
+      </main>
+    </div>
+
+    <footer class="footer container" id="s-rodape">
+      <p><span class="footer__prompt">$</span> feito_por --dev=IgnisDev</p>
+      <p>contato: <a href="mailto:ignisdev@magalz.space">ignisdev@magalz.space</a></p>
+    </footer>
+  </div>
+</body>
+</html>
