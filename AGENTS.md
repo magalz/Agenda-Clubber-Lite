@@ -78,8 +78,9 @@ Tokens are defined once in `web/static/css/tokens.css`; every other stylesheet u
 --accent:#ff2040; --accent-text:#ff7285; --accent-contrast:#000000;
 --color-ok:#35e06f; --color-warn:#ffcc33; --color-line:#23232a; --color-control:#6b6b75;
 --font-mono:'JetBrains Mono',ui-monospace,monospace; --font-display:'Space Mono',ui-monospace,monospace;
-color-scheme: dark;
 ```
+
+`color-scheme: dark` is set on `html` in `base.css`. Read `tokens.css` for the full token list (type scale, spacing, widths, z-index, motion) and `base.css` for the shared effect classes and keyframes before writing new CSS.
 
 - Square corners everywhere (no border-radius except tiny status dots). 1px borders; 2px for "active" markers.
 - Body in JetBrains Mono; headings, wordmark and names in Space Mono. Weights 400 and 700 only.
@@ -97,6 +98,6 @@ color-scheme: dark;
 
 ## Git and itsaplan
 
-- Linked to itsaplan project `ignis-dev.ACL`. Every commit carries a `Refs: ACL-N` trailer for its card.
+- Linked to itsaplan project `ignis-dev.ACL`. Every commit ends with one trailer block (no blank line inside it): `Refs: ACL-N` for its card, then `Co-Authored-By: <the model that wrote the commit> <noreply@anthropic.com>`. Check with `git log -1 --format='%(trailers:key=Refs,valueonly)'`.
 - Task branches `<type>/ACL-N-<slug>` cut from the phase branch `phase/ACL-<phase-card>-<slug>`; merged `--no-ff`. One PR per phase into `main`.
 - Conventional commit subjects (`feat:`, `fix:`, `chore:`, `docs:`, `test:`, `refactor:`), imperative, English.
