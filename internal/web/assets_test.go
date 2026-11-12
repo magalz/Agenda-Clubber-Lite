@@ -299,7 +299,7 @@ func TestStaticRoutesAreGetAndHeadOnly(t *testing.T) {
 // TestEmbeddedStatic serves the real embedded tree through the application
 // router, so it also covers the wiring in NewApp and Router.
 func TestEmbeddedStatic(t *testing.T) {
-	app := NewApp(config.Config{Env: "prod"}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	app := NewApp(config.Config{Env: "prod", Location: fortaleza(t)}, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	r := app.Router()
 
 	tests := []struct{ name, contentType string }{

@@ -413,7 +413,7 @@ func TestNewServerSettings(t *testing.T) {
 	gin.DefaultWriter = io.Discard // debug mode prints its route table
 	t.Cleanup(func() { gin.DefaultWriter = os.Stdout; gin.SetMode(gin.TestMode) })
 
-	srv := newServer(config.Config{Env: "prod", Addr: ":8120"}, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	srv := newServer(config.Config{Env: "prod", Addr: ":8120", Location: time.UTC}, slog.New(slog.NewJSONHandler(io.Discard, nil)))
 	if srv.Addr != ":8120" || srv.Handler == nil {
 		t.Errorf("Addr = %q, Handler = %v", srv.Addr, srv.Handler)
 	}
@@ -425,7 +425,7 @@ func TestNewServerSettings(t *testing.T) {
 		t.Errorf("prod gin mode = %q, want release", gin.Mode())
 	}
 
-	newServer(config.Config{Env: "dev", Addr: ":8120"}, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	newServer(config.Config{Env: "dev", Addr: ":8120", Location: time.UTC}, slog.New(slog.NewJSONHandler(io.Discard, nil)))
 	if gin.Mode() != gin.DebugMode {
 		t.Errorf("dev gin mode = %q, want debug", gin.Mode())
 	}
