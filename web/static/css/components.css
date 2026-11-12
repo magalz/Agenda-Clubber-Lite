@@ -141,6 +141,11 @@
   padding-top: var(--space-2);
   border-top: 1px solid var(--color-line);
 }
+/* Text lines in the sidebar (the disabled-item hint, the user's name) line up with the nav item labels. */
+.sidebar .hint,
+.sidebar__footer > p {
+  padding: 0 var(--space-4) var(--space-2);
+}
 
 /* Closed drawer: visibility hides it from the tab order and from screen readers, not only from the screen. */
 @media (max-width: 1023.98px) {
