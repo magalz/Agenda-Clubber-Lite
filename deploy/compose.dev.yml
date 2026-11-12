@@ -55,6 +55,8 @@ services:
     ports:
       # Web UI only; SMTP (1025) stays on the compose network.
       - "127.0.0.1:8025:8025"
+    # The image declares no USER and would run as root; nobody (65534) is enough.
+    user: "65534:65534"
     read_only: true
     # Mailpit writes its message store under /tmp; Podman mounts one on a
     # read-only container by itself, Docker does not.
