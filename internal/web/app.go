@@ -26,8 +26,12 @@ type App struct {
 // NewApp builds an App from a validated configuration. It panics if the
 // embedded static or template tree cannot be read or parsed: both are compiled
 // into the binary, so a failure is a programming error, not a runtime
-// condition.
+// condition. It also panics for a Config without a Location: config.Load
+// always sets one, so a hand-built Config must too.
 func NewApp(cfg config.Config, log *slog.Logger) *App {
+	if cfg.Location == nil {
+		panic("web: Config.Location is nil; config.Load always sets it, so a hand-built Config must set it too")
+	}
 	static, err := fs.Sub(webfs.Static, "static")
 	if err != nil {
 		panic(fmt.Sprintf("web: embedded static tree: %v", err))
@@ -41,11 +45,7 @@ func NewApp(cfg config.Config, log *slog.Logger) *App {
 	if err != nil {
 		panic(fmt.Sprintf("web: embedded template tree: %v", err))
 	}
-	loc := cfg.Location
-	if loc == nil {
-		loc = time.UTC // config.Load always sets it; a hand-built Config may not
-	}
-	render, err := NewRenderer(templates, assets, loc, log)
+	render, err := NewRenderer(templates, assets, cfg.Location, log)
 	if err != nil {
 		panic(fmt.Sprintf("web: embedded templates: %v", err))
 	}
@@ -76,9 +76,16 @@ func (a *App) Router() *gin.Engine {
 	static := a.Assets.Handler()
 	r.GET("/static/*filepath", static)
 	r.HEAD("/static/*filepath", static)
+	r.GET("/", a.home)
 	// Later tasks register their routes here.
 
 	return r
+}
+
+// home renders the calendar page. It is a placeholder until the calendar
+// lands, and has no User until sessions do.
+func (a *App) home(c *gin.Context) {
+	a.Render.Page(c, http.StatusOK, "app/home", PageData{Title: "Calendário", Nav: "calendario"})
 }
 
 // healthz answers the liveness probe.

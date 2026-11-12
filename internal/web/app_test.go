@@ -25,7 +25,7 @@ func TestMain(m *testing.M) {
 func newRouter(t *testing.T, cidrs ...string) (*gin.Engine, *bytes.Buffer) {
 	t.Helper()
 	logs := &bytes.Buffer{}
-	cfg := config.Config{Env: "prod", TrustedProxyCIDRs: cidrs}
+	cfg := config.Config{Env: "prod", Location: fortaleza(t), TrustedProxyCIDRs: cidrs}
 	return NewApp(cfg, slog.New(slog.NewJSONHandler(logs, nil))).Router(), logs
 }
 
@@ -95,16 +95,6 @@ func TestNewAppParsesTheEmbeddedTemplates(t *testing.T) {
 		if !strings.Contains(rec.Body.String(), want) {
 			t.Errorf("footer missing %q: %s", want, rec.Body)
 		}
-	}
-}
-
-// A Config built by hand (not through config.Load) may leave Location nil.
-func TestNewAppWithoutLocation(t *testing.T) {
-	a := NewApp(config.Config{Env: "prod"}, slog.New(slog.NewJSONHandler(&bytes.Buffer{}, nil)))
-	c, rec := newCtx()
-	a.Render.Partial(c, http.StatusOK, "footer", nil)
-	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "IgnisDev") {
-		t.Errorf("status %d, body %q: want the footer", rec.Code, rec.Body)
 	}
 }
 
