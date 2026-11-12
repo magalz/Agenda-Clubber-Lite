@@ -288,7 +288,7 @@ func TestAuthLayout(t *testing.T) {
 		t.Errorf("%d <main id=\"conteudo\">, want exactly 1", n)
 	}
 	inOrder(t, body,
-		`<main id="conteudo" class="auth">`,
+		`<main id="conteudo" class="auth crt-flicker">`, // the one-shot CRT flicker on a fresh screen
 		`<a class="wordmark" href="/">`,
 		`<div class="panel">`,
 		`<span class="panel__dots" aria-hidden="true"><span></span><span></span><span></span></span>`,
