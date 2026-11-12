@@ -1,0 +1,15 @@
+{{/* Auth layout: the wordmark and one centered panel for login, signup and the like. The page's content is the panel
+     body and PageData.Title is the panel's <h1>. */}}
+{{define "shell"}}<main id="conteudo" class="auth">
+  {{template "wordmark"}}
+  <div class="panel">
+    <header class="panel__header">
+      <div class="cluster">
+        <span class="panel__dots" aria-hidden="true"><span></span><span></span><span></span></span>
+        <h1 class="panel__title">{{.Title}}</h1>
+      </div>
+    </header>
+    <div class="panel__body">{{template "content" .}}</div>
+  </div>
+</main>
+{{template "footer" .}}{{end}}
