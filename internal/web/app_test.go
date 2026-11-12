@@ -81,6 +81,33 @@ func TestHealthz(t *testing.T) {
 	}
 }
 
+func TestNewAppParsesTheEmbeddedTemplates(t *testing.T) {
+	cfg := config.Config{Env: "prod", Location: fortaleza(t)}
+	a := NewApp(cfg, slog.New(slog.NewJSONHandler(&bytes.Buffer{}, nil)))
+	if a.Render == nil {
+		t.Fatal("App.Render is nil")
+	}
+
+	// The shipped footer renders through the App's own renderer.
+	c, rec := newCtx()
+	a.Render.Partial(c, http.StatusOK, "footer", nil)
+	for _, want := range []string{"feito_por --dev=IgnisDev", `href="mailto:ignisdev@magalz.space"`} {
+		if !strings.Contains(rec.Body.String(), want) {
+			t.Errorf("footer missing %q: %s", want, rec.Body)
+		}
+	}
+}
+
+// A Config built by hand (not through config.Load) may leave Location nil.
+func TestNewAppWithoutLocation(t *testing.T) {
+	a := NewApp(config.Config{Env: "prod"}, slog.New(slog.NewJSONHandler(&bytes.Buffer{}, nil)))
+	c, rec := newCtx()
+	a.Render.Partial(c, http.StatusOK, "footer", nil)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "IgnisDev") {
+		t.Errorf("status %d, body %q: want the footer", rec.Code, rec.Body)
+	}
+}
+
 func TestUnknownRouteIs404(t *testing.T) {
 	r, logs := newRouter(t)
 	rec := serve(r, http.MethodGet, "/nope")

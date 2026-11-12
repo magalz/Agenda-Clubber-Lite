@@ -1,0 +1,26 @@
+{{define "base"}}<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>{{if .Title}}{{.Title}} · {{end}}AGENDA CLUBBER</title>
+  <link rel="icon" href="{{asset "favicon.svg"}}" type="image/svg+xml">
+  <link rel="stylesheet" href="{{asset "css/tokens.css"}}">
+  <link rel="stylesheet" href="{{asset "css/base.css"}}">
+  <link rel="stylesheet" href="{{asset "css/components.css"}}">
+  <meta name="htmx-config" content='{"allowEval":false,"allowScriptTags":false,"includeIndicatorStyles":false,"selfRequestsOnly":true,"historyCacheSize":0,"refreshOnHistoryMiss":true}'>
+  <script src="{{asset "js/app.js"}}" defer></script>
+  <script src="{{asset "js/vendor/htmx-2.0.11.min.js"}}" defer></script>
+  <script src="{{asset "js/vendor/alpine-csp-3.17.5.min.js"}}" defer></script>
+  {{block "head-extra" .}}{{end}}
+</head>
+<body>
+  <a class="skip-link" href="#conteudo">pular para o conteúdo</a>
+  <div class="page">
+    {{block "shell" .}}<main id="conteudo" class="container">{{template "content" .}}</main>
+    {{template "footer" .}}{{end}}
+  </div>
+</body>
+</html>
+{{end}}
