@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Agenda Clubber">
+  <rect width="64" height="64" rx="10" fill="#050506"/>
+  <path d="M10 10H48L10 48Z" fill="#ff2040"/>
+  <path d="M54 16V54H16Z" fill="#ff2040"/>
+</svg>

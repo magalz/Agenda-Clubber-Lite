@@ -1,0 +1,38 @@
+{{/* App layout: sidebar and mobile drawer around the page. A page in pages/app/ defines "content" and passes its
+     sidebar key in PageData.Nav: calendario, criar-evento, meus-eventos, coletivos, perfil or admin. .User is nil when
+     logged out: guard it with `and .User ...`, never read a field of it directly. */}}
+{{define "shell"}}<div class="shell" x-data="shell" @keydown.escape.window="close">
+  <header class="topbar">
+    {{template "wordmark"}}
+    <button type="button" class="btn btn--ghost btn--sm" x-ref="toggle" aria-controls="menu-lateral" aria-expanded="false" :aria-expanded="expanded" @click="toggle" x-text="toggleLabel">[≡] menu</button>
+  </header>
+  <aside class="sidebar" id="menu-lateral" :class="sidebarClass" aria-label="menu principal">
+    <div class="sidebar__brand">{{template "wordmark"}}</div>
+    <nav aria-label="seções do site">
+      <p class="sidebar__section-label">/agenda</p>
+      <a class="nav-item" href="/"{{if eq .Nav "calendario"}} aria-current="page"{{end}}>Calendário</a>
+      {{if and .User .User.CanCreateEvents -}}
+      <a class="nav-item" href="/eventos/novo"{{if eq .Nav "criar-evento"}} aria-current="page"{{end}}>Criar Evento</a>
+      {{- else -}}
+      <a class="nav-item" role="link" aria-disabled="true" aria-describedby="criar-evento-dica">Criar Evento</a>
+      <p class="hint" id="criar-evento-dica">só donos de coletivo aprovados criam eventos</p>
+      {{- end}}
+      <a class="nav-item" href="/meus-eventos"{{if eq .Nav "meus-eventos"}} aria-current="page"{{end}}>Meus Eventos</a>
+      <p class="sidebar__section-label">/conta</p>
+      <a class="nav-item" href="/coletivos"{{if eq .Nav "coletivos"}} aria-current="page"{{end}}>Meus Coletivos</a>
+      <a class="nav-item" href="/perfil"{{if eq .Nav "perfil"}} aria-current="page"{{end}}>Editar Perfil</a>
+      {{if and .User .User.IsAdmin -}}
+      <p class="sidebar__section-label">/admin</p>
+      <a class="nav-item" href="/admin"{{if eq .Nav "admin"}} aria-current="page"{{end}}>Admin</a>
+      {{- end}}
+    </nav>
+    {{with .User -}}
+    <div class="sidebar__footer">
+      <p class="muted text-xs">{{.Name}}</p>
+      <form method="post" action="/sair"><button type="submit" class="nav-item nav-item--logout">[→] sair</button></form>
+    </div>
+    {{- end}}
+  </aside>
+  <div class="sidebar-backdrop" @click="close"></div>
+  <main id="conteudo" class="shell__main">{{template "content" .}}{{template "footer" .}}</main>
+</div>{{end}}
