@@ -276,9 +276,9 @@ func RunTx(t *testing.T, newStore NewStore) {
 			isErr(t, "WithTx", err, errRollback)
 			f.wantUntouched(e)
 		}},
-		{"a read that finds nothing leaves the transaction usable", func(t *testing.T, e env) {
+		{"an ErrNotFound leaves the transaction usable", func(t *testing.T, e env) {
 			err := e.s.WithTx(e.ctx, func(ctx context.Context, r domain.Repos) error {
-				for name, read := range map[string]func() error{
+				for name, call := range map[string]func() error{
 					"Users.ByID":              func() error { _, err := r.Users.ByID(ctx, unknownRefs[1]); return err },
 					"Users.ByEmail":           func() error { _, err := r.Users.ByEmail(ctx, "nobody@example.com"); return err },
 					"Sessions.Get":            func() error { _, err := r.Sessions.Get(ctx, hashOf("nobody")); return err },
@@ -288,7 +288,7 @@ func RunTx(t *testing.T, newStore NewStore) {
 					"Outbox.MarkSent":         func() error { return r.Outbox.MarkSent(ctx, unknownRefs[1], base) },
 					"Collectives.ByID (path)": func() error { _, err := r.Collectives.ByID(ctx, unknownRefs[2]); return err },
 				} {
-					if err := read(); !errors.Is(err, domain.ErrNotFound) {
+					if err := call(); !errors.Is(err, domain.ErrNotFound) {
 						return fmt.Errorf("%s: error = %v, want ErrNotFound", name, err)
 					}
 				}

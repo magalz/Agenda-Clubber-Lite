@@ -258,8 +258,9 @@ type Store interface {
 	//
 	//   - use only r, never Store.Repos, which would run outside the transaction;
 	//   - reads see what fn already wrote;
-	//   - an ErrNotFound from a read leaves the transaction usable;
-	//   - an error from a write (ErrEmailTaken, ErrNameTaken, ErrAlreadyMember,
+	//   - an ErrNotFound from any call (a read, or an update or delete that
+	//     matches nothing) leaves the transaction usable;
+	//   - any other error from a write (ErrEmailTaken, ErrNameTaken, ErrAlreadyMember,
 	//     ErrConflict) may leave it unusable, as it does in MongoDB: fn returns
 	//     that error instead of carrying on.
 	WithTx(ctx context.Context, fn func(ctx context.Context, r Repos) error) error
