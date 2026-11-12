@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -82,7 +83,7 @@ func migratedDataDir(t *testing.T) string {
 func TestRunUsageOnUnknownSubcommand(t *testing.T) {
 	for _, args := range [][]string{
 		{"bogus"}, {"-h"}, {"serve", "extra"},
-		{"migrate", "extra"}, {"backup"}, {"backup", "a.db", "b.db"},
+		{"migrate", "extra"}, {"backup"}, {"backup", "a.db", "b.db"}, {"healthcheck", "extra"},
 	} {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
 			var stdout, stderr bytes.Buffer
@@ -90,7 +91,7 @@ func TestRunUsageOnUnknownSubcommand(t *testing.T) {
 			if code != 2 {
 				t.Errorf("exit code = %d, want 2", code)
 			}
-			for _, want := range []string{"usage", "serve", "migrate", "backup"} {
+			for _, want := range []string{"usage", "serve", "migrate", "backup", "healthcheck"} {
 				if !strings.Contains(stderr.String(), want) {
 					t.Errorf("stderr = %q, want a usage text mentioning %q", stderr.String(), want)
 				}
@@ -296,6 +297,116 @@ func TestRunExits1WhenTheDatabaseIsUnusable(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestHealthzURL(t *testing.T) {
+	for addr, want := range map[string]string{
+		"":                "http://127.0.0.1:8120/healthz", // APP_ADDR unset: the default
+		":8120":           "http://127.0.0.1:8120/healthz",
+		":9000":           "http://127.0.0.1:9000/healthz",
+		"0.0.0.0:9001":    "http://127.0.0.1:9001/healthz", // the probe always dials loopback
+		"[::]:9002":       "http://127.0.0.1:9002/healthz",
+		"localhost:9003":  "http://127.0.0.1:9003/healthz",
+		"127.0.0.1:65535": "http://127.0.0.1:65535/healthz",
+	} {
+		got, err := healthzURL(addr)
+		if err != nil || got != want {
+			t.Errorf("healthzURL(%q) = %q, %v; want %q", addr, got, err, want)
+		}
+	}
+	for _, addr := range []string{"nonsense", "host:", ":abc", ":0", ":65536", ":-1", "8120"} {
+		if got, err := healthzURL(addr); err == nil {
+			t.Errorf("healthzURL(%q) = %q, want an error", addr, got)
+		}
+	}
+}
+
+// healthcheckAgainst runs the healthcheck subcommand with APP_ADDR pointing at
+// addr and the rest of the environment deliberately unusable: the probe must
+// not depend on the full configuration.
+func healthcheckAgainst(addr string) (code int, stdout, stderr string) {
+	var out, errb bytes.Buffer
+	env := getenvOf("APP_ADDR", addr, "APP_ENV", "bogus", "SMTP_PORT", "not-a-port", "APP_ORIGIN", "not a url")
+	code = run(context.Background(), []string{"healthcheck"}, env, &out, &errb)
+	return code, out.String(), errb.String()
+}
+
+func TestRunHealthcheckStatus(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		status int
+		want   int
+	}{
+		{"200 is healthy", http.StatusOK, 0},
+		{"500 is unhealthy", http.StatusInternalServerError, 1},
+		{"503 is unhealthy", http.StatusServiceUnavailable, 1},
+		{"a redirect is not followed", http.StatusFound, 1},
+		{"204 is not the 200 the app answers", http.StatusNoContent, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var gotMethod, gotPath string
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				gotMethod, gotPath = r.Method, r.URL.Path
+				if tc.status == http.StatusFound {
+					w.Header().Set("Location", "/elsewhere")
+				}
+				w.WriteHeader(tc.status)
+			}))
+			defer srv.Close()
+
+			code, stdout, stderr := healthcheckAgainst(srv.Listener.Addr().String())
+			if code != tc.want {
+				t.Errorf("exit code = %d, want %d; stderr: %s", code, tc.want, stderr)
+			}
+			if gotMethod != http.MethodGet || gotPath != "/healthz" {
+				t.Errorf("probe sent %s %s, want GET /healthz", gotMethod, gotPath)
+			}
+			if tc.want == 1 && !strings.Contains(stderr, "agenda:") {
+				t.Errorf("stderr = %q, want a one-line reason", stderr)
+			}
+			if stdout != "" {
+				t.Errorf("stdout = %q, want empty", stdout)
+			}
+		})
+	}
+}
+
+func TestRunHealthcheckFailures(t *testing.T) {
+	t.Run("connection refused", func(t *testing.T) {
+		code, _, stderr := healthcheckAgainst(freeAddr(t))
+		if code != 1 || !strings.Contains(stderr, "agenda:") {
+			t.Errorf("exit code = %d, stderr = %q; want 1 and a reason", code, stderr)
+		}
+	})
+	t.Run("bad APP_ADDR", func(t *testing.T) {
+		for _, addr := range []string{"nonsense", ":abc", ":0"} {
+			code, _, stderr := healthcheckAgainst(addr)
+			if code != 1 || !strings.Contains(stderr, "APP_ADDR") {
+				t.Errorf("APP_ADDR=%q: exit code = %d, stderr = %q; want 1 naming APP_ADDR", addr, code, stderr)
+			}
+		}
+	})
+	t.Run("an answer that never comes times out", func(t *testing.T) {
+		old := healthcheckTimeout
+		healthcheckTimeout = 100 * time.Millisecond
+		t.Cleanup(func() { healthcheckTimeout = old })
+
+		release := make(chan struct{})
+		srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { <-release }))
+		defer srv.Close() // runs after close(release): defers are last in, first out
+		defer close(release)
+
+		done := make(chan int, 1)
+		go func() { code, _, _ := healthcheckAgainst(srv.Listener.Addr().String()); done <- code }()
+		select {
+		case code := <-done:
+			if code != 1 {
+				t.Errorf("exit code = %d, want 1", code)
+			}
+		case <-time.After(3 * time.Second):
+			t.Fatal("healthcheck outlived its timeout")
+		}
+	})
 }
 
 func TestNewServerSettings(t *testing.T) {

@@ -64,6 +64,12 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout,
 	}
 }
 
+// healthcheckTimeout bounds one probe.
+var healthcheckTimeout = 3 * time.Second
+
+// healthzURL stub (RED).
+func healthzURL(addr string) (string, error) { return "", nil }
+
 // loadCLIConfig loads the configuration for the commands that do not serve
 // HTTP. They need DATA_DIR and nothing else, so an unset APP_ORIGIN, which
 // config.Load requires, gets a placeholder; a value that is set is still
