@@ -25,6 +25,10 @@ const (
 
 // Valid reports whether s is one of the defined statuses.
 func (s UserStatus) Valid() bool {
+	switch s {
+	case UserStatusPendingEmail, UserStatusPendingApproval, UserStatusActive, UserStatusDisabled:
+		return true
+	}
 	return false
 }
 
@@ -38,6 +42,10 @@ const (
 
 // Valid reports whether k is one of the defined kinds.
 func (k CollectiveKind) Valid() bool {
+	switch k {
+	case CollectiveKindColetivo, CollectiveKindProdutora:
+		return true
+	}
 	return false
 }
 
@@ -52,6 +60,10 @@ const (
 
 // Valid reports whether s is one of the defined statuses.
 func (s CollectiveStatus) Valid() bool {
+	switch s {
+	case CollectiveStatusPending, CollectiveStatusApproved, CollectiveStatusRejected:
+		return true
+	}
 	return false
 }
 
@@ -66,6 +78,10 @@ const (
 
 // Valid reports whether s is one of the defined statuses.
 func (s MembershipStatus) Valid() bool {
+	switch s {
+	case MembershipStatusPending, MembershipStatusApproved, MembershipStatusRejected:
+		return true
+	}
 	return false
 }
 
@@ -79,6 +95,10 @@ const (
 
 // Valid reports whether r is one of the defined roles.
 func (r Role) Valid() bool {
+	switch r {
+	case RoleOwner, RoleMember:
+		return true
+	}
 	return false
 }
 
@@ -93,6 +113,10 @@ const (
 
 // Valid reports whether p is one of the defined purposes.
 func (p TokenPurpose) Valid() bool {
+	switch p {
+	case TokenPurposeVerifyEmail, TokenPurposeResetPassword, TokenPurposeChangeEmail:
+		return true
+	}
 	return false
 }
 
