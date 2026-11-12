@@ -24,8 +24,9 @@ type App struct {
 }
 
 // NewApp builds an App from a validated configuration. It panics if the
-// embedded static tree cannot be read: it is compiled into the binary, so a
-// failure is a programming error, not a runtime condition.
+// embedded static or template tree cannot be read or parsed: both are compiled
+// into the binary, so a failure is a programming error, not a runtime
+// condition.
 func NewApp(cfg config.Config, log *slog.Logger) *App {
 	static, err := fs.Sub(webfs.Static, "static")
 	if err != nil {
@@ -35,7 +36,20 @@ func NewApp(cfg config.Config, log *slog.Logger) *App {
 	if err != nil {
 		panic(fmt.Sprintf("web: hashing embedded static files: %v", err))
 	}
-	return &App{Cfg: cfg, Log: log, Assets: assets}
+
+	templates, err := fs.Sub(webfs.Templates, "templates")
+	if err != nil {
+		panic(fmt.Sprintf("web: embedded template tree: %v", err))
+	}
+	loc := cfg.Location
+	if loc == nil {
+		loc = time.UTC // config.Load always sets it; a hand-built Config may not
+	}
+	render, err := NewRenderer(templates, assets, loc, log)
+	if err != nil {
+		panic(fmt.Sprintf("web: embedded templates: %v", err))
+	}
+	return &App{Cfg: cfg, Log: log, Assets: assets, Render: render}
 }
 
 // Router builds the Gin engine: middleware first, then the routes.

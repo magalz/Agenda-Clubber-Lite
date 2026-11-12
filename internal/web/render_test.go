@@ -18,6 +18,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/magalz/agenda-clubber-lite/internal/config"
 	webfs "github.com/magalz/agenda-clubber-lite/web"
 )
 
@@ -81,7 +82,7 @@ func miniTemplates(extra map[string]string) fstest.MapFS {
 		"layouts/base.html":    `{{define "base"}}[{{template "content" .}}]{{end}}`,
 		"partials/chip.html":   `{{define "chip"}}<span class="chip">{{.Label}}</span>{{end}}`,
 		"partials/wrap.html":   `{{define "wrap"}}<div>{{template "chip" (dict "Label" .Name)}}</div>{{end}}`,
-		"partials/broken.html": `{{define "broken"}}{{.Missing.Field}}{{end}}`,
+		"partials/broken.html": `{{define "broken"}}[{{.Name}}]{{end}}`,
 	})
 }
 
@@ -333,6 +334,11 @@ func TestNewRendererFailsFast(t *testing.T) {
 			wants: "pages/base/f.html",
 		},
 		{
+			name:  "page without content",
+			fsys:  withFiles(miniTemplates(nil), map[string]string{"pages/base/empty.html": `{{define "head-extra"}}x{{end}}`}),
+			wants: "pages/base/empty.html",
+		},
+		{
 			name:  "no base layout",
 			fsys:  fstest.MapFS{"partials/p.html": {Data: []byte(`{{define "p"}}p{{end}}`)}},
 			wants: "base.html",
@@ -424,7 +430,7 @@ func TestExecutionErrorIs500(t *testing.T) {
 	}
 
 	c, prec := newCtx()
-	r.Partial(c, http.StatusOK, "broken", map[string]any{})
+	r.Partial(c, http.StatusOK, "broken", (*ViewUser)(nil))
 	if prec.Code != http.StatusInternalServerError || prec.Body.String() != "erro interno" {
 		t.Errorf("partial error: status %d body %q", prec.Code, prec.Body)
 	}
@@ -494,6 +500,36 @@ func cspViolations(body string) []string {
 		}
 	}
 	return found
+}
+
+// The other tests hash a hand-written file list. This one uses the App's own
+// Assets, so a misspelled asset name in the shipped base layout, or a script
+// that is not in web/static, fails here (as a 500 on every page in production).
+func TestShippedBaseRendersWithTheEmbeddedAssets(t *testing.T) {
+	app := NewApp(config.Config{Env: "prod", Location: fortaleza(t)}, slog.New(slog.NewJSONHandler(&bytes.Buffer{}, nil)))
+	templates := realTemplates(t, map[string]string{"pages/base/x.html": basePage})
+	logs := &bytes.Buffer{}
+	r, err := NewRenderer(templates, app.Assets, fortaleza(t), slog.New(slog.NewJSONHandler(logs, nil)))
+	if err != nil {
+		t.Fatalf("NewRenderer: %v", err)
+	}
+
+	rec := renderPage(t, r, "base/x", PageData{Title: "T"})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body %q, log %s", rec.Code, rec.Body, logs)
+	}
+	body := rec.Body.String()
+	for _, name := range []string{
+		"favicon.svg", "css/tokens.css", "css/base.css", "css/components.css",
+		"js/app.js", "js/vendor/htmx-2.0.11.min.js", "js/vendor/alpine-csp-3.17.5.min.js",
+	} {
+		if !strings.Contains(body, app.Assets.URL(name)) {
+			t.Errorf("page does not link %s", name)
+		}
+	}
+	if v := cspViolations(body); len(v) > 0 {
+		t.Errorf("%s in:\n%s", strings.Join(v, "; "), body)
+	}
 }
 
 func TestRenderedHTMLIsCSPSafe(t *testing.T) {
