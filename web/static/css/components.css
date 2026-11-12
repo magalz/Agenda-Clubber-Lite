@@ -483,6 +483,15 @@
   outline: 2px solid var(--color-focus);
   outline-offset: 2px;
 }
+/* The card carries the focus ring; a second ring on the radio inside it would double it. */
+.radio-card input:focus-visible {
+  outline: none;
+}
+.check:has(input:disabled),
+.radio-card:has(input:disabled) {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
 
 /* A field plus an adjacent control on one row: input + button (search, invite code) or input + select. */
 .input-group {
@@ -599,27 +608,17 @@
 }
 
 /* ==== Panel ====
-   The neon frame repeats .neon-border from base.css, so a bare .panel is neon, as in CircuitoNE. Note: backdrop-filter
-   makes a panel the containing block of position:fixed descendants, so never put a sheet inside one. */
+   The neon frame comes from base.css (`.neon-border, .panel:not(.panel--plain)`), so a bare .panel is neon, as in
+   CircuitoNE. Note: backdrop-filter makes a panel the containing block of position:fixed descendants, so never put a
+   sheet inside one. */
 .panel {
   position: relative;
-  border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent);
-  box-shadow:
-    0 0 0 1px color-mix(in srgb, var(--accent) 10%, transparent),
-    0 0 24px -8px color-mix(in srgb, var(--accent) 50%, transparent),
-    inset 0 0 32px -20px color-mix(in srgb, var(--accent) 60%, transparent);
   background: var(--panel-glass);
   -webkit-backdrop-filter: blur(8px);
   backdrop-filter: blur(8px);
 }
 .panel--plain {
-  border-color: var(--color-line);
-  box-shadow: none;
-}
-@media (forced-colors: active) {
-  .panel {
-    border-color: CanvasText;
-  }
+  border: 1px solid var(--color-line);
 }
 .panel__header {
   display: flex;

@@ -261,7 +261,9 @@ input:is([type='date'], [type='datetime-local'], [type='time'], [type='month'], 
 }
 
 /* color-mix stays inline (not the :root tints) so a scoped --accent override is followed. */
-.neon-border {
+/* .panel (components.css) is neon by default, so it shares this frame instead of repeating it. */
+.neon-border,
+.panel:not(.panel--plain) {
   border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent);
   box-shadow:
     0 0 0 1px color-mix(in srgb, var(--accent) 10%, transparent),
@@ -297,7 +299,8 @@ input:is([type='date'], [type='datetime-local'], [type='time'], [type='month'], 
 
 /* High-contrast mode drops box-shadow and author colors: give the neon frame a real border. */
 @media (forced-colors: active) {
-  .neon-border {
+  .neon-border,
+  .panel:not(.panel--plain) {
     border: 1px solid CanvasText;
   }
 }
