@@ -84,14 +84,20 @@ func (r collectives) SearchApproved(ctx context.Context, query string, kind doma
 	if kind != "" {
 		filter["kind"] = string(kind)
 	}
+	return r.list(ctx, filter, limit, "search collectives")
+}
+
+// list returns the collectives that match filter in ascending name key, at most
+// limit of them. op names the operation in the error.
+func (r collectives) list(ctx context.Context, filter bson.M, limit int, op string) ([]domain.Collective, error) {
 	cur, err := r.coll().Find(ctx, filter,
 		options.Find().SetSort(bson.D{{Key: "name_key", Value: 1}}).SetLimit(int64(limit)))
 	if err != nil {
-		return nil, wrap("search collectives", err)
+		return nil, wrap(op, err)
 	}
 	var docs []collectiveDoc
 	if err := cur.All(ctx, &docs); err != nil {
-		return nil, wrap("search collectives", err)
+		return nil, wrap(op, err)
 	}
 	found := make([]domain.Collective, len(docs))
 	for i, d := range docs {
@@ -122,12 +128,61 @@ func (r collectives) Delete(ctx context.Context, id string) error {
 	})
 }
 
-// ListByStatus is a stub until T3.3 implements it.
+// ListByStatus returns the collectives with this status, in ascending name key.
 func (r collectives) ListByStatus(ctx context.Context, status domain.CollectiveStatus, limit int) ([]domain.Collective, error) {
-	return nil, errNotImplemented
+	if !status.Valid() {
+		return nil, domain.FieldErrors{"status": domain.MsgInvalid}
+	}
+	return r.list(ctx, bson.M{"status": string(status)}, min(max(limit, 1), domain.ListLimitMax), "list collectives")
 }
 
-// Update is a stub until T3.3 implements it.
+// Update stores the mutable fields in one UpdateOne by _id. The $inc of rev makes
+// it write even when no field differs, so two transactions that update the same
+// collective always conflict: the driver runs the loser's function again, and it
+// reads what the winner stored. The flags are stored as set, true or false.
 func (r collectives) Update(ctx context.Context, c domain.Collective) error {
-	return errNotImplemented
+	if err := c.Validate(); err != nil {
+		return err
+	}
+	oid, err := parseID(c.ID)
+	if err != nil {
+		return err
+	}
+	approvedBy, err := refID(c.ApprovedBy)
+	if err != nil {
+		return err
+	}
+	if err := r.s.mustExist(ctx, colUsers, approvedBy); err != nil {
+		return err
+	}
+	set := bson.M{
+		"name":           c.Name,
+		"name_key":       c.NameKey,
+		"status":         string(c.Status),
+		"events_blocked": c.EventsBlocked,
+		"locked":         c.Locked,
+		"updated_at":     c.UpdatedAt,
+	}
+	unset := bson.M{}
+	if approvedBy != nil {
+		set["approved_by"] = *approvedBy
+	} else {
+		unset["approved_by"] = ""
+	}
+	if c.ApprovedAt != nil {
+		set["approved_at"] = *c.ApprovedAt
+	} else {
+		unset["approved_at"] = ""
+	}
+	update := bson.M{"$set": set, "$inc": bson.M{"rev": 1}}
+	if len(unset) > 0 {
+		update["$unset"] = unset
+	}
+	if err := updateOne(ctx, r.coll(), "update collective", oid, update); err != nil {
+		if mongo.IsDuplicateKeyError(err) {
+			return domain.ErrNameTaken
+		}
+		return err
+	}
+	return nil
 }
