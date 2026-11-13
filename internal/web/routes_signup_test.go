@@ -476,8 +476,8 @@ func TestSignupFieldErrors(t *testing.T) {
 				t.Errorf("input %s is not invalid and described by erro-%s", tag, c.key)
 			}
 		}
-		// The collective message sits under the collective_name input.
-		inOrder(t, body, `name="collective_name"`, `id="erro-collective"`, `name="collective_id"`)
+		// The collective message sits under the collective_name input (and its suggestions box, which comes first).
+		inOrder(t, body, `name="collective_name"`, `id="collective-suggestions-box"`, `id="erro-collective"`)
 		if strings.Contains(body, `id="erro-password"`) {
 			t.Error("a password error for a valid password")
 		}
@@ -750,8 +750,8 @@ func TestSignupSuggestions(t *testing.T) {
 		}
 		for _, want := range []string{
 			`<ul id="collective-suggestions" class="suggestions" role="listbox">`,
-			`<li class="suggestions__item" role="option">`,
-			`<button type="button" data-collective-id="` + alpha.ID + `" data-collective-name="Baile Alfa">Baile Alfa</button>`,
+			`<li id="collective-suggestion-0" class="suggestions__item" role="option">`,
+			`<button type="button" tabindex="-1" data-collective-id="` + alpha.ID + `" data-collective-name="Baile Alfa">Baile Alfa</button>`,
 		} {
 			if !strings.Contains(body, want) {
 				t.Errorf("missing %q in:\n%s", want, body)
