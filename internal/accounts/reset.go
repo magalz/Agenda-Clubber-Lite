@@ -5,9 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/magalz/agenda-clubber-lite/internal/auth"
 	"github.com/magalz/agenda-clubber-lite/internal/domain"
@@ -90,27 +88,15 @@ func ResetPassword(ctx context.Context, store domain.Store, rawToken, password, 
 	// The checks that need no account come first, so a field error never
 	// spends the link.
 	var fe domain.FieldErrors
-	switch {
-	case password == "":
-		fe.Add("password", domain.MsgRequired)
-	case !utf8.ValidString(password):
-		fe.Add("password", domain.MsgInvalid)
-	default:
-		if violated := auth.CheckPolicy(password, ""); len(violated) > 0 {
-			fe.Add("password", resetPolicyMessage(violated))
-		}
-	}
-	if password != confirm {
-		fe.Add("password_confirm", signupMsgPasswordMismatch)
-	}
+	passwordFieldErrors(&fe, password, confirm, "")
 	if err := fe.Err(); err != nil {
 		return err
 	}
 
 	// A refusal inside the transaction rolls the consumed token back. The new
 	// password is hashed only after the link is consumed, so a forged link costs
-	// a lookup, not an argon2 hash (this form has no rate limit). A retried
-	// transaction hashes again, which is harmless.
+	// a lookup, not an argon2 hash. A retried transaction hashes again, which is
+	// harmless.
 	return store.WithTx(ctx, func(ctx context.Context, r domain.Repos) error {
 		t, err := r.Tokens.Consume(ctx, domain.TokenPurposeResetPassword, hash, now)
 		if errors.Is(err, domain.ErrNotFound) {
@@ -131,17 +117,13 @@ func ResetPassword(ctx context.Context, store domain.Store, rawToken, password, 
 		// Only RuleNotEmail needs the account's address.
 		if violated := auth.CheckPolicy(password, u.Email); slices.Contains(violated, auth.RuleNotEmail) {
 			var fe domain.FieldErrors
-			fe.Add("password", resetPolicyMessage([]auth.Rule{auth.RuleNotEmail}))
+			fe.Add("password", PasswordPolicyMessage([]auth.Rule{auth.RuleNotEmail}))
 			return fe.Err()
 		}
-		hashes, err := r.Users.RecentPasswordHashes(ctx, u.ID)
+		// A history that cannot be read is an error, never "no match".
+		used, err := passwordInHistory(ctx, r.Users, u.ID, password)
 		if err != nil {
-			return fmt.Errorf("accounts: reset password: password history: %w", err)
-		}
-		// A hash that cannot be read is an error, never "no match".
-		used, err := auth.MatchesAny(password, hashes)
-		if err != nil {
-			return fmt.Errorf("accounts: reset password: password history: %w", err)
+			return err
 		}
 		if used {
 			var fe domain.FieldErrors
@@ -161,14 +143,4 @@ func ResetPassword(ctx context.Context, store domain.Store, rawToken, password, 
 		}
 		return nil
 	})
-}
-
-// resetPolicyMessage is the pt-BR message for the policy rules a password
-// violates, worded as at signup.
-func resetPolicyMessage(violated []auth.Rule) string {
-	labels := make([]string, len(violated))
-	for i, rule := range violated {
-		labels[i] = auth.RuleLabels[rule]
-	}
-	return "requisitos da senha: " + strings.Join(labels, ", ")
 }
