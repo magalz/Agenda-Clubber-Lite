@@ -1,0 +1,24 @@
+{{define "subject"}}Confirme seu e-mail · Agenda Clubber{{end}}
+
+{{define "text"}}$ confirmar_email
+
+Olá, {{.Name}}! Falta só um passo para entrar na Agenda Clubber: confirmar que este e-mail é seu.
+
+[→] {{.Link}}
+
+O link vale por 24 horas. Depois desse prazo ele deixa de funcionar.
+
+Depois da confirmação, a administração analisa o seu cadastro antes de liberar o acesso.
+
+Não foi você? É só ignorar esta mensagem: nada acontece sem a confirmação.
+
+{{template "text_footer"}}
+{{end}}
+
+{{define "html"}}{{template "html_open" .}}<p style="margin:0 0 16px;font-family:'Space Mono',Menlo,Consolas,'Courier New',monospace;font-size:18px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;">$ confirmar_email</p>
+<p style="margin:0 0 16px;">Olá, {{.Name}}! Falta só um passo para entrar na Agenda Clubber: confirmar que este e-mail é seu.</p>
+{{template "html_button" btn "Confirmar e-mail" .Link}}
+<p style="margin:0 0 16px;">O link vale por 24 horas. Depois desse prazo ele deixa de funcionar.</p>
+<p style="margin:0 0 16px;">Depois da confirmação, a administração analisa o seu cadastro antes de liberar o acesso.</p>
+<p style="margin:0;color:#8a8a92;">Não foi você? É só ignorar esta mensagem: nada acontece sem a confirmação.</p>
+{{template "html_close" .}}{{end}}

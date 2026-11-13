@@ -13,13 +13,17 @@ import (
 	"os/signal"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 	_ "time/tzdata" // IANA zones for APP_TZ in a container without /usr/share/zoneinfo
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/magalz/agenda-clubber-lite/internal/auth"
 	"github.com/magalz/agenda-clubber-lite/internal/config"
+	"github.com/magalz/agenda-clubber-lite/internal/domain"
+	"github.com/magalz/agenda-clubber-lite/internal/mail"
 	"github.com/magalz/agenda-clubber-lite/internal/store/mongostore"
 	"github.com/magalz/agenda-clubber-lite/internal/web"
 )
@@ -33,20 +37,22 @@ commands:
   serve           run the web server (default)
   migrate         create or update the database schema (safe to run again)
   healthcheck     probe the running server's /healthz and exit 0 if it answers 200
+  create-admin    create an active admin: --name, --email and --phone, password on stdin
+  seed-dev        fill a dev database with sample accounts and collectives (APP_ENV=dev, SEED_PASSWORD)
 `
 )
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	code := run(ctx, os.Args[1:], os.Getenv, os.Stdout, os.Stderr)
+	code := run(ctx, os.Args[1:], os.Getenv, os.Stdin, os.Stdout, os.Stderr)
 	stop()
 	os.Exit(code)
 }
 
-// run dispatches the subcommand and returns the process exit code. Later
-// subcommands (create-admin, seed-dev) join the switch; each reads only the
-// configuration it uses.
-func run(ctx context.Context, args []string, getenv func(string) string, stdout, stderr io.Writer) int {
+// run dispatches the subcommand and returns the process exit code. Each
+// subcommand reads only the configuration it uses; only create-admin reads
+// stdin (the password).
+func run(ctx context.Context, args []string, getenv func(string) string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
 		args = []string{"serve"}
 	}
@@ -57,6 +63,10 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout,
 		return migrate(ctx, getenv, stdout, stderr)
 	case args[0] == "healthcheck" && len(args) == 1:
 		return healthcheck(ctx, getenv, stderr)
+	case args[0] == "create-admin":
+		return createAdmin(ctx, args[1:], getenv, stdin, stdout, stderr)
+	case args[0] == "seed-dev" && len(args) == 1:
+		return seedDev(ctx, getenv, stdout, stderr)
 	default:
 		fmt.Fprint(stderr, usage)
 		return 2
@@ -167,9 +177,10 @@ func migrate(ctx context.Context, getenv func(string) string, stdout, stderr io.
 	return 0
 }
 
-// serve opens the database, runs the HTTP server until ctx is canceled and shuts
-// both down. It validates the whole configuration first. The database is not
-// handed to the web app yet.
+// serve opens the database, runs the HTTP server and the background jobs (the
+// outbox worker and the cleanup of expired sessions and tokens) until ctx is
+// canceled, then stops the server, waits for the jobs and closes the database.
+// It validates the whole configuration first.
 func serve(ctx context.Context, getenv func(string) string, stdout, stderr io.Writer) int {
 	cfg, err := config.Load(getenv)
 	if err != nil {
@@ -178,13 +189,21 @@ func serve(ctx context.Context, getenv func(string) string, stdout, stderr io.Wr
 	}
 	log := newLogger(cfg, stdout)
 
+	// Before the database: a sender that cannot be built is a settings mistake
+	// and needs no connection to report.
+	sender, err := newSender(cfg, log)
+	if err != nil {
+		log.Error("mail sender failed", "err", err)
+		return 1
+	}
+
 	store, err := openStore(ctx, cfg.Mongo)
 	if err != nil {
 		log.Error("database failed", "err", err)
 		return 1
 	}
-	// Deferred, so it runs after the server has shut down, and also when the
-	// server failed to listen.
+	// Deferred first, so it runs last: after the server and the background jobs
+	// have stopped, and also when the server failed to listen.
 	defer func() {
 		if err := closeStore(store); err != nil {
 			log.Error("closing the database failed")
@@ -192,27 +211,148 @@ func serve(ctx context.Context, getenv func(string) string, stdout, stderr io.Wr
 	}()
 	log.Info("database ready", "db", cfg.Mongo.DB)
 
-	srv := newServer(cfg, log)
+	// Build the shared dummy hash now, so the first login for an unknown email
+	// does not take longer than the ones after it.
+	auth.DummyVerify("")
+
+	srv := newServer(cfg, log, store)
+	stopJobs := startJobs(ctx, log, store.Repos(), sender)
 
 	errCh := make(chan error, 1)
 	go func() { errCh <- srv.ListenAndServe() }()
 	log.Info("starting", "addr", cfg.Addr, "env", cfg.Env, "origin", cfg.Origin)
 
+	code := 0
 	select {
 	case err := <-errCh: // only a failure: nothing has called Shutdown yet
 		log.Error("listen failed", "err", err)
-		return 1
+		code = 1
 	case <-ctx.Done():
+		log.Info("shutting down")
 	}
 
-	log.Info("shutting down")
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+	// One deadline bounds the whole shutdown: the server stops, then the jobs. The
+	// database closes after both (the deferred closeStore), so no job uses it later.
+	shutdownBy := time.Now().Add(shutdownTimeout)
+	shutdownCtx, cancel := context.WithDeadline(context.Background(), shutdownBy)
 	defer cancel()
-	if err := srv.Shutdown(shutdownCtx); err != nil {
-		log.Error("shutdown failed", "err", err)
-		return 1
+	if code == 0 {
+		if err := srv.Shutdown(shutdownCtx); err != nil {
+			log.Error("shutdown failed", "err", err)
+			code = 1
+		}
 	}
-	return 0
+	if !stopJobs(time.Until(shutdownBy)) {
+		log.Error("background jobs did not stop in time")
+	}
+	return code
+}
+
+// cleanupInterval is how often serve removes expired sessions and tokens; a
+// variable so a test can shorten it.
+var cleanupInterval = time.Hour
+
+// newSender picks how outgoing mail leaves: the drop folder (dev only, which
+// config.Load enforces) when MAIL_DROP_DIR is set, else SMTP when SMTP_HOST is
+// set, else nothing: a nil sender and one warning. Each logs the kind of sender
+// (drop, smtp or none) as the "sender" attribute, and never the relay's host or the
+// login: the whole SMTP group would add the username.
+func newSender(cfg config.Config, log *slog.Logger) (mail.Sender, error) {
+	switch {
+	case cfg.MailDropDir != "":
+		d, err := mail.NewDropSender(cfg.MailDropDir)
+		if err != nil {
+			return nil, err
+		}
+		d.From = cfg.SMTP.From
+		log.Info("mail: writing messages to the drop folder", "sender", "drop", "dir", cfg.MailDropDir, "from", d.From)
+		return d, nil
+	case cfg.SMTP.Host != "":
+		s, err := mail.NewSMTPSender(cfg.SMTP)
+		if err != nil {
+			return nil, err // untyped nil: a nil *SMTPSender in a mail.Sender is not nil
+		}
+		log.Info("mail: sending through SMTP", "sender", "smtp")
+		return s, nil
+	default:
+		log.Warn("email sending disabled: no SMTP_HOST or MAIL_DROP_DIR", "sender", "none")
+		return nil, nil
+	}
+}
+
+// startJobs runs the background jobs until ctx is canceled or stop is called:
+// the outbox worker, when there is a sender, and the cleanup of expired sessions
+// and tokens. stop cancels them and waits up to timeout for both to return,
+// which includes the message the worker has in flight and the write that records
+// its result; it reports whether they did. serve calls it before it closes the
+// database, so no job touches the store after that.
+func startJobs(ctx context.Context, log *slog.Logger, repos domain.Repos, sender mail.Sender) (stop func(timeout time.Duration) bool) {
+	ctx, cancel := context.WithCancel(ctx)
+	var wg sync.WaitGroup
+	if sender != nil {
+		w := &mail.Worker{Outbox: repos.Outbox, Sender: sender, Log: log}
+		wg.Go(func() { w.Run(ctx) })
+	}
+	wg.Go(func() { purgeLoop(ctx, log, repos) })
+
+	return func(timeout time.Duration) bool {
+		cancel()
+		done := make(chan struct{})
+		go func() { wg.Wait(); close(done) }()
+		timer := time.NewTimer(timeout)
+		defer timer.Stop()
+		select {
+		case <-done:
+			return true
+		case <-timer.C:
+			// An already spent timeout (the server used the deadline up) must not
+			// hide jobs that have finished.
+			select {
+			case <-done:
+				return true
+			default:
+				return false
+			}
+		}
+	}
+}
+
+// purgeLoop removes the expired rows at once and then every cleanupInterval,
+// until ctx is canceled.
+func purgeLoop(ctx context.Context, log *slog.Logger, repos domain.Repos) {
+	ticker := time.NewTicker(cleanupInterval)
+	defer ticker.Stop()
+	for {
+		purgeExpired(ctx, log, repos)
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
+}
+
+// purgeExpired deletes the expired sessions and the used or expired tokens. The
+// two are independent: a failure of the first does not skip the second. Each logs
+// the number it removed at Info, also when it is 0, or its failure at Error; a
+// failure caused by the shutdown is not logged.
+func purgeExpired(ctx context.Context, log *slog.Logger, repos domain.Repos) {
+	now := time.Now().UTC()
+	sessions, sessionsErr := repos.Sessions.DeleteExpired(ctx, now)
+	tokens, tokensErr := repos.Tokens.DeleteExpired(ctx, now)
+	if ctx.Err() != nil {
+		return
+	}
+	if sessionsErr != nil {
+		log.Error("cleanup: removing expired sessions failed", "err", sessionsErr)
+	} else {
+		log.Info("cleanup: expired sessions removed", "count", sessions)
+	}
+	if tokensErr != nil {
+		log.Error("cleanup: removing expired tokens failed", "err", tokensErr)
+	} else {
+		log.Info("cleanup: expired tokens removed", "count", tokens)
+	}
 }
 
 // newLogger logs JSON in production and text in development.
@@ -223,8 +363,9 @@ func newLogger(cfg config.Config, w io.Writer) *slog.Logger {
 	return slog.New(slog.NewJSONHandler(w, nil))
 }
 
-// newServer sets the Gin mode and builds the http.Server with its timeouts.
-func newServer(cfg config.Config, log *slog.Logger) *http.Server {
+// newServer sets the Gin mode and builds the http.Server with its timeouts. The
+// web app reads and writes through store.
+func newServer(cfg config.Config, log *slog.Logger, store domain.Store) *http.Server {
 	if cfg.IsDev() {
 		gin.SetMode(gin.DebugMode)
 	} else {
@@ -232,7 +373,7 @@ func newServer(cfg config.Config, log *slog.Logger) *http.Server {
 	}
 	return &http.Server{
 		Addr:              cfg.Addr,
-		Handler:           web.NewApp(cfg, log).Router(),
+		Handler:           web.NewApp(cfg, log, store).Router(),
 		ErrorLog:          slog.NewLogLogger(log.Handler(), slog.LevelError),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,

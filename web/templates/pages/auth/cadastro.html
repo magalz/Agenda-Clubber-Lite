@@ -1,0 +1,66 @@
+{{/* Signup form. Data is a signupPage. It posts without JavaScript: the radios are required and the hidden collective_id
+     stays empty, so the typed collective name creates a new collective. Field names equal the keys of the signup
+     service's errors, except that the "collective" error shows under collective_name.
+     Three Alpine components (web/static/js/app.js) enhance it; the form works the same without them:
+       phoneMask         on #phone: shows (00) 00000-0000 or (00) 0000-0000 while the person types. The masked text is
+                         what posts; the server keeps only the digits.
+       passwordFields    around the password partial (see password-fields): the live checklist and the confirmation
+                         message. It reads #email, so the partial is called with EmailInput.
+       collectivePicker  around the kind radios, #collective_name, the hidden #collective_id, the suggestions box and
+                         the role radios: #collective_name is a combobox over the list the script loads from
+                         /coletivos/sugestoes into #collective-suggestions-box. Picking sets #collective_id; any typing
+                         clears it. A name with no pick is a new collective: the script selects Dono and disables Membro,
+                         and swaps the text of #role-hint to say why. The served HTML never disables a radio.
+     The picker's handlers sit on the kind fieldset (change) and on the .field around the name (mouse, delegated to
+     the suggestion buttons), because the box itself stays an empty div. The box comes right after the input, so the
+     list opens under it and a screen reader reads the options next.
+     CSS: status, status--error, stack, stack--sm, field, label, label--required, hint, input, check, radio-card,
+     uppercase-label, btn, btn--solid (components.css). */}}
+{{define "content"}}<div class="stack">
+  {{with .Data.Notice}}<p class="status status--error" role="alert">{{.}}</p>{{end}}
+  <form class="stack" method="post" action="/cadastro">
+    <div class="field">
+      <label class="label label--required" for="name">nome</label>
+      <input class="input" type="text" id="name" name="name" value="{{.Form.Get "name"}}" autocomplete="name" required{{with index .Errors "name"}} aria-invalid="true" aria-describedby="erro-name"{{end}}>
+      {{template "field-error" (dict "Errors" .Errors "Field" "name")}}
+    </div>
+    <div class="field">
+      <label class="label label--required" for="email">e-mail</label>
+      <input class="input" type="email" id="email" name="email" value="{{.Form.Get "email"}}" autocomplete="email" autocapitalize="none" spellcheck="false" required{{with index .Errors "email"}} aria-invalid="true" aria-describedby="erro-email"{{end}}>
+      {{template "field-error" (dict "Errors" .Errors "Field" "email")}}
+    </div>
+    <div class="field">
+      <label class="label label--required" for="phone">telefone</label>
+      <input class="input" type="tel" id="phone" name="phone" value="{{.Form.Get "phone"}}" inputmode="tel" autocomplete="tel" required x-data="phoneMask" @input="format" aria-describedby="phone-hint{{with index .Errors "phone"}} erro-phone{{end}}"{{with index .Errors "phone"}} aria-invalid="true"{{end}}>
+      <p class="hint" id="phone-hint">DDD + número, sem +55</p>
+      {{template "field-error" (dict "Errors" .Errors "Field" "phone")}}
+      <label class="check"><input type="checkbox" name="phone_whatsapp" value="1"{{if eq (.Form.Get "phone_whatsapp") "1"}} checked{{end}}> é WhatsApp</label>
+    </div>
+    {{template "password-fields" (dict "Errors" .Errors "Checklist" .Data.Checklist "Autocomplete" "new-password" "EmailInput" "email")}}
+    <div class="stack" x-data="collectivePicker">
+    <fieldset class="stack stack--sm" role="radiogroup" @change="onKindChange"{{with index .Errors "collective_kind"}} aria-invalid="true" aria-describedby="erro-collective_kind"{{end}}>
+      <legend class="label label--required">tipo</legend>
+      <label class="radio-card"><input type="radio" name="collective_kind" value="coletivo"{{if eq (.Form.Get "collective_kind") "coletivo"}} checked{{end}} required><span class="uppercase-label">Coletivo</span></label>
+      <label class="radio-card"><input type="radio" name="collective_kind" value="produtora"{{if eq (.Form.Get "collective_kind") "produtora"}} checked{{end}} required><span class="uppercase-label">Produtora</span></label>
+      {{template "field-error" (dict "Errors" .Errors "Field" "collective_kind")}}
+    </fieldset>
+    <div class="field" @mousedown="onListMousedown" @click="onListClick" @click.outside="close">
+      <label class="label label--required" for="collective_name">coletivo ou produtora</label>
+      <input class="input" type="text" id="collective_name" name="collective_name" value="{{.Form.Get "collective_name"}}" autocomplete="off" required role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="collective-suggestions" :aria-expanded="expanded" :aria-activedescendant="activeDescendant" @input="onInput" @keydown="onKeydown" @blur="close" aria-describedby="collective-name-hint{{with index .Errors "collective"}} erro-collective{{end}}"{{with index .Errors "collective"}} aria-invalid="true"{{end}}>
+      <input type="hidden" id="collective_id" name="collective_id" value="{{.Form.Get "collective_id"}}">
+      <div id="collective-suggestions-box"></div>
+      <p class="hint" id="collective-name-hint">comece a digitar para ver os já cadastrados, ou escreva um nome novo</p>
+      {{template "field-error" (dict "Errors" .Errors "Field" "collective")}}
+    </div>
+    <fieldset class="stack stack--sm" role="radiogroup" aria-describedby="role-hint{{with index .Errors "role"}} erro-role{{end}}"{{with index .Errors "role"}} aria-invalid="true"{{end}}>
+      <legend class="label label--required">papel</legend>
+      <label class="radio-card"><input type="radio" name="role" value="owner"{{if eq (.Form.Get "role") "owner"}} checked{{end}} required><span class="uppercase-label">Dono</span></label>
+      <label class="radio-card"><input type="radio" name="role" value="member"{{if eq (.Form.Get "role") "member"}} checked{{end}} required :disabled="membroDisabled"><span class="uppercase-label">Membro</span></label>
+      <p class="hint" id="role-hint">quem cria um coletivo novo entra como dono</p>
+      {{template "field-error" (dict "Errors" .Errors "Field" "role")}}
+    </fieldset>
+    </div>
+    <button class="btn btn--solid" type="submit">[→] CRIAR CONTA</button>
+  </form>
+  <p><a href="/entrar">já tenho conta</a></p>
+</div>{{end}}

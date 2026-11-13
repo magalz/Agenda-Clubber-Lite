@@ -1,0 +1,26 @@
+{{/* Login page. Data is a loginView: Next is the page to go to after the login (already checked by safeNext), Message
+     the one status line, Resend offers to send the confirmation e-mail again, Contact ends the message with the contact
+     address. The password is never put back in the form; .Form holds only what the person typed in the e-mail field. */}}
+{{define "content"}}<div class="stack">
+  {{with .Data.Message}}<p class="status status--error" role="alert">{{.}}{{if $.Data.Contact}} <a href="mailto:ignisdev@magalz.space">ignisdev@magalz.space</a>.{{end}}</p>{{end}}
+  {{if .Data.Resend}}<form method="post" action="/confirmar/reenviar" class="cluster">
+    <input type="hidden" name="email" value="{{.Form.Get "email"}}">
+    <button class="btn btn--outline btn--sm" type="submit">[→] REENVIAR CONFIRMAÇÃO</button>
+  </form>{{end}}
+  <form method="post" action="/entrar" class="stack">
+    <input type="hidden" name="next" value="{{.Data.Next}}">
+    <div class="field">
+      <label class="label label--required" for="email">e-mail</label>
+      <input class="input" id="email" name="email" type="email" autocomplete="email" required value="{{.Form.Get "email"}}">
+    </div>
+    <div class="field">
+      <label class="label label--required" for="senha">senha</label>
+      <input class="input" id="senha" name="password" type="password" autocomplete="current-password" required>
+    </div>
+    <button class="btn btn--solid" type="submit">[→] ENTRAR</button>
+  </form>
+  <div class="cluster">
+    <a href="/cadastro">criar conta</a>
+    <a href="/senha/esqueci">esqueci a senha</a>
+  </div>
+</div>{{end}}

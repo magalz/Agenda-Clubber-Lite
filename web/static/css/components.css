@@ -604,6 +604,67 @@
   animation: checklist-in var(--dur-fast) ease-out;
 }
 
+/* ==== Password fields (partials/password-fields.html) ====
+   .password-fields wraps the password input, the confirmation input and the checklist, spaced like .stack.
+   .match-status is the live message under the confirmation input, written by the passwordFields component:
+   "as senhas conferem" (.match-status--ok) or "as senhas não conferem" (.match-status--error). It stays in the
+   page, empty, until the confirmation has text, so screen readers announce it when it fills; while empty it only
+   cancels the .field gap it would add. */
+.password-fields {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+.match-status {
+  font-size: var(--text-xs);
+  line-height: var(--leading-xs);
+  color: var(--color-muted);
+}
+.match-status:empty {
+  margin-top: calc(-1 * var(--space-1));
+}
+.match-status--ok {
+  color: var(--color-ok);
+}
+.match-status--error {
+  color: var(--accent-text);
+}
+
+/* ==== Suggestions (collective autocomplete on the signup page) ====
+   <ul class="suggestions" role="listbox"> of <li class="suggestions__item" role="option"><button>name</button></li>,
+   loaded by the collectivePicker component right under the combobox input (partials/signup-suggestions.html).
+   The button fills the row (at least 2rem tall, above the 24px target minimum), wraps long names and is out of
+   the tab order: the keyboard stays in the input. .is-active marks the option aria-activedescendant points at
+   (arrow keys); hover looks the same. No motion. */
+.suggestions {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--color-control);
+  background-color: var(--color-bg-elev);
+}
+.suggestions__item + .suggestions__item {
+  border-top: 1px solid var(--color-line);
+}
+.suggestions__item button {
+  display: block;
+  width: 100%;
+  min-height: 2rem;
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-sm);
+  line-height: var(--leading-sm);
+  text-align: left;
+  overflow-wrap: anywhere;
+  color: var(--foreground);
+}
+.suggestions__item button:hover,
+.suggestions__item.is-active button {
+  background-color: var(--tint-accent-12);
+  color: var(--accent-text);
+}
+.suggestions__item.is-active button {
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
 /* ==== Panel ====
    The neon frame comes from base.css (`.neon-border, .panel:not(.panel--plain)`), so a bare .panel is neon, as in
    CircuitoNE. Note: backdrop-filter makes a panel the containing block of position:fixed descendants, so never put a
@@ -695,6 +756,39 @@
 .status--error {
   border-color: var(--accent);
   color: var(--accent-text);
+}
+.status--warn {
+  border-color: var(--color-warn);
+  color: var(--color-warn);
+}
+
+/* ==== Expiry banner ====
+   The first child of main in layouts/app.html, shown while the password expires within 7 days. It is a warning .status
+   box (padding, border, type and colours come from .status and .status--warn); this section only lays it out:
+     <div class="status status--warn expiry-banner" role="status">
+       <span class="expiry-banner__text">sua senha vence em 3 dias.</span>
+       <a class="expiry-banner__link" href="/senha/trocar">[→] trocar agora</a>
+     </div>
+   role="status" is a polite live region. The [aviso] prefix is decoration with an empty accessible text. The two children
+   sit on one row when they fit and wrap onto two at 320 px; a long word breaks instead of overflowing. The link keeps the
+   underline and colour of base.css (links are underlined) and its focus ring, and is at least 1.5rem tall. No motion. */
+.expiry-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-4);
+  margin-bottom: var(--space-6);
+  overflow-wrap: anywhere;
+}
+.expiry-banner__text::before {
+  content: '[aviso] ';
+  content: '[aviso] ' / '';
+}
+.expiry-banner__link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.5rem;
+  font-weight: 700;
 }
 
 /* ==== Empty state ==== */
