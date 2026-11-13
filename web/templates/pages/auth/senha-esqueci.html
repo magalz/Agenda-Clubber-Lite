@@ -1,0 +1,18 @@
+{{/* Forgot password. Data is a resetView, State is one of two. "form": the form that asks for a reset link; Message, when
+     there is one (the rate limit), is the alert above it, and .Form holds only the e-mail typed there. "sent": a link
+     was asked for; the same text is shown for every address, so the page tells nothing about which are registered. */}}
+{{define "content"}}<div class="stack">
+  {{if eq .Data.State "sent"}}<p class="status status--ok" role="status">{{.Data.Message}}</p>
+  <p><a href="/entrar">ir para o login</a></p>
+  {{else}}<p>informe o e-mail da sua conta. se ela estiver ativa, enviamos um link para criar uma nova senha.</p>
+  {{with .Data.Message}}<p class="status status--error" role="alert">{{.}}</p>
+  {{end}}<form method="post" action="/senha/esqueci" class="stack">
+    <div class="field">
+      <label class="label label--required" for="email">e-mail</label>
+      <input class="input" id="email" name="email" type="email" autocomplete="email" required value="{{.Form.Get "email"}}">
+    </div>
+    <button class="btn btn--solid" type="submit">[→] ENVIAR LINK</button>
+  </form>
+  <p><a href="/entrar">voltar ao login</a></p>
+  {{end}}
+</div>{{end}}

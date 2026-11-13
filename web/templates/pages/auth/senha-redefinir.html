@@ -1,0 +1,18 @@
+{{/* Reset password. Data is a resetView, State is one of three. "form": the e-mailed link was opened (or the new
+     password was refused), and the page offers the form whose POST spends the token (a GET never does, since mail
+     scanners open links); Token is the link's token, put in the form's hidden field, and Checklist the password
+     rules. "done": the password was changed. "invalid": the link does not work; Message is the alert, and the page
+     offers no password form. */}}
+{{define "content"}}<div class="stack">
+  {{if eq .Data.State "done"}}<p class="status status--ok" role="status">{{.Data.Message}}</p>
+  <p><a href="/entrar">ir para o login</a></p>
+  {{else if eq .Data.State "invalid"}}<p class="status status--error" role="alert">{{.Data.Message}}</p>
+  <p><a href="/senha/esqueci">pedir um novo link</a></p>
+  {{else}}<p>escolha uma nova senha para a sua conta.</p>
+  <form method="post" action="/senha/redefinir" class="stack">
+    <input type="hidden" name="token" value="{{.Data.Token}}">
+    {{template "password-fields" (dict "Errors" .Errors "Checklist" .Data.Checklist "Autocomplete" "new-password")}}
+    <button class="btn btn--solid" type="submit">[→] SALVAR NOVA SENHA</button>
+  </form>
+  {{end}}
+</div>{{end}}
