@@ -13,6 +13,7 @@ import (
 	"os/signal"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 	_ "time/tzdata" // IANA zones for APP_TZ in a container without /usr/share/zoneinfo
@@ -176,8 +177,10 @@ func migrate(ctx context.Context, getenv func(string) string, stdout, stderr io.
 	return 0
 }
 
-// serve opens the database, runs the HTTP server until ctx is canceled and shuts
-// both down. It validates the whole configuration first.
+// serve opens the database, runs the HTTP server and the background jobs (the
+// outbox worker and the cleanup of expired sessions and tokens) until ctx is
+// canceled, then stops the server, waits for the jobs and closes the database.
+// It validates the whole configuration first.
 func serve(ctx context.Context, getenv func(string) string, stdout, stderr io.Writer) int {
 	cfg, err := config.Load(getenv)
 	if err != nil {
@@ -186,13 +189,21 @@ func serve(ctx context.Context, getenv func(string) string, stdout, stderr io.Wr
 	}
 	log := newLogger(cfg, stdout)
 
+	// Before the database: a sender that cannot be built is a settings mistake
+	// and needs no connection to report.
+	sender, err := newSender(cfg, log)
+	if err != nil {
+		log.Error("mail sender failed", "err", err)
+		return 1
+	}
+
 	store, err := openStore(ctx, cfg.Mongo)
 	if err != nil {
 		log.Error("database failed", "err", err)
 		return 1
 	}
-	// Deferred, so it runs after the server has shut down, and also when the
-	// server failed to listen.
+	// Deferred first, so it runs last: after the server and the background jobs
+	// have stopped, and also when the server failed to listen.
 	defer func() {
 		if err := closeStore(store); err != nil {
 			log.Error("closing the database failed")
@@ -203,6 +214,15 @@ func serve(ctx context.Context, getenv func(string) string, stdout, stderr io.Wr
 	// Build the shared dummy hash now, so the first login for an unknown email
 	// does not take longer than the ones after it.
 	auth.DummyVerify("")
+
+	// Deferred after closeStore, so the worker's last write and the cleanup are
+	// done before the database closes.
+	stopJobs := startJobs(ctx, log, store.Repos(), sender)
+	defer func() {
+		if !stopJobs(shutdownTimeout) {
+			log.Error("background jobs did not stop in time")
+		}
+	}()
 
 	srv := newServer(cfg, log, store)
 
@@ -231,12 +251,97 @@ func serve(ctx context.Context, getenv func(string) string, stdout, stderr io.Wr
 // variable so a test can shorten it.
 var cleanupInterval = time.Hour
 
-// newSender is a stub until the green commit.
-func newSender(cfg config.Config, log *slog.Logger) (mail.Sender, error) { return nil, nil }
+// newSender picks how outgoing mail leaves: the drop folder (dev only, which
+// config.Load enforces) when MAIL_DROP_DIR is set, else SMTP when SMTP_HOST is
+// set, else nothing: a nil sender and one warning. The logs name the relay's host
+// and port, never the login: the whole SMTP group would add the username.
+func newSender(cfg config.Config, log *slog.Logger) (mail.Sender, error) {
+	switch {
+	case cfg.MailDropDir != "":
+		d, err := mail.NewDropSender(cfg.MailDropDir)
+		if err != nil {
+			return nil, err
+		}
+		d.From = cfg.SMTP.From
+		log.Info("mail: writing messages to the drop folder", "dir", cfg.MailDropDir, "from", d.From)
+		return d, nil
+	case cfg.SMTP.Host != "":
+		s, err := mail.NewSMTPSender(cfg.SMTP)
+		if err != nil {
+			return nil, err // untyped nil: a nil *SMTPSender in a mail.Sender is not nil
+		}
+		log.Info("mail: sending through SMTP", "host", cfg.SMTP.Host, "port", cfg.SMTP.Port)
+		return s, nil
+	default:
+		log.Warn("mail: no SMTP_HOST (or MAIL_DROP_DIR in dev): queued emails are not sent")
+		return nil, nil
+	}
+}
 
-// startJobs is a stub until the green commit.
+// startJobs runs the background jobs until ctx is canceled or stop is called:
+// the outbox worker, when there is a sender, and the cleanup of expired sessions
+// and tokens. stop cancels them and waits up to timeout for both to return,
+// which includes the message the worker has in flight and the write that records
+// its result; it reports whether they did. serve calls it before it closes the
+// database, so no job touches the store after that.
 func startJobs(ctx context.Context, log *slog.Logger, repos domain.Repos, sender mail.Sender) (stop func(timeout time.Duration) bool) {
-	return func(time.Duration) bool { return true }
+	ctx, cancel := context.WithCancel(ctx)
+	var wg sync.WaitGroup
+	if sender != nil {
+		w := &mail.Worker{Outbox: repos.Outbox, Sender: sender, Log: log}
+		wg.Go(func() { w.Run(ctx) })
+	}
+	wg.Go(func() { purgeLoop(ctx, log, repos) })
+
+	return func(timeout time.Duration) bool {
+		cancel()
+		done := make(chan struct{})
+		go func() { wg.Wait(); close(done) }()
+		timer := time.NewTimer(timeout)
+		defer timer.Stop()
+		select {
+		case <-done:
+			return true
+		case <-timer.C:
+			return false
+		}
+	}
+}
+
+// purgeLoop removes the expired rows at once and then every cleanupInterval,
+// until ctx is canceled.
+func purgeLoop(ctx context.Context, log *slog.Logger, repos domain.Repos) {
+	ticker := time.NewTicker(cleanupInterval)
+	defer ticker.Stop()
+	for {
+		purgeExpired(ctx, log, repos)
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
+}
+
+// purgeExpired deletes the expired sessions and the used or expired tokens. The
+// two are independent: a failure of the first does not skip the second. A failure
+// caused by the shutdown is not logged, and a run that removed nothing logs nothing.
+func purgeExpired(ctx context.Context, log *slog.Logger, repos domain.Repos) {
+	now := time.Now().UTC()
+	sessions, sessionsErr := repos.Sessions.DeleteExpired(ctx, now)
+	tokens, tokensErr := repos.Tokens.DeleteExpired(ctx, now)
+	if ctx.Err() != nil {
+		return
+	}
+	if sessionsErr != nil {
+		log.Error("cleanup: removing expired sessions failed", "err", sessionsErr)
+	}
+	if tokensErr != nil {
+		log.Error("cleanup: removing expired tokens failed", "err", tokensErr)
+	}
+	if sessions+tokens > 0 {
+		log.Info("cleanup: removed expired rows", "sessions", sessions, "tokens", tokens)
+	}
 }
 
 // newLogger logs JSON in production and text in development.

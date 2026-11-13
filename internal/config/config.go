@@ -192,6 +192,18 @@ func Load(getenv func(string) string) (Config, error) {
 		return Config{}, err
 	}
 
+	// Production must send through an authenticated relay: serve would otherwise
+	// start with no way to send the emails people must confirm to sign up. The
+	// SMTP sender itself insists on STARTTLS.
+	if cfg.Env == "prod" {
+		if cfg.SMTP.Host == "" {
+			return Config{}, fmt.Errorf("SMTP_HOST: required with APP_ENV=prod")
+		}
+		if cfg.SMTP.Username == "" {
+			return Config{}, fmt.Errorf("SMTP_USERNAME: required with APP_ENV=prod (TLS and login are mandatory)")
+		}
+	}
+
 	return cfg, nil
 }
 
