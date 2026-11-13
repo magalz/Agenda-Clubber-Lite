@@ -43,7 +43,7 @@ export MONGO_URI='mongodb://localhost:27017/?directConnection=true'
 go run ./cmd/agenda          # same as: go run ./cmd/agenda serve
 ```
 
-With `APP_ENV=dev`, `APP_ORIGIN` and `MONGO_URI` are the only required settings (`prod` also needs `SMTP_HOST` and `SMTP_USERNAME`); `.env.example` documents the rest. The server creates the schema when it starts.
+With `APP_ENV=dev`, `APP_ORIGIN` and `MONGO_URI` are the only required settings (`prod` also needs `SMTP_HOST`, `SMTP_USERNAME` and `SMTP_PASSWORD`); `.env.example` documents the rest. The server creates the schema when it starts.
 
 ## Commands
 
@@ -81,7 +81,7 @@ The sample accounts, all `@agenda.test`:
 | `admin@agenda.test` | the admin |
 | `dono@agenda.test` | an approved owner of the sample collective and producer |
 | `membro@agenda.test` | an approved member of the sample collective |
-| `pendente-email@agenda.test` | has not confirmed its email (the command prints its confirmation link) |
+| `pendente-email@agenda.test` | has not confirmed its email (the first run prints its confirmation link) |
 | `pendente-aprovacao@agenda.test` | confirmed, waiting for the admin's approval |
 | `senha-vencida@agenda.test` | its password has expired |
 | `senha-quase@agenda.test` | its password is about to expire |
