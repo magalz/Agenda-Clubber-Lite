@@ -423,6 +423,29 @@ func TestSMTPSenderRedactsCredentialsFromErrors(t *testing.T) {
 	srv.noDelivery(t)
 }
 
+func TestSMTPSenderRedactsOverlappingCredentials(t *testing.T) {
+	// When one credential starts with the other, redacting the shorter first
+	// would leave the rest of the longer one in the text.
+	cases := []struct{ name, username, password string }{
+		{"username is a prefix of the password", "ana", "ana-secret"},
+		{"password is a prefix of the username", "ana-secret", "ana"},
+		{"same value", "ana-secret", "ana-secret"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := config.SMTPConfig{Host: "smtp.example.com", Port: 587, From: testFrom, Username: tc.username, Password: tc.password}
+			s, err := newSMTPSender(cfg)
+			if err != nil {
+				t.Fatalf("newSMTPSender: %v", err)
+			}
+			got := s.redactor.Replace("535 bad login " + tc.password + " for " + tc.username + ", then " + tc.password)
+			if want := "535 bad login [redacted] for [redacted], then [redacted]"; got != want {
+				t.Errorf("redacted = %q, want %q", got, want)
+			}
+		})
+	}
+}
+
 func checkNoSecrets(t *testing.T, err error) {
 	t.Helper()
 	for _, secret := range []string{testUsername, testPassword} {
