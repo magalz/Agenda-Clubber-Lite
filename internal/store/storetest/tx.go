@@ -20,6 +20,7 @@ type written struct {
 	session    domain.Session
 	collective domain.Collective
 	message    domain.OutboxMessage
+	audit      domain.AuditEntry
 }
 
 // writeEverything creates one record of every kind through r, with a
@@ -48,6 +49,13 @@ func writeEverything(ctx context.Context, r domain.Repos) (written, error) {
 	w.message = newMessage(w.user.Email)
 	if err := r.Outbox.Enqueue(ctx, &w.message); err != nil {
 		return w, fmt.Errorf("enqueue message: %w", err)
+	}
+	w.audit = newAuditEntry(func(a *domain.AuditEntry) {
+		a.UserID, a.UserName = w.user.ID, w.user.Name
+		a.CollectiveID, a.CollectiveName = w.collective.ID, w.collective.Name
+	})
+	if err := r.AuditEntries.Create(ctx, &w.audit); err != nil {
+		return w, fmt.Errorf("create audit entry: %w", err)
 	}
 	return w, nil
 }
@@ -78,6 +86,10 @@ func readBack(ctx context.Context, r domain.Repos, w written) error {
 	if ok, err := r.Memberships.UserCanCreateEvents(ctx, w.user.ID); err != nil || !ok {
 		return fmt.Errorf("UserCanCreateEvents over your own writes = %v, error %v", ok, err)
 	}
+	entries, err := r.AuditEntries.List(ctx, domain.ListLimitMax)
+	if err != nil || len(entries) != 1 || entries[0].ID != w.audit.ID {
+		return fmt.Errorf("read your own audit entry: %d entries, error %v", len(entries), err)
+	}
 	return nil
 }
 
@@ -99,6 +111,7 @@ func (e env) wantStored(w written) {
 		e.t.Errorf("token: %v", err)
 	}
 	wantIDs(e.t, "Claim", e.claim(base, leaseFor, 10), w.message)
+	wantIDsBy(e.t, "audit List", auditID, e.auditList(domain.ListLimitMax), w.audit)
 }
 
 // wantNothing checks that nothing writeEverything wrote is there.
@@ -122,18 +135,28 @@ func (e env) wantNothing(w written) {
 	if got := e.claim(base, leaseFor, 10); len(got) != 0 {
 		e.t.Errorf("Claim returned %d messages, want none", len(got))
 	}
+	if got := e.auditList(domain.ListLimitMax); len(got) != 0 {
+		e.t.Errorf("audit List returned %d entries, want none", len(got))
+	}
 }
 
 // txFixture is committed data that the update and delete subtests change in a
 // transaction: ana (a user with a session, a membership and a message waiting)
-// and victim (a user with a session and a membership), plus two collectives.
+// and victim (a user with a session and a membership), plus two collectives. The
+// admin approves newcomer (a user waiting for the approval) and the collective
+// under review, where joiner has a pending membership to decide and leaver an
+// approved one to remove. mutate stores the audit entry it creates in audit.
 type txFixture struct {
-	ana, victim       domain.User
-	anaSession        domain.Session
-	victimSession     domain.Session
-	kept, doomed      domain.Collective
-	message           domain.OutboxMessage
-	anaNewPasswordTag string
+	ana, victim                     domain.User
+	anaSession                      domain.Session
+	victimSession                   domain.Session
+	kept, doomed                    domain.Collective
+	message                         domain.OutboxMessage
+	anaNewPasswordTag               string
+	admin, newcomer, joiner, leaver domain.User
+	review                          domain.Collective
+	joining, leaving                domain.Membership
+	audit                           domain.AuditEntry
 }
 
 func (e env) txFixture() txFixture {
@@ -147,15 +170,55 @@ func (e env) txFixture() txFixture {
 	f.anaSession = e.session(f.ana.ID, "ana-session")
 	f.victimSession = e.session(f.victim.ID, "victim-session")
 	f.message = e.message(f.ana.Email)
+	f.admin, f.newcomer = e.user("admin"), e.user("newcomer", userStatus(uPendingApproval))
+	f.joiner, f.leaver = e.user("joiner"), e.user("leaver")
+	f.review = e.collective("Casa Rosa", produtora, cPending)
+	f.joining = e.member(f.joiner, f.review, roleMember, mPending)
+	f.leaving = e.member(f.leaver, f.review, roleMember, mApproved, decided(f.admin.ID, f.admin.ID))
 	return f
 }
 
+// The values mutate writes. Each differs from the stored one in every field the
+// update takes, so an update that did not happen, or that did not reach the
+// store, shows.
+
+func (f *txFixture) approved() domain.User {
+	u := f.newcomer
+	u.Status, u.ApprovedBy, u.ApprovedAt, u.UpdatedAt = uActive, f.admin.ID, ptr(at(time.Minute)), at(time.Minute)
+	return u
+}
+
+func (f *txFixture) reviewed() domain.Collective {
+	c := f.review
+	c.Name, c.NameKey = "Casa Rosa Nova", domain.NameKey("Casa Rosa Nova")
+	c.Status, c.ApprovedBy, c.ApprovedAt = cApproved, f.admin.ID, ptr(at(time.Minute))
+	c.EventsBlocked, c.Locked, c.UpdatedAt = true, true, at(time.Minute)
+	return c
+}
+
+func (f *txFixture) joined() domain.Membership {
+	m := f.joining
+	m.Role, m.Status = roleOwner, mApproved
+	m.AdminApprovedBy, m.AdminApprovedAt = f.admin.ID, ptr(at(time.Minute))
+	m.OwnerApprovedBy, m.OwnerApprovedAt = f.admin.ID, ptr(at(2*time.Minute))
+	m.DecidedAt = ptr(at(3 * time.Minute))
+	return m
+}
+
 // mutate updates and deletes through r: one call of every kind that is not a Create.
-func (f txFixture) mutate(ctx context.Context, r domain.Repos) error {
+func (f *txFixture) mutate(ctx context.Context, r domain.Repos) error {
 	steps := []struct {
 		name string
 		do   func() error
 	}{
+		{"AuditEntries.Create", func() error {
+			f.audit = newAuditEntry(func(a *domain.AuditEntry) { a.UserID, a.UserName = f.newcomer.ID, f.newcomer.Name })
+			return r.AuditEntries.Create(ctx, &f.audit)
+		}},
+		{"Users.Approve", func() error { return r.Users.Approve(ctx, f.newcomer.ID, f.admin.ID, at(time.Minute)) }},
+		{"Collectives.Update", func() error { return r.Collectives.Update(ctx, f.reviewed()) }},
+		{"Memberships.Update", func() error { return r.Memberships.Update(ctx, f.joined()) }},
+		{"Memberships.Delete", func() error { return r.Memberships.Delete(ctx, f.leaver.ID, f.review.ID) }},
 		{"SetStatus", func() error { return r.Users.SetStatus(ctx, f.ana.ID, uDisabled, at(time.Minute)) }},
 		{"ChangePassword", func() error { return r.Users.ChangePassword(ctx, f.ana.ID, f.anaNewPasswordTag, at(time.Minute)) }},
 		{"Sessions.Delete", func() error { return r.Sessions.Delete(ctx, f.anaSession.Hash) }},
@@ -172,7 +235,7 @@ func (f txFixture) mutate(ctx context.Context, r domain.Repos) error {
 }
 
 // wantUntouched checks that mutate had no effect.
-func (f txFixture) wantUntouched(e env) {
+func (f *txFixture) wantUntouched(e env) {
 	e.t.Helper()
 	ana := e.getUser(f.ana.ID)
 	if ana.Status != uActive || ana.PasswordHash != f.ana.PasswordHash {
@@ -195,10 +258,21 @@ func (f txFixture) wantUntouched(e env) {
 	if got := e.views(f.ana.ID); len(got) != 1 {
 		e.t.Errorf("ana has %d memberships, want 1", len(got))
 	}
+	wantEqual(e.t, "newcomer", normUser(e.getUser(f.newcomer.ID)), normUser(f.newcomer))
+	got, err := e.r.Collectives.ByID(e.ctx, f.review.ID)
+	noErr(e.t, "collective under review", err)
+	wantEqual(e.t, "collective under review", normCollective(got), normCollective(f.review))
+	_, err = e.r.Collectives.ByNameKey(e.ctx, f.reviewed().NameKey)
+	isErr(e.t, "collective by the name Update gives it", err, domain.ErrNotFound)
+	wantEqual(e.t, "joiner's membership", normMembership(e.membership(f.joiner.ID, f.review.ID)), normMembership(f.joining))
+	wantEqual(e.t, "leaver's membership", normMembership(e.membership(f.leaver.ID, f.review.ID)), normMembership(f.leaving))
+	if got := e.auditList(domain.ListLimitMax); len(got) != 0 {
+		e.t.Errorf("audit List returned %d entries, want none", len(got))
+	}
 }
 
 // wantMutated checks that mutate took effect.
-func (f txFixture) wantMutated(e env) {
+func (f *txFixture) wantMutated(e env) {
 	e.t.Helper()
 	ana := e.getUser(f.ana.ID)
 	if ana.Status != uDisabled || ana.PasswordHash != f.anaNewPasswordTag {
@@ -219,6 +293,16 @@ func (f txFixture) wantMutated(e env) {
 	if _, err := e.r.Collectives.ByID(e.ctx, f.kept.ID); err != nil {
 		e.t.Errorf("the other collective: %v", err)
 	}
+	wantEqual(e.t, "newcomer", normUser(e.getUser(f.newcomer.ID)), normUser(f.approved()))
+	got, err := e.r.Collectives.ByID(e.ctx, f.review.ID)
+	noErr(e.t, "collective under review", err)
+	wantEqual(e.t, "collective under review", normCollective(got), normCollective(f.reviewed()))
+	_, err = e.r.Collectives.ByNameKey(e.ctx, f.review.NameKey)
+	isErr(e.t, "collective by the name Update took from it", err, domain.ErrNotFound)
+	wantEqual(e.t, "joiner's membership", normMembership(e.membership(f.joiner.ID, f.review.ID)), normMembership(f.joined()))
+	_, err = e.r.Memberships.Get(e.ctx, f.leaver.ID, f.review.ID)
+	isErr(e.t, "leaver's membership", err, domain.ErrNotFound)
+	wantIDsBy(e.t, "audit List", auditID, e.auditList(domain.ListLimitMax), f.audit)
 }
 
 // RunTx runs the contract of Store.WithTx and Store.Ping.
