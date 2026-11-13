@@ -255,8 +255,14 @@ func notifyOwners(ctx context.Context, r domain.Repos, collectiveID string, data
 // whatAccount is the person's own account.
 const whatAccount = "sua conta"
 
-// whatCollective is a collective the person asked to create.
-func whatCollective(name string, kind domain.CollectiveKind) string { return "o coletivo " + name }
+// whatCollective is a collective the person asked to create: "a produtora X"
+// for a produtora, "o coletivo X" for anything else.
+func whatCollective(name string, kind domain.CollectiveKind) string {
+	if kind == domain.CollectiveKindProdutora {
+		return "a produtora " + name
+	}
+	return "o coletivo " + name
+}
 
 // whatJoin is the person's request to join a collective in a role.
 func whatJoin(collectiveName string, role domain.Role) string {

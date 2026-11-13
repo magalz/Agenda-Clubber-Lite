@@ -388,7 +388,9 @@ func TestRequestCollective(t *testing.T) {
 				t.Errorf("%d people got an email, want the two admins: %+v", len(by), by)
 			}
 			for _, u := range []domain.User{f.admin, f.admin2} {
-				requestsRequireEmail(t, by, u, "Coletivo novo para aprovar: Nova  Casa",
+				// Render folds the whitespace of a subject into single spaces; the body
+				// keeps the name as stored.
+				requestsRequireEmail(t, by, u, "Coletivo novo para aprovar: Nova Casa",
 					f.person.Name+" pediu para criar Nova  Casa", testOrigin+"/admin")
 			}
 
