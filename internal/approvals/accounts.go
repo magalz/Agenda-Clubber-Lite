@@ -25,8 +25,7 @@ import (
 
 // PersonCard is one person in the site admin's queue: the account and the
 // requests of the person that wait for the admin (a collective the person asked
-// to create, or a request to join one), oldest first when the account is active
-// and in the order of the collective names when it is pending.
+// to create, or a request to join one), the oldest request first.
 type PersonCard struct {
 	User  domain.User
 	Items []domain.MembershipView
