@@ -10,18 +10,16 @@ import (
 	"time"
 )
 
-// The Validate tests port the field rules of internal/store/schema_test.go
-// (TestSchemaConstraints). SQLite cases that are not field rules are left out:
+// The Validate tests cover the field rules of each entity. What a field rule
+// cannot check is left to other tests:
 //
-//   - uniqueness (email differing only in case, collective name_key taken) and
-//     foreign keys (unknown approved_by, user, collective or creator), plus the
-//     cascade and set-null tests: the backend contract suite covers them;
-//   - events (every "event ..." and "ticket_url ..." case): phase 4;
-//   - password_history and audit_log rows: no entity in this package yet;
-//   - is_whatsapp 2 and is_admin 2: bool fields cannot hold them.
+//   - uniqueness (an email that differs only in case, a collective name that is
+//     taken), references (an unknown approver, user, collective or creator) and
+//     cascades: the backend contract suite, internal/store/storetest;
+//   - events: phase 4.
 //
-// The email-case SQLite test becomes a rule of its own here: an email that is
-// not in normalized form is a field error.
+// An email that is not in normalized form is a field error here, a rule of its
+// own.
 
 var t0 = time.Date(2026, 11, 12, 16, 0, 0, 0, time.UTC)
 
