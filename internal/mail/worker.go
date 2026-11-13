@@ -35,13 +35,14 @@ const (
 // sending a message that is still in flight; the defaults do.
 //
 // The logs name a message by its ID only: its recipient, subject and bodies
-// carry personal data and the links in them carry tokens.
+// carry personal data and the links in them carry tokens. The error of a Sender
+// is logged and stored as it is, so a Sender keeps all of that out of it.
 type Worker struct {
 	Outbox domain.Outbox
 	Sender Sender
 	Log    *slog.Logger // nil means slog.Default()
 
-	Now         func() time.Time // nil means time.Now
+	Now         func() time.Time // nil means time.Now in UTC
 	Interval    time.Duration    // wait between runs of Run; 0 means 5 seconds
 	Lease       time.Duration    // how long a claimed message is held; 0 means 5 minutes
 	SendTimeout time.Duration    // bound of one Send; 0 means 3 minutes
@@ -130,14 +131,18 @@ func (w *Worker) deliver(ctx context.Context, m domain.OutboxMessage) (bool, err
 	if attempt < MaxAttempts {
 		at := now.Add(RetryDelays[m.Attempts])
 		retryAt = &at
-		w.log().Warn("mail: send failed, will retry", "id", m.ID, "attempt", attempt, "retry_at", at, "error", sendErr)
-	} else {
-		w.log().Warn("mail: send failed, giving up", "id", m.ID, "attempt", attempt, "gave_up", true, "error", sendErr)
 	}
 	if err := w.Outbox.MarkFailed(markCtx, m.ID, sendErr.Error(), retryAt); err != nil {
+		// No verdict is logged: the message was not retried or given up as far as
+		// the outbox knows, it comes back when its lease runs out.
 		w.log().Error("mail: could not record a failed send; it is sent again when its lease runs out",
 			"id", m.ID, "error", err)
 		return false, fmt.Errorf("mail: mark message failed: %w", err)
+	}
+	if retryAt != nil {
+		w.log().Warn("mail: send failed, will retry", "id", m.ID, "attempt", attempt, "retry_at", *retryAt, "error", sendErr)
+	} else {
+		w.log().Warn("mail: send failed, giving up", "id", m.ID, "attempt", attempt, "gave_up", true, "error", sendErr)
 	}
 	return false, nil
 }

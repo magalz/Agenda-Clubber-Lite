@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/mail"
 	"net/textproto"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -87,10 +88,10 @@ func newSMTPSender(cfg config.SMTPConfig, extra ...gomail.Option) (*SMTPSender, 
 	return &SMTPSender{client: client, from: from, redactor: redactor}, nil
 }
 
-// Send delivers m. A failure comes back as one line with the credentials taken
-// out, since a server may repeat them in its refusal; when ctx ended, the error
-// wraps ctx.Err(). ctx bounds the connection; the server then has smtpTimeout
-// for each reply.
+// Send delivers m. A failure comes back as one line with the credentials and the
+// recipient taken out, since a server may repeat them in its refusal and the
+// error ends up in logs; when ctx ended, the error wraps ctx.Err(). ctx bounds
+// the connection; the server then has smtpTimeout for each reply.
 func (s *SMTPSender) Send(ctx context.Context, m domain.OutboxMessage) error {
 	msg, err := buildMessage(s.from, m)
 	if err != nil {
@@ -100,13 +101,14 @@ func (s *SMTPSender) Send(ctx context.Context, m domain.OutboxMessage) error {
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return fmt.Errorf("mail: send: %w", ctxErr)
 		}
-		return s.sendError(err)
+		return s.sendError(err, m.To)
 	}
 	return nil
 }
 
-// sendError returns err as one line that carries neither credential.
-func (s *SMTPSender) sendError(err error) error {
+// sendError returns err as one line that carries neither credential nor to, the
+// recipient of the message.
+func (s *SMTPSender) sendError(err error, to string) error {
 	text := err.Error()
 	if s.redactor != nil {
 		var reply *textproto.Error
@@ -116,11 +118,51 @@ func (s *SMTPSender) sendError(err error) error {
 			// status is kept.
 			return fmt.Errorf("mail: send: the SMTP server refused the login (%d)", reply.Code)
 		}
-		// Redact before the whitespace is collapsed, or a password with a run of
-		// spaces would no longer match.
+	}
+	var refusal *gomail.SendError
+	if errors.As(err, &refusal) {
+		// go-mail appends the recipient to a refusal, and the server's own words
+		// usually repeat it too, so the text is built from the typed fields.
+		text = refusalText(refusal)
+	} else if s.redactor != nil {
 		text = s.redactor.Replace(text)
 	}
+	// Redact before the whitespace is collapsed, or a password with a run of
+	// spaces would no longer match.
+	text = redactAddress(text, to)
 	return errors.New("mail: send: " + strings.Join(strings.Fields(text), " "))
+}
+
+// refusalText names the step that failed, the reply code of the server and its
+// enhanced status code. The server's wording is left out: a refusal usually
+// repeats the recipient, in any case or quoting, and may repeat the login.
+func refusalText(e *gomail.SendError) string {
+	text := e.Reason.String()
+	if code := e.ErrorCode(); code != 0 {
+		text += ": " + strconv.Itoa(code)
+		if status := e.EnhancedStatusCode(); status != "" {
+			text += " " + status
+		}
+	}
+	return text
+}
+
+// redactAddress hides addr in text whatever its case, as written and as
+// strconv.Quote writes it between the quotes, which is how net/textproto shows
+// a server's reply. The longer form goes first for the same reason as in
+// newRedactor.
+func redactAddress(text, addr string) string {
+	addr = strings.TrimSpace(addr)
+	if addr == "" {
+		return text
+	}
+	quoted := strconv.Quote(addr)
+	forms := []string{addr, quoted[1 : len(quoted)-1]}
+	slices.SortStableFunc(forms, func(a, b string) int { return len(b) - len(a) })
+	for i, form := range forms {
+		forms[i] = regexp.QuoteMeta(form)
+	}
+	return regexp.MustCompile("(?i)"+strings.Join(forms, "|")).ReplaceAllLiteralString(text, "[redacted]")
 }
 
 // newRedactor returns a Replacer that hides each secret as written and as

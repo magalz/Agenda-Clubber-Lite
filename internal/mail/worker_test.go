@@ -456,51 +456,150 @@ func TestWorkerLeaseDefaultsToFiveMinutes(t *testing.T) {
 }
 
 func TestWorkerLogsNeverHoldTheMessage(t *testing.T) {
+	cases := []struct {
+		name    string
+		failure error
+		// namesTo is true for a sender whose error text names the recipient of the
+		// message that failed. The worker logs the text of a sender's error as it is
+		// (it is the sender's job to keep personal data out of it, see
+		// TestSMTPSenderKeepsTheRecipientOutOfErrors), so the log then holds that
+		// address; everything else of the message must stay out of the log.
+		namesTo bool
+	}{
+		{"error text without the recipient", errors.New("smtp: 451 try again later"), false},
+		{"error text that names the recipient", errors.New("smtp: 550 5.1.1 <bia@example.com>: user unknown"), true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ob := newOutbox(t)
+			clock := &fakeClock{t: workerT0}
+			sender := &fakeSender{send: func(_ context.Context, m domain.OutboxMessage) error {
+				if m.To == "bia@example.com" {
+					return tc.failure
+				}
+				return nil
+			}}
+			var logs syncBuffer
+			log := slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
+			w := newWorker(ob, sender, clock, log)
+			ok := enqueue(t, ob, "ana@example.com", workerT0)
+			bad := enqueue(t, ob, "bia@example.com", workerT0)
+
+			// Six rounds, 7 hours apart (more than the longest retry delay): one message
+			// is sent, the other fails every time and is given up.
+			for i := range MaxAttempts {
+				clock.Set(workerT0.Add(time.Duration(i) * 7 * time.Hour))
+				sent, failed, err := w.RunOnce(t.Context())
+				if err != nil {
+					t.Fatalf("round %d: RunOnce error = %v", i+1, err)
+				}
+				wantSent := 0
+				if i == 0 {
+					wantSent = 1
+				}
+				if sent != wantSent || failed != 1 {
+					t.Fatalf("round %d: sent %d, failed %d; want sent %d", i+1, sent, failed, wantSent)
+				}
+			}
+
+			out := logs.String()
+			for _, want := range []string{"id=" + ok.ID, "id=" + bad.ID, "gave_up=true", "attempt=6", "retry_at=", tc.failure.Error()} {
+				if !strings.Contains(out, want) {
+					t.Errorf("the log does not contain %q:\n%s", want, out)
+				}
+			}
+			for _, m := range []domain.OutboxMessage{ok, bad} {
+				for _, secret := range []string{m.To, m.Subject, m.Text, m.HTML, "token-", "agenda.example"} {
+					if secret == m.To && tc.namesTo && m.ID == bad.ID {
+						continue
+					}
+					if strings.Contains(out, secret) {
+						t.Errorf("the log contains %q, which belongs to the message:\n%s", secret, out)
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestWorkerWritesNoVerdictWhenMarkFailedFails(t *testing.T) {
+	// The Warn line says "will retry" or "giving up": it must not announce a
+	// result that the outbox did not store. Only the Error line is written.
+	boom := errors.New("mark failed: store down")
+	for _, tc := range []struct {
+		name   string
+		rounds int // failed sends that are stored before the one whose MarkFailed fails
+	}{
+		{"a retry", 0},
+		{"giving up", MaxAttempts - 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ob := newOutbox(t)
+			clock := &fakeClock{t: workerT0}
+			sender := &fakeSender{send: func(context.Context, domain.OutboxMessage) error { return errors.New("smtp: 451 try again later") }}
+			w := newWorker(ob, sender, clock, discardLog)
+			m := enqueue(t, ob, "ana@example.com", workerT0)
+			for i := range tc.rounds {
+				clock.Set(workerT0.Add(time.Duration(i) * 7 * time.Hour))
+				wantRun(t, w, t.Context(), 0, 1)
+			}
+
+			var logs syncBuffer
+			w.Log = slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
+			w.Outbox = flakyOutbox{Outbox: ob, failedErr: boom}
+			clock.Set(workerT0.Add(time.Duration(tc.rounds) * 7 * time.Hour))
+			sent, failed, err := w.RunOnce(t.Context())
+			if !errors.Is(err, boom) || sent != 0 || failed != 1 {
+				t.Fatalf("RunOnce = %d, %d, %v; want 0, 1 and the mark error", sent, failed, err)
+			}
+
+			out := logs.String()
+			if !strings.Contains(out, "could not record a failed send") || !strings.Contains(out, "id="+m.ID) {
+				t.Errorf("the log has no error line for %s:\n%s", m.ID, out)
+			}
+			for _, verdict := range []string{"will retry", "giving up", "gave_up", "retry_at"} {
+				if strings.Contains(out, verdict) {
+					t.Errorf("the log announces %q although the result was not stored:\n%s", verdict, out)
+				}
+			}
+			if lines := strings.Count(out, "\n"); lines != 1 {
+				t.Errorf("the log has %d lines, want just the error line:\n%s", lines, out)
+			}
+		})
+	}
+}
+
+func TestWorkerKeepsTheRecipientOutOfLogAndLastErrorWhenTheServerRefusesIt(t *testing.T) {
+	// The whole path with the real sender: a server that refuses the recipient
+	// by name must not get the address into the Warn line or into LastError.
+	srv := startFakeSMTP(t, fakeSMTPOptions{rcptRefuse: true})
+	sender, err := NewSMTPSender(srv.config())
+	if err != nil {
+		t.Fatalf("NewSMTPSender: %v", err)
+	}
 	ob := newOutbox(t)
 	clock := &fakeClock{t: workerT0}
-	failure := errors.New("smtp: 451 try again later")
-	sender := &fakeSender{send: func(_ context.Context, m domain.OutboxMessage) error {
-		if m.To == "bia@example.com" {
-			return failure
-		}
-		return nil
-	}}
 	var logs syncBuffer
 	log := slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	w := newWorker(ob, sender, clock, log)
-	ok := enqueue(t, ob, "ana@example.com", workerT0)
-	bad := enqueue(t, ob, "bia@example.com", workerT0)
+	const to = "ana@example.com"
+	m := enqueue(t, ob, to, workerT0)
 
-	// Six rounds, 7 hours apart (more than the longest retry delay): one message
-	// is sent, the other fails every time and is given up.
-	for i := range MaxAttempts {
-		clock.Set(workerT0.Add(time.Duration(i) * 7 * time.Hour))
-		sent, failed, err := w.RunOnce(t.Context())
-		if err != nil {
-			t.Fatalf("round %d: RunOnce error = %v", i+1, err)
-		}
-		wantSent := 0
-		if i == 0 {
-			wantSent = 1
-		}
-		if sent != wantSent || failed != 1 {
-			t.Fatalf("round %d: sent %d, failed %d; want sent %d", i+1, sent, failed, wantSent)
-		}
-	}
+	wantRun(t, w, t.Context(), 0, 1)
 
 	out := logs.String()
-	for _, want := range []string{"id=" + ok.ID, "id=" + bad.ID, "gave_up=true", "attempt=6", "retry_at=", failure.Error()} {
-		if !strings.Contains(out, want) {
-			t.Errorf("the log does not contain %q:\n%s", want, out)
-		}
+	if !strings.Contains(out, "will retry") || !strings.Contains(out, "550") {
+		t.Errorf("the log has no retry line with the status:\n%s", out)
 	}
-	for _, m := range []domain.OutboxMessage{ok, bad} {
-		for _, secret := range []string{m.To, m.Subject, m.Text, m.HTML, "token-", "agenda.example"} {
-			if strings.Contains(out, secret) {
-				t.Errorf("the log contains %q, which belongs to the message:\n%s", secret, out)
-			}
-		}
+	checkNoAddress(t, out, to)
+	got := peek(t, ob, workerT0.Add(time.Minute))
+	if len(got) != 1 || got[0].ID != m.ID {
+		t.Fatalf("stored message = %+v, want %s due after the retry delay", got, m.ID)
 	}
+	if !strings.Contains(got[0].LastError, "550") {
+		t.Errorf("LastError = %q, want the status kept", got[0].LastError)
+	}
+	checkNoAddress(t, got[0].LastError, to)
 }
 
 func TestWorkerRunOnceReturnsAClaimError(t *testing.T) {
