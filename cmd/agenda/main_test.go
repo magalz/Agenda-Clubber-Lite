@@ -1028,7 +1028,6 @@ func TestNewSender(t *testing.T) {
 type fakeSessions struct {
 	domain.Sessions
 	calls   atomic.Int32
-	removed int
 	err     error
 	entered chan struct{} // gets a value each time DeleteExpired starts, when set
 	release chan struct{} // DeleteExpired waits for it to close, when set
@@ -1045,7 +1044,7 @@ func (f *fakeSessions) DeleteExpired(context.Context, time.Time) (int, error) {
 	if f.release != nil {
 		<-f.release
 	}
-	return f.removed, f.err
+	return 0, f.err
 }
 
 // fakeTokens stands in for domain.Tokens: only DeleteExpired exists.
