@@ -1,9 +1,14 @@
 {{/* signup-suggestions: the approved collectives that match what the person typed, for the signup page. Data is a
      []domain.Collective; with none, the partial renders nothing, so the container stays empty.
-     Markup contract for the script that fills #collective-suggestions-box (a later task): each button carries
-     data-collective-id and data-collective-name; a click sets the hidden #collective_id and the #collective_name
-     input to them. Names are escaped by html/template: an attribute or text value is never markup.
-     CSS: suggestions (the list) and suggestions__item (one row; its button fills the row, at least 24px tall). */}}
-{{define "signup-suggestions"}}{{if .}}<ul id="collective-suggestions" class="suggestions" role="listbox">{{range .}}
-  <li class="suggestions__item" role="option"><button type="button" data-collective-id="{{.ID}}" data-collective-name="{{.Name}}">{{.Name}}</button></li>{{end}}
+     Markup contract for the collectivePicker component (web/static/js/app.js), which loads this into
+     #collective-suggestions-box and drives the #collective_name combobox over it: ul#collective-suggestions is the
+     listbox the input's aria-controls names; each li is an option with an id (collective-suggestion-N, N from 0), which
+     the input's aria-activedescendant points at; each button carries data-collective-id and data-collective-name, and
+     a pick (click or Enter) sets the hidden #collective_id and the #collective_name input to them. The buttons are out
+     of the tab order (tabindex -1): the keyboard stays in the input and moves with the arrow keys.
+     Names are escaped by html/template: an attribute or text value is never markup.
+     CSS: suggestions (the list) and suggestions__item (one row; its button fills the row, at least 24px tall; the
+     active row carries .is-active). */}}
+{{define "signup-suggestions"}}{{if .}}<ul id="collective-suggestions" class="suggestions" role="listbox">{{range $i, $c := .}}
+  <li id="collective-suggestion-{{$i}}" class="suggestions__item" role="option"><button type="button" tabindex="-1" data-collective-id="{{$c.ID}}" data-collective-name="{{$c.Name}}">{{$c.Name}}</button></li>{{end}}
 </ul>{{end}}{{end}}
