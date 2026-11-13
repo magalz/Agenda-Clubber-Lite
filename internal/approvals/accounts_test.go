@@ -110,25 +110,6 @@ func accountsSessionExists(t *testing.T, s domain.Store, hash []byte) bool {
 	return false
 }
 
-// accountsByRecipient groups the emails by address.
-func accountsByRecipient(msgs []domain.OutboxMessage) map[string][]domain.OutboxMessage {
-	by := map[string][]domain.OutboxMessage{}
-	for _, m := range msgs {
-		by[m.To] = append(by[m.To], m)
-	}
-	return by
-}
-
-// accountsOnlyTo returns the single email to the address, failing the test when
-// there is any other number of them.
-func accountsOnlyTo(t *testing.T, by map[string][]domain.OutboxMessage, to string) domain.OutboxMessage {
-	t.Helper()
-	if len(by[to]) != 1 {
-		t.Fatalf("%d emails to %s, want exactly 1: %+v", len(by[to]), to, by[to])
-	}
-	return by[to][0]
-}
-
 // accountsRequireLines fails the test unless text holds every line, in this order.
 func accountsRequireLines(t *testing.T, text string, lines ...string) {
 	t.Helper()
@@ -228,15 +209,15 @@ func TestApproveAccount(t *testing.T) {
 	if len(msgs) != 2 {
 		t.Fatalf("%d emails queued, want 2: %+v", len(msgs), msgs)
 	}
-	by := accountsByRecipient(msgs)
-	text := accountsOnlyTo(t, by, p.Email).Text
+	by := requestsByRecipient(t, msgs)
+	text := by[p.Email].Text
 	accountsRequireLines(t, text, p.Name, "- sua conta: aprovado", "[→] "+testOrigin+"/entrar")
 	for _, unwanted := range []string{"Alfa", "Beta", "motivo:"} {
 		if strings.Contains(text, unwanted) {
 			t.Errorf("the account email mentions %q:\n%s", unwanted, text)
 		}
 	}
-	notice := accountsOnlyTo(t, by, owner.Email)
+	notice := by[owner.Email]
 	for _, want := range []string{p.Name, "Beta", "Membro", testOrigin + collectivePath(beta.ID)} {
 		if !strings.Contains(notice.Text, want) {
 			t.Errorf("the notice to the Administrador lacks %q:\n%s", want, notice.Text)
@@ -314,8 +295,8 @@ func TestApprovePerson(t *testing.T) {
 	if len(msgs) != 2 {
 		t.Fatalf("%d emails queued, want 2: %+v", len(msgs), msgs)
 	}
-	by := accountsByRecipient(msgs)
-	text := accountsOnlyTo(t, by, p.Email).Text
+	by := requestsByRecipient(t, msgs)
+	text := by[p.Email].Text
 	accountsRequireLines(t, text,
 		"- sua conta: aprovado",
 		"- o coletivo Alfa: aprovado",
@@ -323,7 +304,7 @@ func TestApprovePerson(t *testing.T) {
 		"- seu pedido para entrar em Gama como Administrador: aprovado\n",
 		"- a produtora Zeta: aprovado",
 		"[→] "+testOrigin+"/coletivos")
-	notice := accountsOnlyTo(t, by, owner.Email)
+	notice := by[owner.Email]
 	if !strings.Contains(notice.Text, "Beta") || !strings.Contains(notice.Text, p.Name) || strings.Contains(notice.Text, "Gama") {
 		t.Errorf("the notice to the Administrador should name Beta and not Gama:\n%s", notice.Text)
 	}
@@ -384,13 +365,13 @@ func TestApprovePersonSkipsWhatIsNotOpen(t *testing.T) {
 	if len(msgs) != 2 {
 		t.Fatalf("%d emails queued, want 2: %+v", len(msgs), msgs)
 	}
-	by := accountsByRecipient(msgs)
-	text := accountsOnlyTo(t, by, p.Email).Text
+	by := requestsByRecipient(t, msgs)
+	text := by[p.Email].Text
 	accountsRequireLines(t, text, "- sua conta: aprovado")
 	if strings.Contains(text, "Xis") || strings.Contains(text, "Ypsilon") || strings.Contains(text, "Rejeitada") {
 		t.Errorf("the person's email names an item that was not decided:\n%s", text)
 	}
-	if notice := accountsOnlyTo(t, by, owner.Email); !strings.Contains(notice.Text, "Ypsilon") {
+	if notice := by[owner.Email]; !strings.Contains(notice.Text, "Ypsilon") {
 		t.Errorf("the notice should name Ypsilon:\n%s", notice.Text)
 	}
 	accountsRequireActions(t, auditEntries(t, f.s), f.admin, p, map[domain.AuditAction]int{domain.AuditAccountApproved: 1})
@@ -719,6 +700,7 @@ func TestRejectAccount(t *testing.T) {
 	accountsRequest(t, f.s, p, gama, domain.RoleOwner, owner, testNow)
 	accountsRequest(t, f.s, bystander, beta, domain.RoleMember, domain.User{}, testNow)
 	bystanderBefore := collectiveOf(t, f.s, bystanderCollective.ID)
+	personSession, bystanderSession := accountsSession(t, f.s, p.ID, 1), accountsSession(t, f.s, bystander.ID, 2)
 	now := testNow.Add(time.Hour)
 	const reason = "cadastro duplicado"
 
@@ -727,6 +709,12 @@ func TestRejectAccount(t *testing.T) {
 	}
 
 	accountsRequireGone(t, f.s, p)
+	if accountsSessionExists(t, f.s, personSession) {
+		t.Errorf("a session of the rejected person survived the rejection")
+	}
+	if !accountsSessionExists(t, f.s, bystanderSession) {
+		t.Errorf("the session of somebody else was removed")
+	}
 	accountsRequireCollectiveGone(t, f.s, alfa)
 	accountsRequireCollectiveGone(t, f.s, zeta)
 	for _, c := range []domain.Collective{beta, gama} {

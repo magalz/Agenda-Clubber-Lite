@@ -65,7 +65,8 @@ var (
 
 // Paths, relative to the site origin, the emails link to: the person's
 // collectives (where they see the outcome of a request), the login page (for an
-// outcome that leaves nothing to show there, such as a rejection), the sign-up
+// outcome the person acts on by signing in, such as an approved account, or one
+// that leaves nothing to show there), the sign-up
 // page (for a rejected account, whose person can sign up again), and the admin
 // area (the requests, and the collectives, the site admins act on).
 const (
