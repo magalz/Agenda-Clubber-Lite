@@ -94,8 +94,11 @@ func LoadMongo(getenv func(string) string) (MongoConfig, error) {
 }
 
 // hasDirectConnection reports whether the options part of a mongodb:// URI
-// (after the scheme) sets directConnection=true. Option keys are
-// case-insensitive in the connection string format; the value is not.
+// (after the scheme) sets directConnection=true, once. Option keys are
+// case-insensitive in the connection string format; the value is not. An option
+// that is set twice, by a repeated key or by two keys that differ only by case,
+// is refused: which one a driver honors is not defined, and the map order must
+// not decide.
 func hasDirectConnection(rest string) bool {
 	_, query, found := strings.Cut(rest, "?")
 	if !found {
@@ -105,12 +108,13 @@ func hasDirectConnection(rest string) bool {
 	if err != nil {
 		return false
 	}
+	var matches [][]string
 	for key, vals := range values {
 		if strings.EqualFold(key, "directConnection") {
-			return len(vals) == 1 && vals[0] == "true"
+			matches = append(matches, vals)
 		}
 	}
-	return false
+	return len(matches) == 1 && len(matches[0]) == 1 && matches[0][0] == "true"
 }
 
 // Config is the validated service configuration.
