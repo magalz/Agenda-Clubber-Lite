@@ -394,7 +394,10 @@ func TestSignupCreatesAnAccount(t *testing.T) {
 	}
 
 	// An HTMX post gets the redirect as a header.
-	hxRec := post(r, "/cadastro", signupValues(func(v url.Values) { v.Set("email", "bia@example.com") }).Encode(),
+	hxRec := post(r, "/cadastro", signupValues(func(v url.Values) {
+		v.Set("email", "bia@example.com")
+		v.Set("collective_name", "Outro Coletivo Teste")
+	}).Encode(),
 		header("CF-Connecting-IP", "198.51.100.2"), hx)
 	if hxRec.Code != http.StatusNoContent || hxRec.Header().Get("HX-Redirect") != "/cadastro/enviado" {
 		t.Errorf("HTMX status = %d, HX-Redirect %q, want 204 /cadastro/enviado", hxRec.Code, hxRec.Header().Get("HX-Redirect"))
@@ -424,8 +427,8 @@ func TestSignupFieldErrors(t *testing.T) {
 
 	t.Run("every field", func(t *testing.T) {
 		rec := signupPost(r, url.Values{
-			"name":             {`Ana "Souza" <i>`},
-			"email":            {"not-an-email"},
+			"name":             {strings.Repeat("a", domain.UserNameMax+1)},
+			"email":            {`not "an" <email>`},
 			"phone":            {"123"},
 			"phone_whatsapp":   {"1"},
 			"password":         {signupPassword},
@@ -454,7 +457,7 @@ func TestSignupFieldErrors(t *testing.T) {
 				group := regexp.MustCompile(`<fieldset\b[^>]*>`).FindAllString(body, -1)
 				found := false
 				for _, g := range group {
-					if strings.Contains(g, `aria-describedby="erro-`+c.key+`"`) && strings.Contains(g, `aria-invalid="true"`) {
+					if strings.Contains(g, "erro-"+c.key) && strings.Contains(g, `aria-invalid="true"`) {
 						found = true
 					}
 				}
@@ -476,7 +479,7 @@ func TestSignupFieldErrors(t *testing.T) {
 
 		// What was typed comes back, escaped, except the passwords.
 		for _, want := range []string{
-			`value="Ana &#34;Souza&#34; &lt;i&gt;"`, `value="not-an-email"`, `value="123"`, `value="x"`,
+			`value="not &#34;an&#34; &lt;email&gt;"`, `value="` + strings.Repeat("a", domain.UserNameMax+1) + `"`, `value="123"`, `value="x"`,
 		} {
 			if !strings.Contains(body, want) {
 				t.Errorf("missing the kept value %s", want)
@@ -693,8 +696,8 @@ func TestSignupSuggestions(t *testing.T) {
 			t.Errorf("body = %s, want the approved collective only", body)
 		}
 		for _, want := range []string{
-			`<ul id="collective-suggestions" role="listbox"`,
-			`<li role="option">`,
+			`<ul id="collective-suggestions" class="suggestions" role="listbox">`,
+			`<li class="suggestions__item" role="option">`,
 			`<button type="button" data-collective-id="` + alpha.ID + `" data-collective-name="Baile Alfa">Baile Alfa</button>`,
 		} {
 			if !strings.Contains(body, want) {

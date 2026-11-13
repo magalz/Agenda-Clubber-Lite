@@ -1,0 +1,6 @@
+{{/* Shown after every signup post that passed validation, whether or not the e-mail already had an account: the page
+     says the same either way, so it does not reveal which e-mails are registered. */}}
+{{define "content"}}<div class="stack">
+  <p>se este e-mail ainda não tinha conta, enviamos um link de confirmação que vale por 24 horas. se já tinha, enviamos instruções para entrar.</p>
+  <p><a href="/entrar">ir para o login</a></p>
+</div>{{end}}
