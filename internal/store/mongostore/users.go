@@ -247,9 +247,9 @@ func (s *Store) clearRef(ctx context.Context, collection, field string, id bson.
 }
 
 // ListByStatus clamps limit itself: MongoDB reads a limit of 0 as "no limit" and
-// a negative one as its absolute value. The sort is served by the
-// status_created_at index, and _id breaks the ties (the hex form of an ObjectID
-// sorts as its bytes do).
+// a negative one as its absolute value. The status_created_at index finds the
+// status in created_at order; _id breaks the ties (the hex form of an ObjectID
+// sorts as its bytes do) and is sorted in memory, over at most ListLimitMax rows.
 func (r users) ListByStatus(ctx context.Context, status domain.UserStatus, limit int) ([]domain.User, error) {
 	if !status.Valid() {
 		return nil, domain.FieldErrors{"status": domain.MsgInvalid}
