@@ -10,10 +10,16 @@ import (
 	"unicode/utf8"
 )
 
-// pt-BR messages shown next to a form field.
+// MsgRequired and MsgInvalid are the pt-BR messages for a missing and a rejected
+// value. A store that raises a FieldErrors of its own uses them, so every
+// backend words these two the same way as Validate.
 const (
-	msgRequired      = "campo obrigatório"
-	msgInvalid       = "valor inválido"
+	MsgRequired = "campo obrigatório"
+	MsgInvalid  = "valor inválido"
+)
+
+// More pt-BR messages shown next to a form field.
+const (
 	msgNegative      = "não pode ser negativo"
 	msgEmailRequired = "informe o e-mail"
 	msgEmailInvalid  = "informe um e-mail válido"
@@ -72,7 +78,7 @@ func lengthProblem(s string, min, max int) string {
 	n := utf8.RuneCountInString(strings.TrimSpace(s))
 	switch {
 	case n == 0 && min > 0:
-		return msgRequired
+		return MsgRequired
 	case n >= min && n <= max:
 		return ""
 	case min <= 1:
@@ -183,13 +189,13 @@ func (u User) Validate() error {
 	e.addIf("email", emailProblem(u.Email, true))
 	e.addIf("phone", phoneProblem(u.Phone))
 	if !u.Status.Valid() {
-		e.Add("status", msgInvalid)
+		e.Add("status", MsgInvalid)
 	}
 	if u.FailedLogins < 0 {
 		e.Add("failed_logins", msgNegative)
 	}
 	if u.PasswordHash == "" {
-		e.Add("password_hash", msgRequired)
+		e.Add("password_hash", MsgRequired)
 	}
 	return e.Err()
 }
@@ -200,15 +206,15 @@ func (c Collective) Validate() error {
 	e.addIf("name", lengthProblem(c.Name, CollectiveNameMin, CollectiveNameMax))
 	switch {
 	case c.NameKey == "":
-		e.Add("name_key", msgRequired)
+		e.Add("name_key", MsgRequired)
 	case c.NameKey != NameKey(c.Name):
 		e.Add("name_key", msgNameKey)
 	}
 	if !c.Kind.Valid() {
-		e.Add("kind", msgInvalid)
+		e.Add("kind", MsgInvalid)
 	}
 	if !c.Status.Valid() {
-		e.Add("status", msgInvalid)
+		e.Add("status", MsgInvalid)
 	}
 	return e.Err()
 }
@@ -217,16 +223,16 @@ func (c Collective) Validate() error {
 func (m Membership) Validate() error {
 	var e FieldErrors
 	if m.UserID == "" {
-		e.Add("user_id", msgRequired)
+		e.Add("user_id", MsgRequired)
 	}
 	if m.CollectiveID == "" {
-		e.Add("collective_id", msgRequired)
+		e.Add("collective_id", MsgRequired)
 	}
 	if !m.Role.Valid() {
-		e.Add("role", msgInvalid)
+		e.Add("role", MsgInvalid)
 	}
 	if !m.Status.Valid() {
-		e.Add("status", msgInvalid)
+		e.Add("status", MsgInvalid)
 	}
 	return e.Err()
 }
@@ -237,10 +243,10 @@ func (m Membership) Validate() error {
 func (t Token) Validate() error {
 	var e FieldErrors
 	if t.UserID == "" {
-		e.Add("user_id", msgRequired)
+		e.Add("user_id", MsgRequired)
 	}
 	if !t.Purpose.Valid() {
-		e.Add("purpose", msgInvalid)
+		e.Add("purpose", MsgInvalid)
 	}
 	if len(t.Hash) != TokenHashLen {
 		e.Add("hash", fmt.Sprintf("deve ter %d bytes", TokenHashLen))
@@ -261,7 +267,7 @@ func (t Token) Validate() error {
 func (s Session) Validate() error {
 	var e FieldErrors
 	if s.UserID == "" {
-		e.Add("user_id", msgRequired)
+		e.Add("user_id", MsgRequired)
 	}
 	if len(s.Hash) != TokenHashLen {
 		e.Add("hash", fmt.Sprintf("deve ter %d bytes", TokenHashLen))
@@ -282,7 +288,7 @@ func (m OutboxMessage) Validate() error {
 	e.addIf("to", emailProblem(m.To, false))
 	e.addIf("subject", lengthProblem(m.Subject, 1, OutboxSubjectMax))
 	if strings.TrimSpace(m.Text) == "" {
-		e.Add("text", msgRequired)
+		e.Add("text", MsgRequired)
 	}
 	if m.Attempts < 0 {
 		e.Add("attempts", msgNegative)
