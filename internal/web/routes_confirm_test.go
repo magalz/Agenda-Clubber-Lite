@@ -378,8 +378,8 @@ func TestConfirmResendRefusedIPDoesNotSpendTheEmailBudget(t *testing.T) {
 func TestConfirmResendWithoutAnAddressSpendsNoEmailBudget(t *testing.T) {
 	app, _ := confirmStoreApp(t)
 	r := app.Router()
-	// Four requests with no address, from four clients, then the budget of the
-	// empty address is not what stops a fifth.
+	// Six requests with no address, from six clients: if the empty address kept
+	// a budget of its own, the sixth would be refused.
 	for i := 0; i < 6; i++ {
 		if rec := confirmResend(r, "", fmt.Sprintf("198.51.100.%d", 70+i)); rec.Code != http.StatusOK {
 			t.Fatalf("request %d without an address: status = %d, want 200", i+1, rec.Code)
