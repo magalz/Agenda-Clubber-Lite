@@ -399,8 +399,16 @@ func TestWhatStrings(t *testing.T) {
 	if whatAccount != "sua conta" {
 		t.Errorf("whatAccount = %q", whatAccount)
 	}
-	if got, want := whatCollective("Alfa"), "o coletivo Alfa"; got != want {
-		t.Errorf("whatCollective = %q, want %q", got, want)
+	for _, tc := range []struct {
+		kind domain.CollectiveKind
+		want string
+	}{
+		{domain.CollectiveKindColetivo, "o coletivo Alfa"},
+		{domain.CollectiveKindProdutora, "a produtora Alfa"},
+	} {
+		if got := whatCollective("Alfa", tc.kind); got != tc.want {
+			t.Errorf("whatCollective(%q) = %q, want %q", tc.kind, got, tc.want)
+		}
 	}
 	if got, want := whatJoin("Beta", domain.RoleMember), "seu pedido para entrar em Beta como Membro"; got != want {
 		t.Errorf("whatJoin member = %q, want %q", got, want)

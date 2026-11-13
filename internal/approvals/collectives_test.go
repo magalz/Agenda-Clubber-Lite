@@ -362,6 +362,37 @@ func TestRejectCollective(t *testing.T) {
 	}
 }
 
+// A produtora is called "a produtora", not "o coletivo", in the decision email.
+func TestCollectiveDecisionNamesTheProdutora(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		decide  func(t *testing.T, f collectiveFixture) error
+		outcome string
+	}{
+		{"approve", func(t *testing.T, f collectiveFixture) error {
+			return ApproveCollective(t.Context(), f.s, testOrigin, f.admin, f.c.ID, testNow.Add(time.Hour))
+		}, "a produtora Alfa: aprovado"},
+		{"reject", func(t *testing.T, f collectiveFixture) error {
+			return RejectCollective(t.Context(), f.s, testOrigin, f.admin, f.c.ID, "", testNow.Add(time.Hour))
+		}, "a produtora Alfa: recusado"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := newTestStore(t)
+			admin := insertAdmin(t, s, "ada@agenda.test")
+			creator := insertUser(t, s, "ana@agenda.test")
+			c, _ := insertNewCollective(t, s, "Alfa", creator, func(c *domain.Collective) { c.Kind = domain.CollectiveKindProdutora })
+
+			if err := tc.decide(t, collectiveFixture{s: s, admin: admin, creator: creator, c: c}); err != nil {
+				t.Fatalf("decide: %v", err)
+			}
+			msg := onlyMessage(t, outboxMessages(t, s))
+			if !strings.Contains(msg.Text, tc.outcome) || strings.Contains(msg.Text, "o coletivo") {
+				t.Errorf("email lacks %q or still says \"o coletivo\":\n%s", tc.outcome, msg.Text)
+			}
+		})
+	}
+}
+
 func TestRejectCollectiveReason(t *testing.T) {
 	t.Run("the reason is optional", func(t *testing.T) {
 		f := newPendingCollective(t)
