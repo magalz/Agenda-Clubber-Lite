@@ -230,7 +230,7 @@ func TestApproveAccount(t *testing.T) {
 	}
 	by := accountsByRecipient(msgs)
 	text := accountsOnlyTo(t, by, p.Email).Text
-	accountsRequireLines(t, text, p.Name, "- sua conta: aprovado", "[→] "+testOrigin+"/coletivos")
+	accountsRequireLines(t, text, p.Name, "- sua conta: aprovado", "[→] "+testOrigin+"/entrar")
 	for _, unwanted := range []string{"Alfa", "Beta", "motivo:"} {
 		if strings.Contains(text, unwanted) {
 			t.Errorf("the account email mentions %q:\n%s", unwanted, text)
@@ -397,18 +397,19 @@ func TestApprovePersonSkipsWhatIsNotOpen(t *testing.T) {
 }
 
 // The three decisions about an account refuse the same people the same way, and
-// leave everything as it was. Approving one item alone is for active accounts
-// (ApproveCollective and AdminApproveJoin), so an active account is decided.
+// leave everything as it was: an actor who is not an active admin is ErrNotAllowed,
+// a target in any other state than the one the decision takes is ErrDecided, and
+// an unknown target is ErrNotFound. The active account here has nothing open, so
+// even ApprovePerson (which also decides the items of an active person) has
+// nothing to do.
 func TestAccountDecisionsRefused(t *testing.T) {
 	f := newAccountsFixture(t)
 	plain := insertUser(t, f.s, "bia@agenda.test")
 	disabledAdmin := insertUser(t, f.s, "dora@agenda.test", func(u *domain.User) { u.IsAdmin, u.Status = true, domain.UserStatusDisabled })
 	active := insertUser(t, f.s, "ana@agenda.test")
-	activeCollective, _ := insertNewCollective(t, f.s, "Alfa", active)
 	unconfirmed := accountsPending(t, f.s, "ugo@agenda.test", accountsStatus(domain.UserStatusPendingEmail))
 	disabled := insertUser(t, f.s, "dan@agenda.test", accountsStatus(domain.UserStatusDisabled))
 	pending := accountsPending(t, f.s, "paula@agenda.test")
-	activeBefore := collectiveOf(t, f.s, activeCollective.ID)
 
 	tests := []struct {
 		name   string
@@ -419,8 +420,8 @@ func TestAccountDecisionsRefused(t *testing.T) {
 		{"actor is not an admin", plain, pending.ID, ErrNotAllowed},
 		{"actor is a disabled admin", disabledAdmin, pending.ID, ErrNotAllowed},
 		{"account is active", f.admin, active.ID, ErrDecided},
-		{"email is not confirmed", f.admin, unconfirmed.ID, ErrNotAllowed},
-		{"account is disabled", f.admin, disabled.ID, ErrNotAllowed},
+		{"email is not confirmed", f.admin, unconfirmed.ID, ErrDecided},
+		{"account is disabled", f.admin, disabled.ID, ErrDecided},
 		{"unknown account", f.admin, "no-such-user", domain.ErrNotFound},
 	}
 	for _, d := range accountsDecisions {
@@ -439,52 +440,181 @@ func TestAccountDecisionsRefused(t *testing.T) {
 			t.Errorf("status of %s = %q, want %q", u, got, want)
 		}
 	}
-	if got := collectiveOf(t, f.s, activeCollective.ID); !sameCollective(got, activeBefore) {
-		t.Errorf("the collective of the active account changed: %+v, was %+v", got, activeBefore)
+	requireNoSideEffects(t, f.s)
+}
+
+// "Aprovar tudo" on an active person decides the items that wait for the admin
+// and leaves the account alone: it is not pending, so there is no account line,
+// no account audit entry and no notice to the Administradores (who saw the join
+// request when it was made). A second call has nothing left to decide.
+func TestApprovePersonActive(t *testing.T) {
+	f := newAccountsFixture(t)
+	owner := insertUser(t, f.s, "olga@agenda.test")
+	p := insertUser(t, f.s, "ana@agenda.test")
+	alfa, _ := insertNewCollective(t, f.s, "Alfa", p)
+	beta := accountsApprovedCollective(t, f.s, "Beta", owner, f.admin)
+	accountsRequest(t, f.s, p, beta, domain.RoleMember, domain.User{}, testNow)
+	accountBefore := accountsUser(t, f.s, p.ID)
+	now := testNow.Add(time.Hour)
+
+	if err := ApprovePerson(t.Context(), f.s, testOrigin, f.admin, p.ID, now); err != nil {
+		t.Fatalf("ApprovePerson: %v", err)
+	}
+
+	if got := accountsUser(t, f.s, p.ID); !reflect.DeepEqual(got, accountBefore) {
+		t.Errorf("the account changed: %+v, was %+v", got, accountBefore)
+	}
+	gc := collectiveOf(t, f.s, alfa.ID)
+	if gc.Status != domain.CollectiveStatusApproved || gc.ApprovedBy != f.admin.ID || !sameTime(gc.ApprovedAt, now) {
+		t.Errorf("Alfa = %+v, want approved by %q at %v", gc, f.admin.ID, now)
+	}
+	if m := membershipOf(t, f.s, p.ID, alfa.ID); m.Status != domain.MembershipStatusApproved || m.AdminApprovedBy != f.admin.ID || !sameTime(m.DecidedAt, now) {
+		t.Errorf("membership in Alfa = %+v, want approved by %q at %v", m, f.admin.ID, now)
+	}
+	mb := membershipOf(t, f.s, p.ID, beta.ID)
+	if mb.Status != domain.MembershipStatusPending || mb.AdminApprovedBy != f.admin.ID || !sameTime(mb.AdminApprovedAt, now) || mb.OwnerApprovedAt != nil || mb.DecidedAt != nil {
+		t.Errorf("request to Beta = %+v, want pending with only the admin side decided at %v", mb, now)
+	}
+
+	cards, err := AdminQueue(t.Context(), f.s, f.admin)
+	if err != nil || len(cards) != 0 {
+		t.Errorf("AdminQueue after everything was decided = %+v, %v, want no cards", cards, err)
+	}
+	requireErrorIs(t, ApprovePerson(t.Context(), f.s, testOrigin, f.admin, p.ID, now.Add(time.Hour)), ErrDecided)
+
+	// One email, to the person and about the items only.
+	msg := onlyMessage(t, outboxMessages(t, f.s))
+	if msg.To != p.Email {
+		t.Errorf("email to %q, want %q", msg.To, p.Email)
+	}
+	accountsRequireLines(t, msg.Text, p.Name,
+		"- o coletivo Alfa: aprovado",
+		"- seu pedido para entrar em Beta como Membro: aprovado pelo admin; falta um administrador do coletivo",
+		"[→] "+testOrigin+"/coletivos")
+	if strings.Contains(msg.Text, "sua conta") {
+		t.Errorf("the email of an active person has an account line:\n%s", msg.Text)
+	}
+	accountsRequireActions(t, auditEntries(t, f.s), f.admin, p, map[domain.AuditAction]int{
+		domain.AuditCollectiveApproved: 1,
+		domain.AuditJoinAdminApproved:  1,
+	})
+}
+
+// An active person with nothing that waits for the admin has nothing to decide:
+// ErrDecided, and nothing is written or sent. That holds for a person with no
+// items, for one whose join request the admin decided already, and for one whose
+// only item is in a pending collective that somebody else created (not the
+// person's to approve).
+func TestApprovePersonNothingToDecide(t *testing.T) {
+	f := newAccountsFixture(t)
+	owner := insertUser(t, f.s, "olga@agenda.test")
+	stranger := insertUser(t, f.s, "sara@agenda.test")
+	bare := insertUser(t, f.s, "ana@agenda.test")
+	decided := insertUser(t, f.s, "bia@agenda.test")
+	foreign := insertUser(t, f.s, "caio@agenda.test")
+	xis := accountsApprovedCollective(t, f.s, "Xis", owner, f.admin)
+	beta := insertCollective(t, f.s, "Beta", stranger.ID)
+	insertMembership(t, f.s, joinMembership(decided, xis, domain.RoleMember, f.admin, domain.User{}))
+	accountsRequest(t, f.s, foreign, beta, domain.RoleMember, domain.User{}, testNow)
+	xisBefore, betaBefore := collectiveOf(t, f.s, xis.ID), collectiveOf(t, f.s, beta.ID)
+	decidedM, foreignM := membershipOf(t, f.s, decided.ID, xis.ID), membershipOf(t, f.s, foreign.ID, beta.ID)
+
+	for _, u := range []domain.User{bare, decided, foreign} {
+		requireErrorIs(t, ApprovePerson(t.Context(), f.s, testOrigin, f.admin, u.ID, testNow.Add(time.Hour)), ErrDecided)
+		if got := accountsUser(t, f.s, u.ID).Status; got != domain.UserStatusActive {
+			t.Errorf("status of %s = %q, want active", u.Email, got)
+		}
+	}
+
+	if got := collectiveOf(t, f.s, xis.ID); !sameCollective(got, xisBefore) {
+		t.Errorf("Xis changed: %+v, was %+v", got, xisBefore)
+	}
+	if got := collectiveOf(t, f.s, beta.ID); !sameCollective(got, betaBefore) {
+		t.Errorf("Beta changed: %+v, was %+v", got, betaBefore)
+	}
+	if got := membershipOf(t, f.s, decided.ID, xis.ID); !reflect.DeepEqual(got, decidedM) {
+		t.Errorf("membership in Xis changed: %+v, was %+v", got, decidedM)
+	}
+	if got := membershipOf(t, f.s, foreign.ID, beta.ID); !reflect.DeepEqual(got, foreignM) {
+		t.Errorf("membership in Beta changed: %+v, was %+v", got, foreignM)
 	}
 	requireNoSideEffects(t, f.s)
 }
 
-// A pending collective the person has a membership in but did not create is a
-// broken invariant: the decision fails as a server error and nothing is kept.
-func TestApprovePersonAndRejectAccountBrokenInvariant(t *testing.T) {
-	for _, d := range accountsDecisions {
-		if d.name == "ApproveAccount" {
-			continue // it never reads the person's collectives
-		}
-		t.Run(d.name, func(t *testing.T) {
-			f := newAccountsFixture(t)
-			stranger := insertUser(t, f.s, "sara@agenda.test")
-			p := accountsPending(t, f.s, "paula@agenda.test")
-			alfa, _ := insertNewCollective(t, f.s, "Alfa", p)
-			beta := insertCollective(t, f.s, "Beta", stranger.ID)
-			accountsRequest(t, f.s, p, beta, domain.RoleMember, domain.User{}, testNow)
-			alfaBefore, betaBefore := collectiveOf(t, f.s, alfa.ID), collectiveOf(t, f.s, beta.ID)
-			alfaM, betaM := membershipOf(t, f.s, p.ID, alfa.ID), membershipOf(t, f.s, p.ID, beta.ID)
+// A pending collective the person has a request in but did not create is not
+// the person's to approve: it is left as it is, with the request, and the rest is
+// decided.
+func TestApprovePersonSkipsForeignPendingCollective(t *testing.T) {
+	f := newAccountsFixture(t)
+	stranger := insertUser(t, f.s, "sara@agenda.test")
+	p := accountsPending(t, f.s, "paula@agenda.test")
+	alfa, _ := insertNewCollective(t, f.s, "Alfa", p)
+	beta := insertCollective(t, f.s, "Beta", stranger.ID)
+	accountsRequest(t, f.s, p, beta, domain.RoleMember, domain.User{}, testNow)
+	betaBefore, betaM := collectiveOf(t, f.s, beta.ID), membershipOf(t, f.s, p.ID, beta.ID)
+	now := testNow.Add(time.Hour)
 
-			err := d.call(t.Context(), f.s, f.admin, p.ID)
-			if err == nil || !isNoneOf(err, ErrNotAllowed, ErrDecided, domain.ErrNotFound) {
-				t.Fatalf("err = %v, want a server error", err)
-			}
-
-			if got := accountsUser(t, f.s, p.ID).Status; got != domain.UserStatusPendingApproval {
-				t.Errorf("account status = %q, want it still pending_approval", got)
-			}
-			if got := collectiveOf(t, f.s, alfa.ID); !sameCollective(got, alfaBefore) {
-				t.Errorf("Alfa changed: %+v, was %+v", got, alfaBefore)
-			}
-			if got := collectiveOf(t, f.s, beta.ID); !sameCollective(got, betaBefore) {
-				t.Errorf("Beta changed: %+v, was %+v", got, betaBefore)
-			}
-			if got := membershipOf(t, f.s, p.ID, alfa.ID); !reflect.DeepEqual(got, alfaM) {
-				t.Errorf("membership in Alfa changed: %+v, was %+v", got, alfaM)
-			}
-			if got := membershipOf(t, f.s, p.ID, beta.ID); !reflect.DeepEqual(got, betaM) {
-				t.Errorf("membership in Beta changed: %+v, was %+v", got, betaM)
-			}
-			requireNoSideEffects(t, f.s)
-		})
+	if err := ApprovePerson(t.Context(), f.s, testOrigin, f.admin, p.ID, now); err != nil {
+		t.Fatalf("ApprovePerson: %v", err)
 	}
+
+	if got := accountsUser(t, f.s, p.ID).Status; got != domain.UserStatusActive {
+		t.Errorf("account status = %q, want active", got)
+	}
+	if got := collectiveOf(t, f.s, alfa.ID).Status; got != domain.CollectiveStatusApproved {
+		t.Errorf("Alfa status = %q, want approved", got)
+	}
+	if got := collectiveOf(t, f.s, beta.ID); !sameCollective(got, betaBefore) {
+		t.Errorf("Beta changed: %+v, was %+v", got, betaBefore)
+	}
+	if got := membershipOf(t, f.s, p.ID, beta.ID); !reflect.DeepEqual(got, betaM) {
+		t.Errorf("membership in Beta changed: %+v, was %+v", got, betaM)
+	}
+	msg := onlyMessage(t, outboxMessages(t, f.s))
+	accountsRequireLines(t, msg.Text, "- sua conta: aprovado", "- o coletivo Alfa: aprovado")
+	if strings.Contains(msg.Text, "Beta") {
+		t.Errorf("the email names the collective that was not decided:\n%s", msg.Text)
+	}
+	accountsRequireActions(t, auditEntries(t, f.s), f.admin, p, map[domain.AuditAction]int{
+		domain.AuditAccountApproved:    1,
+		domain.AuditCollectiveApproved: 1,
+	})
+}
+
+// Rejecting the account of a person who has a request in a pending collective
+// they did not create deletes the account and its own collectives only: the
+// other collective stays, and the store drops the person's membership in it with
+// the account.
+func TestRejectAccountSkipsForeignPendingCollective(t *testing.T) {
+	f := newAccountsFixture(t)
+	stranger := insertUser(t, f.s, "sara@agenda.test")
+	p := accountsPending(t, f.s, "paula@agenda.test")
+	alfa, _ := insertNewCollective(t, f.s, "Alfa", p)
+	beta := insertCollective(t, f.s, "Beta", stranger.ID)
+	accountsRequest(t, f.s, p, beta, domain.RoleMember, domain.User{}, testNow)
+	betaBefore := collectiveOf(t, f.s, beta.ID)
+
+	if err := RejectAccount(t.Context(), f.s, testOrigin, f.admin, p.ID, "", testNow.Add(time.Hour)); err != nil {
+		t.Fatalf("RejectAccount: %v", err)
+	}
+
+	accountsRequireGone(t, f.s, p)
+	accountsRequireCollectiveGone(t, f.s, alfa)
+	if got := collectiveOf(t, f.s, beta.ID); !sameCollective(got, betaBefore) {
+		t.Errorf("Beta changed: %+v, was %+v", got, betaBefore)
+	}
+	if _, err := f.s.Repos().Memberships.Get(t.Context(), p.ID, beta.ID); !errors.Is(err, domain.ErrNotFound) {
+		t.Errorf("request of the rejected person to Beta: err = %v, want ErrNotFound", err)
+	}
+	msg := onlyMessage(t, outboxMessages(t, f.s))
+	accountsRequireLines(t, msg.Text, "- sua conta: recusado", "- o coletivo Alfa: recusado")
+	if strings.Contains(msg.Text, "Beta") {
+		t.Errorf("the email names the collective that was not decided:\n%s", msg.Text)
+	}
+	accountsRequireActions(t, auditEntries(t, f.s), f.admin, p, map[domain.AuditAction]int{
+		domain.AuditAccountRejected:    1,
+		domain.AuditCollectiveRejected: 1,
+	})
 }
 
 // Four admins press "Aprovar tudo" on one person at once: one decision is taken,
@@ -571,8 +701,10 @@ func TestApproveAndRejectAccountConcurrent(t *testing.T) {
 	}
 }
 
-// Rejecting an account deletes it, the collectives it created that still wait,
-// and its join requests, with one email that holds the reason on every line.
+// Rejecting an account deletes it and the collectives it created that still
+// wait, with one email that holds the reason on every line. Its join requests go
+// with the account (the store drops a deleted person's memberships) and are not
+// decided one by one: no line in the email, no audit entry.
 func TestRejectAccount(t *testing.T) {
 	f := newAccountsFixture(t)
 	owner := insertUser(t, f.s, "olga@agenda.test")
@@ -620,7 +752,7 @@ func TestRejectAccount(t *testing.T) {
 		t.Errorf("bystander request changed: %+v", m)
 	}
 
-	// One email to the person, with the reason on each of the five lines and a
+	// One email to the person, with the reason on each of the three lines and a
 	// link to the signup page; the Administradores are told nothing.
 	msg := onlyMessage(t, outboxMessages(t, f.s))
 	if msg.To != p.Email {
@@ -629,19 +761,19 @@ func TestRejectAccount(t *testing.T) {
 	accountsRequireLines(t, msg.Text,
 		"- sua conta: recusado",
 		"- o coletivo Alfa: recusado",
-		"- seu pedido para entrar em Beta como Membro: recusado",
-		"- seu pedido para entrar em Gama como Administrador: recusado",
 		"- a produtora Zeta: recusado",
 		"[→] "+testOrigin+"/cadastro")
-	if n := strings.Count(msg.Text, "motivo: "+reason+"\n"); n != 5 {
-		t.Errorf("the reason appears %d times, want once on each of the 5 lines:\n%s", n, msg.Text)
+	if strings.Contains(msg.Text, "seu pedido") {
+		t.Errorf("the email names a join request:\n%s", msg.Text)
+	}
+	if n := strings.Count(msg.Text, "motivo: "+reason+"\n"); n != 3 {
+		t.Errorf("the reason appears %d times, want once on each of the 3 lines:\n%s", n, msg.Text)
 	}
 
 	entries := auditEntries(t, f.s)
 	accountsRequireActions(t, entries, f.admin, p, map[domain.AuditAction]int{
 		domain.AuditAccountRejected:    1,
 		domain.AuditCollectiveRejected: 2,
-		domain.AuditJoinRejected:       2,
 	})
 	for _, e := range entries {
 		if e.Reason != reason {
@@ -772,8 +904,8 @@ func TestBlockAccountRefused(t *testing.T) {
 		{"an admin cannot block themself", f.admin, f.admin.ID, "", ErrSelf},
 		{"an admin cannot block themself, bad reason", f.admin, f.admin.ID, tooLong, ErrSelf},
 		{"account is already disabled", f.admin, disabled.ID, "", ErrDecided},
-		{"account awaits approval", f.admin, pending.ID, "", ErrNotAllowed},
-		{"email is not confirmed", f.admin, unconfirmed.ID, "", ErrNotAllowed},
+		{"account awaits approval", f.admin, pending.ID, "", ErrDecided},
+		{"email is not confirmed", f.admin, unconfirmed.ID, "", ErrDecided},
 		{"unknown account", f.admin, "no-such-user", "", domain.ErrNotFound},
 	}
 	for _, tt := range tests {
@@ -842,8 +974,8 @@ func TestUnblockAccountRefused(t *testing.T) {
 	}{
 		{"actor is not an admin", plain, disabled.ID, ErrNotAllowed},
 		{"account is already active", f.admin, active.ID, ErrDecided},
-		{"account awaits approval", f.admin, pending.ID, ErrNotAllowed},
-		{"email is not confirmed", f.admin, unconfirmed.ID, ErrNotAllowed},
+		{"account awaits approval", f.admin, pending.ID, ErrDecided},
+		{"email is not confirmed", f.admin, unconfirmed.ID, ErrDecided},
 		{"unknown account", f.admin, "no-such-user", domain.ErrNotFound},
 	}
 	for _, tt := range tests {
@@ -876,9 +1008,11 @@ func accountsCards(cards []PersonCard) []string {
 	return out
 }
 
-// The queue holds one card per person: the accounts that await approval first
-// (oldest first, with or without items), then the active people with a request
-// that waits for the admin, the one that has waited longest first.
+// The queue holds one card per person, in one order whatever the account's
+// state: by the person's oldest request that waits for the admin, or by when the
+// account was created when there is none; the items inside a card by request
+// time. An active person whose request is older than every account that awaits
+// approval comes first.
 func TestAdminQueue(t *testing.T) {
 	f := newAccountsFixture(t)
 	owner := insertUser(t, f.s, "olga@agenda.test")
@@ -891,6 +1025,13 @@ func TestAdminQueue(t *testing.T) {
 	p1 := accountsPending(t, f.s, "p1@agenda.test")
 	insertNewCollective(t, f.s, "Alfa", p1)
 	accountsRequest(t, f.s, p1, beta, domain.RoleMember, domain.User{}, testNow.Add(2*time.Minute))
+
+	// veteran is active and has waited longer than everybody, mid sits between p1
+	// and p2.
+	veteran := insertUser(t, f.s, "veteran@agenda.test")
+	accountsRequest(t, f.s, veteran, gama, domain.RoleMember, domain.User{}, testNow.Add(-time.Hour))
+	mid := insertUser(t, f.s, "mid@agenda.test")
+	accountsRequest(t, f.s, mid, gama, domain.RoleMember, domain.User{}, testNow.Add(30*time.Second))
 
 	// late is the older account but has waited less than early.
 	late := insertUser(t, f.s, "late@agenda.test")
@@ -914,7 +1055,9 @@ func TestAdminQueue(t *testing.T) {
 		t.Fatalf("AdminQueue: %v", err)
 	}
 	want := []string{
+		veteran.Name + "[Gama]",
 		p1.Name + "[Alfa,Beta]",
+		mid.Name + "[Gama]",
 		p2.Name + "[]",
 		early.Name + "[Beta,Gama]",
 		late.Name + "[Beta]",
@@ -922,7 +1065,7 @@ func TestAdminQueue(t *testing.T) {
 	if got := accountsCards(cards); !reflect.DeepEqual(got, want) {
 		t.Fatalf("queue = %q, want %q", got, want)
 	}
-	for i, wantPending := range []bool{true, true, false, false} {
+	for i, wantPending := range []bool{false, true, false, true, false, false} {
 		if got := cards[i].AccountPending(); got != wantPending {
 			t.Errorf("card %d (%s): AccountPending = %v, want %v", i, cards[i].User.Name, got, wantPending)
 		}
@@ -934,8 +1077,8 @@ func TestAdminQueue(t *testing.T) {
 			}
 		}
 	}
-	if len(cards[0].Items) == 2 && cards[0].Items[0].CollectiveStatus != domain.CollectiveStatusPending {
-		t.Errorf("the item of a collective the person asked for has status %q, want pending", cards[0].Items[0].CollectiveStatus)
+	if items := cards[1].Items; len(items) != 2 || items[0].CollectiveStatus != domain.CollectiveStatusPending || items[1].CollectiveStatus != domain.CollectiveStatusApproved {
+		t.Errorf("items of %s = %+v, want the collective they asked for (pending) and then Beta (approved)", cards[1].User.Name, items)
 	}
 }
 
