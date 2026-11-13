@@ -144,7 +144,15 @@ const (
 
 // Valid reports whether a is one of the defined actions.
 func (a AuditAction) Valid() bool {
-	return false // RED stub
+	switch a {
+	case AuditAccountApproved, AuditAccountRejected, AuditAccountBlocked, AuditAccountUnblocked,
+		AuditCollectiveRequested, AuditCollectiveApproved, AuditCollectiveRejected,
+		AuditCollectiveRenamed, AuditCollectiveBlocks,
+		AuditJoinRequested, AuditJoinAdminApproved, AuditJoinOwnerApproved, AuditJoinRejected,
+		AuditMemberPromoted, AuditMemberDemoted:
+		return true
+	}
+	return false
 }
 
 // Field limits shared by the rules and by the backends. Lengths count runes.

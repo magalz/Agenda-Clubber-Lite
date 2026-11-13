@@ -300,5 +300,20 @@ func (m OutboxMessage) Validate() error {
 // backend assigns, nor the IDs of the user and of the collective, which are
 // snapshots.
 func (e AuditEntry) Validate() error {
-	return nil // RED stub
+	var f FieldErrors
+	if !e.Action.Valid() {
+		f.Add("action", MsgInvalid)
+	}
+	if e.At.IsZero() {
+		f.Add("at", MsgRequired)
+	}
+	if e.ActorID == "" {
+		f.Add("actor_id", MsgRequired)
+	}
+	f.addIf("actor_name", lengthProblem(e.ActorName, 0, UserNameMax))
+	f.addIf("user_name", lengthProblem(e.UserName, 0, UserNameMax))
+	f.addIf("collective_name", lengthProblem(e.CollectiveName, 0, CollectiveNameMax))
+	f.addIf("detail", lengthProblem(e.Detail, 0, AuditTextMax))
+	f.addIf("reason", lengthProblem(e.Reason, 0, AuditTextMax))
+	return f.Err()
 }
