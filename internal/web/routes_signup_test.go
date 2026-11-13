@@ -830,15 +830,8 @@ func (signupFailingSearch) SearchApproved(context.Context, string, domain.Collec
 	return nil, errors.New("the search is down")
 }
 
-// signupSearchStore is a store with no database behind it but that failing search.
-type signupSearchStore struct{ stubStore }
-
-func (signupSearchStore) Repos() domain.Repos {
-	return domain.Repos{Collectives: signupFailingSearch{}}
-}
-
 func TestSignupSuggestionsServerErrorIsLoggedWithoutTheQuery(t *testing.T) {
-	app := signupApp(t, signupSearchStore{})
+	app := signupApp(t, repoOverride{stubStore{}, func(r *domain.Repos) { r.Collectives = signupFailingSearch{} }})
 	logs := captureLogs(app)
 	rec := signupSuggest(app.Router(), url.Values{"q": {"segredo-da-busca"}, "tipo": {"coletivo"}}, "198.51.100.1")
 	if rec.Code != http.StatusInternalServerError {
