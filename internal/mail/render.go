@@ -18,6 +18,10 @@ const (
 	TemplateExistingAccount Template = "existing_account"
 	TemplateAdminNewSignup  Template = "admin_new_signup"
 	TemplatePasswordReset   Template = "password_reset"
+
+	TemplateDecision         Template = "decision"
+	TemplateOwnerJoinRequest Template = "owner_join_request"
+	TemplateAdminRequest     Template = "admin_request"
 )
 
 // VerifyEmailData is the data of TemplateVerifyEmail. The link confirms the
@@ -64,6 +68,64 @@ type PasswordResetData struct {
 	Link string
 }
 
+// Outcomes of a DecisionItem. Render refuses any other value.
+const (
+	DecisionApproved = "approved"
+	DecisionRejected = "rejected"
+	// DecisionWaiting is a join request the site admin approved that still needs
+	// an Administrador of the collective.
+	DecisionWaiting = "waiting"
+)
+
+// DecisionItem is one thing decided in a DecisionData email. What is built by
+// the caller and printed before the outcome, for example "sua conta", "o
+// coletivo Alfa" or "seu pedido para entrar em Beta como Membro". Reason is the
+// free text of whoever decided; it is shown only when it is not empty.
+type DecisionItem struct {
+	What    string
+	Outcome string // DecisionApproved, DecisionRejected or DecisionWaiting
+	Reason  string
+}
+
+// DecisionData is the data of TemplateDecision: one email per decision call,
+// listing everything that was decided in it. Link is where the person goes next
+// (the login page or their collectives).
+type DecisionData struct {
+	Name  string
+	Items []DecisionItem
+	Link  string
+}
+
+// OwnerJoinRequestData is the data of TemplateOwnerJoinRequest: the notice the
+// Administradores of a collective get when a join request becomes visible to
+// them. Role is a label ("Membro", "Administrador"), not a stored role.
+type OwnerJoinRequestData struct {
+	CollectiveName string
+	UserName       string
+	Role           string
+	Link           string
+}
+
+// Kinds of AdminRequestData. Render refuses any other value.
+const (
+	AdminRequestJoin          = "join"
+	AdminRequestNewCollective = "new_collective"
+	AdminRequestRename        = "rename"
+)
+
+// AdminRequestData is the data of TemplateAdminRequest: the notice the site
+// admins get about a request. Kind picks the wording and which fields are used:
+// join uses UserName, CollectiveName and Role; new_collective uses UserName and
+// CollectiveName; rename uses UserName, OldName and CollectiveName (the new name).
+type AdminRequestData struct {
+	Kind           string // AdminRequestJoin, AdminRequestNewCollective or AdminRequestRename
+	UserName       string
+	CollectiveName string
+	OldName        string
+	Role           string
+	Link           string
+}
+
 //go:embed templates/*.tmpl
 var templateFS embed.FS
 
@@ -94,6 +156,10 @@ var emails = map[Template]email{
 	TemplateExistingAccount: compile(TemplateExistingAccount, ExistingAccountData{}),
 	TemplateAdminNewSignup:  compile(TemplateAdminNewSignup, AdminNewSignupData{}),
 	TemplatePasswordReset:   compile(TemplatePasswordReset, PasswordResetData{}),
+
+	TemplateDecision:         compile(TemplateDecision, DecisionData{}),
+	TemplateOwnerJoinRequest: compile(TemplateOwnerJoinRequest, OwnerJoinRequestData{}),
+	TemplateAdminRequest:     compile(TemplateAdminRequest, AdminRequestData{}),
 }
 
 // compile parses the shared layout and the template's own file. A parse error
