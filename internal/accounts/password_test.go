@@ -92,6 +92,18 @@ func TestChangePasswordSetsThePasswordAndEndsTheOtherSessions(t *testing.T) {
 	theirs := passwordStart(t, s, other.ID)
 	calls := passwordCountHashes(t)
 
+	// The account was locked by wrong passwords and has one more failure on the
+	// books: the change must clear both. Without this seed the assertions after
+	// the change would pass on a fixture that starts clean.
+	for range LoginMaxFailures + 1 {
+		if _, err := s.Repos().Users.RecordLoginFailure(ctx, u.ID, passwordAt, LoginMaxFailures, LoginLockFor); err != nil {
+			t.Fatalf("RecordLoginFailure: %v", err)
+		}
+	}
+	if before := loginReload(t, s, u.ID); before.FailedLogins != 1 || before.LockedUntil == nil {
+		t.Fatalf("seed: FailedLogins %d, LockedUntil %v, want 1 and a lock", before.FailedLogins, before.LockedUntil)
+	}
+
 	if err := ChangePassword(ctx, s, u.ID, keep, loginPassword, resetNewPassword, resetNewPassword, passwordAt); err != nil {
 		t.Fatalf("ChangePassword: %v", err)
 	}
@@ -102,6 +114,9 @@ func TestChangePasswordSetsThePasswordAndEndsTheOtherSessions(t *testing.T) {
 	got := loginReload(t, s, u.ID)
 	if ok, err := auth.VerifyPassword(got.PasswordHash, resetNewPassword); err != nil || !ok {
 		t.Errorf("the stored hash does not verify the new password: ok %v, err %v", ok, err)
+	}
+	if got.FailedLogins != 0 || got.LockedUntil != nil {
+		t.Errorf("FailedLogins %d, LockedUntil %v after the change, want 0 and no lock", got.FailedLogins, got.LockedUntil)
 	}
 	if !got.PasswordChangedAt.Equal(passwordAt.Truncate(time.Millisecond)) {
 		t.Errorf("PasswordChangedAt = %v, want %v", got.PasswordChangedAt, passwordAt)
@@ -122,6 +137,9 @@ func TestChangePasswordSetsThePasswordAndEndsTheOtherSessions(t *testing.T) {
 	if _, err := Login(ctx, s, resetEmail, resetNewPassword, passwordAt); err != nil {
 		t.Errorf("login with the new password: %v", err)
 	}
+	// Last, because a failed login counts against the account.
+	_, err := Login(ctx, s, resetEmail, loginPassword, passwordAt)
+	loginIs(t, "login with the old password", err, ErrLoginFailed)
 }
 
 func TestChangePasswordFieldErrors(t *testing.T) {

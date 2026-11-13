@@ -26,7 +26,7 @@ const (
 	passwordWrong = "Atual-Errada-3"
 
 	passwordMsgDone         = "senha alterada. as outras sessões foram encerradas."
-	passwordMsgExpired      = "sua senha expirou. escolha uma nova para continuar."
+	passwordMsgExpired      = "sua senha venceu: ela vale por 90 dias. crie uma nova para continuar."
 	passwordMsgWrongCurrent = "senha atual incorreta"
 	passwordMsgRequired     = "campo obrigatório"
 	passwordMsgPolicy       = "requisitos da senha:"
@@ -172,8 +172,9 @@ func passwordItem(t *testing.T, rec *httptest.ResponseRecorder) string {
 	return body
 }
 
-// passwordItemState checks the item against one of its three states: "pending"
-// (not checked), "ok" or "reused".
+// passwordItemState checks the item against one of its two states: "pending"
+// (not met, or not known to be met: a password that is one of the last two stays
+// pending, like every item the person has not satisfied yet) or "ok".
 func passwordItemState(t *testing.T, rec *httptest.ResponseRecorder, state string) {
 	t.Helper()
 	body := passwordItem(t, rec)
@@ -188,11 +189,6 @@ func passwordItemState(t *testing.T, rec *httptest.ResponseRecorder, state strin
 		wantAll(t, "met item", body, "is-ok", "(atendido)")
 		if failed {
 			t.Errorf("a met item shows an error:\n%s", body)
-		}
-	case "reused":
-		wantAll(t, "failed item", body, "(não atendido)", `class="field-error"`, "você já usou esta senha")
-		if met {
-			t.Errorf("a failed item is marked met:\n%s", body)
 		}
 	default:
 		t.Fatalf("unknown state %q", state)
@@ -230,7 +226,7 @@ func TestPasswordChangeShowsTheForm(t *testing.T) {
 		`hx-trigger="input changed delay:400ms from:#password"`,
 		`hx-target="#password-history"`, `hx-swap="outerHTML"`, `hx-params="password"`)
 	passwordFormChecks(t, body)
-	for _, absent := range []string{`role="alert"`, `role="status"`, "sua senha expirou", `class="field-error"`} {
+	for _, absent := range []string{`role="alert"`, `role="status"`, "sua senha venceu", `class="field-error"`} {
 		if strings.Contains(body, absent) {
 			t.Errorf("the empty form shows %q", absent)
 		}
@@ -257,7 +253,8 @@ func TestPasswordChangeNamesAnExpiredPassword(t *testing.T) {
 		t.Fatalf("GET / = %d to %q, want 303 to %s", home.Code, home.Header().Get("Location"), passwordPathChange)
 	}
 
-	body := confirmAssertPage(t, e.show(), http.StatusOK, "Trocar senha", passwordMsgExpired)
+	body := confirmAssertPage(t, e.show(), http.StatusOK, "Trocar senha",
+		`<p class="status status--error" role="alert">`+passwordMsgExpired+`</p>`)
 	passwordFormChecks(t, body)
 }
 
@@ -306,7 +303,7 @@ func TestPasswordChangeSetsThePasswordAndEndsTheOtherSessions(t *testing.T) {
 
 	rec := e.change(loginTestPassword, signupPassword, signupPassword)
 	body := confirmAssertPage(t, rec, http.StatusOK, "Trocar senha",
-		passwordMsgDone, `class="status status--ok" role="status"`, `<a href="/">ir para o calendário</a>`)
+		passwordMsgDone, `class="status status--ok" role="status"`, `<a href="/">voltar ao calendário</a>`)
 	// The layout's own logout form is on the page; the change form is not.
 	for _, absent := range []string{`action="/senha/trocar"`, `name="password"`, `name="current_password"`, `role="alert"`} {
 		if strings.Contains(body, absent) {
@@ -443,8 +440,8 @@ func TestPasswordVerifyAnswersOnlyTheHistoryItem(t *testing.T) {
 		{"nothing typed", "", "pending"},
 		{"a new password", signupPassword, "ok"},
 		{"a password that breaks the policy, which is another item's rule", "abc", "ok"},
-		{"the current password", loginTestPassword, "reused"},
-		{"the previous password", passwordOld, "reused"},
+		{"the current password", loginTestPassword, "pending"},
+		{"the previous password", passwordOld, "pending"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			passwordItemState(t, e.verify(tc.password), tc.state)
