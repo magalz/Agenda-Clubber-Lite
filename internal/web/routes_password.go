@@ -66,9 +66,7 @@ func (a *App) changeUser(c *gin.Context) (domain.User, bool) {
 // is the one loaded before it.
 func (a *App) changePageUser(c *gin.Context) *ViewUser {
 	v := a.viewUser(c)
-	if v != nil {
-		v.PasswordDaysLeft = 0
-	}
+	v.PasswordDaysLeft = 0
 	return v
 }
 
