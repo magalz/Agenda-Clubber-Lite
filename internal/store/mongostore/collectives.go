@@ -11,12 +11,6 @@ import (
 	"github.com/magalz/agenda-clubber-lite/internal/domain"
 )
 
-// Limits of SearchApproved's limit argument.
-const (
-	searchLimitMin = 1
-	searchLimitMax = 50
-)
-
 type collectives struct{ s *Store }
 
 var _ domain.Collectives = collectives{}
@@ -79,7 +73,7 @@ func (r collectives) find(ctx context.Context, filter bson.M) (domain.Collective
 // a regular expression, so no query is a pattern. The key is quoted with
 // $literal because a string that starts with $ is a field path in an expression.
 func (r collectives) SearchApproved(ctx context.Context, query string, kind domain.CollectiveKind, limit int) ([]domain.Collective, error) {
-	limit = min(max(limit, searchLimitMin), searchLimitMax)
+	limit = min(max(limit, domain.SearchLimitMin), domain.SearchLimitMax)
 	filter := bson.M{
 		"status": string(domain.CollectiveStatusApproved),
 		"$expr": bson.M{"$gte": bson.A{

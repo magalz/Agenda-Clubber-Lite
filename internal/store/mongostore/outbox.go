@@ -12,9 +12,6 @@ import (
 	"github.com/magalz/agenda-clubber-lite/internal/domain"
 )
 
-// lastErrorMax is how many runes of an error the outbox keeps.
-const lastErrorMax = 500
-
 type outbox struct{ s *Store }
 
 var _ domain.Outbox = outbox{}
@@ -81,8 +78,8 @@ func (r outbox) MarkFailed(ctx context.Context, id string, lastError string, ret
 	// Converting through runes also replaces bytes that are not valid UTF-8,
 	// which the server would refuse in a string.
 	runes := []rune(lastError)
-	if len(runes) > lastErrorMax {
-		runes = runes[:lastErrorMax]
+	if len(runes) > domain.OutboxErrorMax {
+		runes = runes[:domain.OutboxErrorMax]
 	}
 	set := bson.M{"last_error": string(runes)}
 	if retryAt != nil {
