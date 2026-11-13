@@ -106,12 +106,11 @@ func ResetPassword(ctx context.Context, store domain.Store, rawToken, password, 
 	if err := fe.Err(); err != nil {
 		return err
 	}
-	newHash, err := resetHashPassword(password)
-	if err != nil {
-		return fmt.Errorf("accounts: reset password: %w", err)
-	}
 
-	// A refusal inside the transaction rolls the consumed token back.
+	// A refusal inside the transaction rolls the consumed token back. The new
+	// password is hashed only after the link is consumed, so a forged link costs
+	// a lookup, not an argon2 hash (this form has no rate limit). A retried
+	// transaction hashes again, which is harmless.
 	return store.WithTx(ctx, func(ctx context.Context, r domain.Repos) error {
 		t, err := r.Tokens.Consume(ctx, domain.TokenPurposeResetPassword, hash, now)
 		if errors.Is(err, domain.ErrNotFound) {
@@ -150,6 +149,10 @@ func ResetPassword(ctx context.Context, store domain.Store, rawToken, password, 
 			return fe.Err()
 		}
 
+		newHash, err := resetHashPassword(password)
+		if err != nil {
+			return fmt.Errorf("accounts: reset password: %w", err)
+		}
 		if err := r.Users.ChangePassword(ctx, u.ID, newHash, now); err != nil {
 			return fmt.Errorf("accounts: reset password: change password: %w", err)
 		}
