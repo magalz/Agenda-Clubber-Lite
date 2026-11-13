@@ -113,7 +113,7 @@ func seedDev(ctx context.Context, getenv func(string) string, stdout, stderr io.
 	}
 	for _, a := range devAccounts {
 		if violated := auth.CheckPolicy(password, devEmail(a.local)); len(violated) > 0 {
-			return fail("SEED_PASSWORD does not meet the rules for %s: %s", devEmail(a.local), ruleLabels(violated))
+			return fail("SEED_PASSWORD does not meet the rules for %s: %s", devEmail(a.local), accounts.PasswordPolicyMessage(violated))
 		}
 	}
 
