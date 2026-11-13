@@ -701,7 +701,6 @@ func TestSignupRateLimitPerEmail(t *testing.T) {
 
 func TestSignupSuggestions(t *testing.T) {
 	app, store := signupStoreApp(t)
-	logs := captureLogs(app)
 	r := app.Router()
 
 	alpha := signupInsertCollective(t, store, "Baile Alfa", domain.CollectiveKindColetivo, domain.CollectiveStatusApproved)
@@ -822,15 +821,39 @@ func TestSignupSuggestions(t *testing.T) {
 			t.Errorf("status = %d, want 400", rec.Code)
 		}
 	})
+}
 
-	t.Run("the query is not logged", func(t *testing.T) {
-		if rec := get("segredo-da-busca", ""); rec.Code != http.StatusOK {
-			t.Fatalf("status = %d", rec.Code)
-		}
-		if strings.Contains(logs.String(), "segredo-da-busca") {
-			t.Errorf("the log holds the query: %s", logs)
-		}
-	})
+// signupFailingSearch is a collectives repository whose search fails.
+type signupFailingSearch struct{ domain.Collectives }
+
+func (signupFailingSearch) SearchApproved(context.Context, string, domain.CollectiveKind, int) ([]domain.Collective, error) {
+	return nil, errors.New("the search is down")
+}
+
+// signupSearchStore is a store with no database behind it but that failing search.
+type signupSearchStore struct{ stubStore }
+
+func (signupSearchStore) Repos() domain.Repos {
+	return domain.Repos{Collectives: signupFailingSearch{}}
+}
+
+func TestSignupSuggestionsServerErrorIsLoggedWithoutTheQuery(t *testing.T) {
+	app := signupApp(t, signupSearchStore{})
+	logs := captureLogs(app)
+	rec := signupSuggest(app.Router(), url.Values{"q": {"segredo-da-busca"}, "tipo": {"coletivo"}}, "198.51.100.1")
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, body %q, want 500", rec.Code, rec.Body)
+	}
+	log := logs.String()
+	if !strings.Contains(log, "the search is down") {
+		t.Errorf("the error is not logged: %s", log)
+	}
+	if strings.Contains(log, "segredo-da-busca") {
+		t.Errorf("the log holds the query: %s", log)
+	}
+	if strings.Contains(rec.Body.String(), "segredo-da-busca") || strings.Contains(rec.Body.String(), "search is down") {
+		t.Errorf("the 500 page says more than it should: %q", rec.Body)
+	}
 }
 
 func TestSignupSuggestionsRateLimit(t *testing.T) {

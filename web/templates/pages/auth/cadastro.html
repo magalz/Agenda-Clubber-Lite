@@ -22,7 +22,7 @@
       <input class="input" type="tel" id="phone" name="phone" value="{{.Form.Get "phone"}}" inputmode="tel" autocomplete="tel" required aria-describedby="phone-hint{{with index .Errors "phone"}} erro-phone{{end}}"{{with index .Errors "phone"}} aria-invalid="true"{{end}}>
       <p class="hint" id="phone-hint">DDD + número, sem +55</p>
       {{template "field-error" (dict "Errors" .Errors "Field" "phone")}}
-      <label class="check"><input type="checkbox" name="phone_whatsapp" value="1"{{if .Form.Get "phone_whatsapp"}} checked{{end}}> é WhatsApp</label>
+      <label class="check"><input type="checkbox" name="phone_whatsapp" value="1"{{if eq (.Form.Get "phone_whatsapp") "1"}} checked{{end}}> é WhatsApp</label>
     </div>
     {{template "password-fields" (dict "Errors" .Errors "Checklist" .Data.Checklist "Autocomplete" "new-password")}}
     <fieldset class="stack stack--sm" role="radiogroup"{{with index .Errors "collective_kind"}} aria-invalid="true" aria-describedby="erro-collective_kind"{{end}}>
@@ -36,7 +36,7 @@
       <input class="input" type="text" id="collective_name" name="collective_name" value="{{.Form.Get "collective_name"}}" autocomplete="off" required aria-describedby="collective-name-hint{{with index .Errors "collective"}} erro-collective{{end}}"{{with index .Errors "collective"}} aria-invalid="true"{{end}}>
       <p class="hint" id="collective-name-hint">comece a digitar para ver os já cadastrados, ou escreva um nome novo</p>
       {{template "field-error" (dict "Errors" .Errors "Field" "collective")}}
-      <input type="hidden" name="collective_id" value="{{.Form.Get "collective_id"}}">
+      <input type="hidden" id="collective_id" name="collective_id" value="{{.Form.Get "collective_id"}}">
       <div id="collective-suggestions-box"></div>
     </div>
     <fieldset class="stack stack--sm" role="radiogroup" aria-describedby="role-hint{{with index .Errors "role"}} erro-role{{end}}"{{with index .Errors "role"}} aria-invalid="true"{{end}}>

@@ -1,7 +1,10 @@
 package web
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
+	"maps"
 	"net/http"
 	"net/url"
 	"strings"
@@ -60,20 +63,20 @@ func signupData(form url.Values, notice string) PageData {
 	}
 }
 
-// signupEmailKey is the limiter key that counts the posts naming an e-mail.
+// signupEmailKey is the limiter key that counts the posts naming an e-mail. It
+// holds the SHA-256 of the lowercased address, not the address: the body may
+// carry 64 KiB there, and a limiter keeps every key for its whole window.
 func signupEmailKey(email string) string {
-	return "signup-email:" + strings.ToLower(strings.TrimSpace(email))
+	sum := sha256.Sum256([]byte(strings.ToLower(strings.TrimSpace(email))))
+	return "signup-email:" + hex.EncodeToString(sum[:])
 }
 
 // signupKept is the form without its passwords: a password is never written
 // back into a page.
 func signupKept(form url.Values) url.Values {
-	kept := make(url.Values, len(form))
-	for k, v := range form {
-		if k != "password" && k != "password_confirm" {
-			kept[k] = v
-		}
-	}
+	kept := maps.Clone(form)
+	delete(kept, "password")
+	delete(kept, "password_confirm")
 	return kept
 }
 
