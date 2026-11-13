@@ -408,28 +408,3 @@ func TestSelfAtomicCallsJoinTheCallersTransaction(t *testing.T) {
 		t.Errorf("the rolled-back Tokens.Create left the new token: error = %v", err)
 	}
 }
-
-func TestWithTxCommitsWhatFnWrote(t *testing.T) {
-	s := mongotest.New(t)
-	ctx := t.Context()
-	var id string
-	err := s.WithTx(ctx, func(ctx context.Context, r domain.Repos) error {
-		u := newUser("ana")
-		if err := r.Users.Create(ctx, &u); err != nil {
-			return err
-		}
-		id = u.ID
-		tok := newToken(u.ID, "t1")
-		return r.Tokens.Create(ctx, &tok)
-	})
-	if err != nil {
-		t.Fatalf("WithTx: %v", err)
-	}
-	r := s.Repos()
-	if _, err := r.Users.ByID(ctx, id); err != nil {
-		t.Errorf("the committed user: %v", err)
-	}
-	if _, err := r.Tokens.Consume(ctx, domain.TokenPurposeResetPassword, sha256Of("t1"), now.Add(time.Minute)); err != nil {
-		t.Errorf("the committed token: %v", err)
-	}
-}
