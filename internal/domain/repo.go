@@ -30,6 +30,10 @@ import (
 //     indexes): an expired session or token stays until a method removes it.
 //   - Every call is atomic by itself. Several calls are atomic together only
 //     inside Store.WithTx.
+//   - Known gap (ACL-21): the reference check of a Create (the user or
+//     collective must exist) is not isolated from a concurrent Users.Delete or
+//     Collectives.Delete, so a document created while the cascade runs can be
+//     left pointing at a deleted user or collective.
 
 // Users stores accounts.
 type Users interface {
