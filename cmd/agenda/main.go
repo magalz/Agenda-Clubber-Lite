@@ -19,6 +19,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/magalz/agenda-clubber-lite/internal/auth"
 	"github.com/magalz/agenda-clubber-lite/internal/config"
 	"github.com/magalz/agenda-clubber-lite/internal/domain"
 	"github.com/magalz/agenda-clubber-lite/internal/store/mongostore"
@@ -191,6 +192,10 @@ func serve(ctx context.Context, getenv func(string) string, stdout, stderr io.Wr
 		}
 	}()
 	log.Info("database ready", "db", cfg.Mongo.DB)
+
+	// Build the shared dummy hash now, so the first login for an unknown email
+	// does not take longer than the ones after it.
+	auth.DummyVerify("")
 
 	srv := newServer(cfg, log, store)
 

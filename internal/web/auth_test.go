@@ -622,8 +622,14 @@ func TestSignIn(t *testing.T) {
 
 	t.Run("a garbage cookie is replaced without an error", func(t *testing.T) {
 		rec := post(r, "/entrar-sonda?id="+ana.ID, "", withCookie(&http.Cookie{Name: auth.SessionCookieName, Value: "garbage"}))
-		if rec.Code != 200 || responseCookie(rec, auth.SessionCookieName) == nil || responseCookie(rec, auth.SessionCookieName).Value == "garbage" {
-			t.Errorf("got %d, cookie %v", rec.Code, rec.Header().Values("Set-Cookie"))
+		// loadSession cleared the stale cookie first; the response must carry
+		// only the new one, not the clearing header before it.
+		headers := rec.Header().Values("Set-Cookie")
+		if rec.Code != 200 || len(headers) != 1 {
+			t.Fatalf("got %d, Set-Cookie %v; want 200 and exactly one", rec.Code, headers)
+		}
+		if c := responseCookie(rec, auth.SessionCookieName); c == nil || c.Value == "" || c.Value == "garbage" || c.MaxAge <= 0 {
+			t.Errorf("cookie = %+v, want a fresh session cookie", c)
 		}
 	})
 
