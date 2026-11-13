@@ -620,12 +620,12 @@ func TestSetCollectiveBlocks(t *testing.T) {
 		reason, wantReason     string
 	}{
 		{"block the events", false, false, true, false, "eventos bloqueados", "abuso", "abuso"},
-		{"lock the collective", false, false, false, true, "coletivo travado", "", ""},
-		{"both at once", false, false, true, true, "eventos bloqueados; coletivo travado", "  disputa\r\ninterna ", "disputa\ninterna"},
+		{"lock the collective", false, false, false, true, "membros e nome congelados", "", ""},
+		{"both at once", false, false, true, true, "eventos bloqueados; membros e nome congelados", "  disputa\r\ninterna ", "disputa\ninterna"},
 		{"free the events", true, true, false, true, "eventos liberados", "", ""},
-		{"unlock the collective", true, true, true, false, "coletivo destravado", "", ""},
-		{"free both", true, true, false, false, "eventos liberados; coletivo destravado", "resolvido", "resolvido"},
-		{"lock a collective whose events are blocked", true, false, true, true, "coletivo travado", "", ""},
+		{"unlock the collective", true, true, true, false, "membros e nome liberados", "", ""},
+		{"free both", true, true, false, false, "eventos liberados; membros e nome liberados", "resolvido", "resolvido"},
+		{"lock a collective whose events are blocked", true, false, true, true, "membros e nome congelados", "", ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
