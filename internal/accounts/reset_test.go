@@ -442,8 +442,9 @@ func TestResetPasswordStoreFailureIsAServerError(t *testing.T) {
 }
 
 // A link nobody issued must cost no argon2 work: hashing a password takes about
-// 19 MiB and the reset form has no rate limit, so the hash runs only once the
-// link has been consumed.
+// 19 MiB and the reset form's limit (10 a minute per client address) still lets
+// a client forge ten links a minute, so the hash runs only once the link has
+// been consumed.
 func TestResetPasswordHashesOnlyForAWorkingLink(t *testing.T) {
 	s := newTestStore(t)
 	ctx := t.Context()

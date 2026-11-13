@@ -125,10 +125,10 @@ func (s *SMTPSender) sendError(err error, to string) error {
 		// usually repeat it too, so the text is built from the typed fields.
 		text = refusalText(refusal)
 	} else if s.redactor != nil {
+		// Redact before the whitespace is collapsed below, or a password with a
+		// run of spaces would no longer match.
 		text = s.redactor.Replace(text)
 	}
-	// Redact before the whitespace is collapsed, or a password with a run of
-	// spaces would no longer match.
 	text = redactAddress(text, to)
 	return errors.New("mail: send: " + strings.Join(strings.Fields(text), " "))
 }
