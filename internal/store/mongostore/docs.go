@@ -200,9 +200,11 @@ func (d sessionDoc) session() domain.Session {
 
 // --- collectives ---
 
-// collectiveDoc keeps each flag only when it is set (a false flag is left out) and
-// Rev, which the domain never sees: Update bumps it so that two transactions that
-// both write the collective conflict. Create leaves it out.
+// collectiveDoc leaves a false flag out on Create; Update writes both flags as
+// they are, so a cleared flag is stored as false. Absent and false both read as
+// false: never query these fields with $exists. Rev is never seen by the domain:
+// Update bumps it so that two transactions that both write the collective
+// conflict. Create leaves it out.
 type collectiveDoc struct {
 	ID            bson.ObjectID  `bson:"_id"`
 	Name          string         `bson:"name"`
