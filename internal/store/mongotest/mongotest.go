@@ -13,6 +13,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -25,10 +26,13 @@ import (
 // cleanupTimeout bounds the drop of the database when the test ends.
 const cleanupTimeout = 30 * time.Second
 
-// New returns a store on a new, empty database with the schema in place. Without
-// MONGO_TEST_URI the test is skipped, except when CI is set: there a missing
-// server must fail the build, not hide the tests.
-func New(t *testing.T) *mongostore.Store {
+// dbPrefix starts the name of every database a test creates; DropOnCleanup
+// refuses any other, so a test cannot drop a database that is not its own.
+const dbPrefix = "acltest_"
+
+// URI returns MONGO_TEST_URI. Without it the test is skipped, except when CI is
+// set: there a missing server must fail the build, not hide the tests.
+func URI(t *testing.T) string {
 	t.Helper()
 	uri := os.Getenv("MONGO_TEST_URI")
 	if uri == "" {
@@ -37,15 +41,32 @@ func New(t *testing.T) *mongostore.Store {
 		}
 		t.Skip("MONGO_TEST_URI not set: start a single-node replica set and set it")
 	}
+	return uri
+}
+
+// DropOnCleanup drops the database db, on the server uri, when the test ends.
+// db must be one the test creates and must start with acltest_. It does not
+// use a store: a test may have closed it, and the drop must still happen.
+func DropOnCleanup(t *testing.T, uri, db string) {
+	t.Helper()
+	if !strings.HasPrefix(db, dbPrefix) {
+		t.Fatalf("refusing to drop %q: a test database starts with %s", db, dbPrefix)
+	}
+	t.Cleanup(func() { dropDatabase(t, uri, db) })
+}
+
+// New returns a store on a new, empty database with the schema in place; see URI
+// for when it skips.
+func New(t *testing.T) *mongostore.Store {
+	t.Helper()
+	uri := URI(t)
 
 	var suffix [8]byte
 	_, _ = rand.Read(suffix[:]) // never fails: see crypto/rand.Read
-	name := "acltest_" + hex.EncodeToString(suffix[:])
+	name := dbPrefix + hex.EncodeToString(suffix[:])
 
 	// Registered before anything is created, so a failed setup is cleaned up too.
-	// It does not use the store: a test may have closed it, and the drop must
-	// still happen.
-	t.Cleanup(func() { dropDatabase(t, uri, name) })
+	DropOnCleanup(t, uri, name)
 
 	s, err := mongostore.Open(t.Context(), uri, name)
 	if err != nil {
@@ -64,7 +85,7 @@ func New(t *testing.T) *mongostore.Store {
 	return s
 }
 
-// dropDatabase drops the database name, which New created.
+// dropDatabase drops the database name, which a test created.
 func dropDatabase(t *testing.T, uri, name string) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), cleanupTimeout)

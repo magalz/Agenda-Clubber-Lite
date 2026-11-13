@@ -158,5 +158,9 @@ func (r memberships) UserCanCreateEvents(ctx context.Context, userID string) (bo
 		return false, wrap("check event creation rights", err)
 	}
 	defer cur.Close(ctx)
-	return cur.Next(ctx), cur.Err()
+	ok := cur.Next(ctx)
+	if err := cur.Err(); err != nil {
+		return false, wrap("check event creation rights", err)
+	}
+	return ok, nil
 }

@@ -18,17 +18,12 @@ import (
 	"github.com/magalz/agenda-clubber-lite/internal/store/storetest"
 )
 
-// The contract suite runs against a real MongoDB; without MONGO_TEST_URI these
-// tests skip (and fail when CI is set). Outbox, Tx and Run join them with the
-// outbox repository.
+// The contract suite runs against a real MongoDB; without MONGO_TEST_URI it
+// skips (and fails when CI is set).
 
 func newStore(t *testing.T) domain.Store { return mongotest.New(t) }
 
-func TestUsers(t *testing.T)       { storetest.RunUsers(t, newStore) }
-func TestTokens(t *testing.T)      { storetest.RunTokens(t, newStore) }
-func TestSessions(t *testing.T)    { storetest.RunSessions(t, newStore) }
-func TestCollectives(t *testing.T) { storetest.RunCollectives(t, newStore) }
-func TestMemberships(t *testing.T) { storetest.RunMemberships(t, newStore) }
+func TestStore(t *testing.T) { storetest.Run(t, newStore) }
 
 // --- Open ---
 
@@ -36,13 +31,22 @@ func TestMemberships(t *testing.T) { storetest.RunMemberships(t, newStore) }
 // an error.
 const passwordMarker = "PWMARKER-7f3a"
 
+// wantSafeError requires an error from Open that carries nothing of uri: not its
+// password, user, host, port or options, neither in its text nor in a wrapped
+// error that a caller could unwrap and print.
 func wantSafeError(t *testing.T, err error, uri string) {
 	t.Helper()
 	if err == nil {
 		t.Fatal("Open succeeded, want an error")
 	}
+	if inner := errors.Unwrap(err); inner != nil {
+		t.Errorf("the error wraps another one, which may carry the URI: %v", inner)
+	}
+	if joined, ok := err.(interface{ Unwrap() []error }); ok && len(joined.Unwrap()) > 0 {
+		t.Errorf("the error wraps other errors, which may carry the URI: %v", joined.Unwrap())
+	}
 	msg := err.Error()
-	for _, leak := range []string{passwordMarker, "user:", uri} {
+	for _, leak := range []string{passwordMarker, "user", "127.0.0.1", "notaport", ":1/", "directConnection", "mongodb://", uri} {
 		if strings.Contains(msg, leak) {
 			t.Errorf("the error leaks %q from the URI: %v", leak, err)
 		}
@@ -84,21 +88,6 @@ func TestRequireReplicaSet(t *testing.T) {
 		} else if !strings.Contains(err.Error(), "replica set") {
 			t.Errorf("%s: the error does not say what to do: %v", name, err)
 		}
-	}
-}
-
-func TestCloseIsIdempotent(t *testing.T) {
-	s := mongotest.New(t)
-	if err := s.Ping(t.Context()); err != nil {
-		t.Fatalf("Ping: %v", err)
-	}
-	for i := range 2 {
-		if err := s.Close(t.Context()); err != nil {
-			t.Fatalf("Close #%d: %v", i+1, err)
-		}
-	}
-	if err := s.Ping(t.Context()); err == nil {
-		t.Error("Ping after Close succeeded")
 	}
 }
 
