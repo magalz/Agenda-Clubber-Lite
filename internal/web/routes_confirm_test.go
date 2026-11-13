@@ -2,9 +2,7 @@ package web
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -15,34 +13,13 @@ import (
 	"github.com/magalz/agenda-clubber-lite/internal/accounts"
 	"github.com/magalz/agenda-clubber-lite/internal/auth"
 	"github.com/magalz/agenda-clubber-lite/internal/domain"
-	"github.com/magalz/agenda-clubber-lite/internal/store/mongotest"
 )
-
-// confirmCIDR covers 192.0.2.1, the remote address httptest gives every request:
-// the App then trusts CF-Connecting-IP, so a test picks the client address.
-const confirmCIDR = "192.0.2.0/24"
 
 const (
 	confirmInvalidText = "este link de confirmação expirou ou já foi usado."
 	confirmSentText    = "se houver um cadastro aguardando confirmação para este e-mail, enviamos um novo link. ele vale por 24 horas."
 	confirmWaitingText = "e-mail confirmado. seu cadastro agora aguarda a aprovação do admin. você recebe um e-mail quando ele for aprovado."
 )
-
-// confirmApp builds the production-mode App of these tests around the store.
-func confirmApp(t *testing.T, store domain.Store) *App {
-	t.Helper()
-	app := NewApp(testConfig(t, confirmCIDR), slog.New(slog.NewJSONHandler(&strings.Builder{}, nil)), store)
-	app.Now = func() time.Time { return webTestNow }
-	return app
-}
-
-// confirmStoreApp is confirmApp on an empty MongoDB database of its own. It
-// skips locally, and fails in CI, without MONGO_TEST_URI.
-func confirmStoreApp(t *testing.T) (*App, domain.Store) {
-	t.Helper()
-	store := mongotest.New(t)
-	return confirmApp(t, store), store
-}
 
 // confirmPendingUser stores an account that has not confirmed its email yet.
 func confirmPendingUser(t *testing.T, store domain.Store, email string) domain.User {
@@ -118,20 +95,12 @@ func confirmAssertPage(t *testing.T, rec *httptest.ResponseRecorder, status int,
 // for a new link.
 var confirmResendForm = []string{`action="/confirmar/reenviar"`, `name="email"`, "[→] REENVIAR CONFIRMAÇÃO"}
 
-// confirmFailingStore is a store whose transactions fail, so a request that
-// passed validation ends in a server error.
-type confirmFailingStore struct{ domain.Store }
-
-func (confirmFailingStore) WithTx(context.Context, func(context.Context, domain.Repos) error) error {
-	return errors.New("the database is down")
-}
-
 // --- GET /confirmar ---
 
 func TestConfirmGetShowsTheButtonWithoutTouchingTheStore(t *testing.T) {
 	// stubStore panics on any call, which the recovery turns into a 500: the
 	// page answering 200 shows the request never reached the store.
-	r := confirmApp(t, stubStore{}).Router()
+	r := signupApp(t, stubStore{}).Router()
 	rec := serve(r, http.MethodGet, "/confirmar?token=x")
 	body := confirmAssertPage(t, rec, http.StatusOK, "Confirmar e-mail",
 		`<form method="post" action="/confirmar"`, `type="hidden" name="token" value="x"`, "[→] CONFIRMAR E-MAIL")
@@ -144,7 +113,7 @@ func TestConfirmGetShowsTheButtonWithoutTouchingTheStore(t *testing.T) {
 }
 
 func TestConfirmGetEscapesTheToken(t *testing.T) {
-	r := confirmApp(t, stubStore{}).Router()
+	r := signupApp(t, stubStore{}).Router()
 	rec := serve(r, http.MethodGet, "/confirmar?"+url.Values{"token": {`a"><b>x`}}.Encode())
 	body := confirmAssertPage(t, rec, http.StatusOK, "Confirmar e-mail")
 	if strings.Contains(body, `a"><b>x`) || !strings.Contains(body, `name="token" value="a&#34;&gt;&lt;b&gt;x"`) {
@@ -153,7 +122,7 @@ func TestConfirmGetEscapesTheToken(t *testing.T) {
 }
 
 func TestConfirmGetWithoutATokenShowsTheInvalidLink(t *testing.T) {
-	r := confirmApp(t, stubStore{}).Router()
+	r := signupApp(t, stubStore{}).Router()
 	for _, target := range []string{"/confirmar", "/confirmar?token="} {
 		rec := serve(r, http.MethodGet, target)
 		body := confirmAssertPage(t, rec, http.StatusBadRequest, "Confirmar e-mail", append([]string{confirmInvalidText}, confirmResendForm...)...)
@@ -164,7 +133,7 @@ func TestConfirmGetWithoutATokenShowsTheInvalidLink(t *testing.T) {
 }
 
 func TestConfirmGetDoesNotConsumeTheToken(t *testing.T) {
-	app, store := confirmStoreApp(t)
+	app, store := signupStoreApp(t)
 	r := app.Router()
 	u := confirmPendingUser(t, store, "ana@example.com")
 	raw := confirmToken(t, store, u.ID)
@@ -187,7 +156,7 @@ func TestConfirmGetDoesNotConsumeTheToken(t *testing.T) {
 // --- POST /confirmar ---
 
 func TestConfirmPostConfirmsTheAccountAndNotifiesTheAdmins(t *testing.T) {
-	app, store := confirmStoreApp(t)
+	app, store := signupStoreApp(t)
 	r := app.Router()
 	u := confirmPendingUser(t, store, "ana@example.com")
 	insertWebUser(t, store, "admin@example.com", func(u *domain.User) { u.IsAdmin = true })
@@ -211,7 +180,7 @@ func TestConfirmPostConfirmsTheAccountAndNotifiesTheAdmins(t *testing.T) {
 }
 
 func TestConfirmPostFromHTMXRedirectsWithAHeader(t *testing.T) {
-	app, store := confirmStoreApp(t)
+	app, store := signupStoreApp(t)
 	u := confirmPendingUser(t, store, "ana@example.com")
 	raw := confirmToken(t, store, u.ID)
 
@@ -222,7 +191,7 @@ func TestConfirmPostFromHTMXRedirectsWithAHeader(t *testing.T) {
 }
 
 func TestConfirmPostWithAnInvalidTokenShowsTheResendForm(t *testing.T) {
-	app, store := confirmStoreApp(t)
+	app, store := signupStoreApp(t)
 	r := app.Router()
 	u := confirmPendingUser(t, store, "ana@example.com")
 	unknown, _, err := auth.NewToken()
@@ -244,7 +213,7 @@ func TestConfirmPostWithAnInvalidTokenShowsTheResendForm(t *testing.T) {
 }
 
 func TestConfirmPostBadBodyIs400(t *testing.T) {
-	r := confirmApp(t, stubStore{}).Router()
+	r := signupApp(t, stubStore{}).Router()
 	rec := post(r, "/confirmar", "token=%ff", header("CF-Connecting-IP", "198.51.100.1"))
 	if rec.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400", rec.Code)
@@ -252,8 +221,7 @@ func TestConfirmPostBadBodyIs400(t *testing.T) {
 }
 
 func TestConfirmPostServerErrorIsLoggedWithoutTheToken(t *testing.T) {
-	_, store := confirmStoreApp(t)
-	app := confirmApp(t, confirmFailingStore{store})
+	app := signupApp(t, signupFailingStore{})
 	logs := captureLogs(app)
 	raw, _, err := auth.NewToken()
 	if err != nil {
@@ -276,7 +244,7 @@ func TestConfirmPostServerErrorIsLoggedWithoutTheToken(t *testing.T) {
 // --- POST /confirmar/reenviar ---
 
 func TestConfirmResendAnswersTheSameForEveryAddress(t *testing.T) {
-	app, store := confirmStoreApp(t)
+	app, store := signupStoreApp(t)
 	r := app.Router()
 	pending := confirmPendingUser(t, store, "ana@example.com")
 	old := confirmToken(t, store, pending.ID)
@@ -313,7 +281,7 @@ func TestConfirmResendAnswersTheSameForEveryAddress(t *testing.T) {
 }
 
 func TestConfirmResendRateLimitPerIP(t *testing.T) {
-	app, _ := confirmStoreApp(t)
+	app, _ := signupStoreApp(t)
 	r := app.Router()
 	// Each request names another address, so only the IP key can trip.
 	for i := 1; i <= 5; i++ {
@@ -335,7 +303,7 @@ func TestConfirmResendRateLimitPerIP(t *testing.T) {
 }
 
 func TestConfirmResendRateLimitPerEmail(t *testing.T) {
-	app, _ := confirmStoreApp(t)
+	app, _ := signupStoreApp(t)
 	r := app.Router()
 	// One address, spelled in different ways, from a new client address each
 	// time: only the email key can trip.
@@ -356,7 +324,7 @@ func TestConfirmResendRateLimitPerEmail(t *testing.T) {
 }
 
 func TestConfirmResendRefusedIPDoesNotSpendTheEmailBudget(t *testing.T) {
-	app, _ := confirmStoreApp(t)
+	app, _ := signupStoreApp(t)
 	r := app.Router()
 	for i := 1; i <= 5; i++ {
 		confirmResend(r, fmt.Sprintf("u%d@example.com", i), "198.51.100.60")
@@ -376,7 +344,7 @@ func TestConfirmResendRefusedIPDoesNotSpendTheEmailBudget(t *testing.T) {
 }
 
 func TestConfirmResendWithoutAnAddressSpendsNoEmailBudget(t *testing.T) {
-	app, _ := confirmStoreApp(t)
+	app, _ := signupStoreApp(t)
 	r := app.Router()
 	// Six requests with no address, from six clients: if the empty address kept
 	// a budget of its own, the sixth would be refused.
@@ -388,7 +356,7 @@ func TestConfirmResendWithoutAnAddressSpendsNoEmailBudget(t *testing.T) {
 }
 
 func TestConfirmResendBadBodyIs400(t *testing.T) {
-	r := confirmApp(t, stubStore{}).Router()
+	r := signupApp(t, stubStore{}).Router()
 	rec := post(r, "/confirmar/reenviar", "email=%ff", header("CF-Connecting-IP", "198.51.100.80"))
 	if rec.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400", rec.Code)
@@ -396,9 +364,7 @@ func TestConfirmResendBadBodyIs400(t *testing.T) {
 }
 
 func TestConfirmResendServerErrorIsLoggedWithoutTheAddress(t *testing.T) {
-	_, store := confirmStoreApp(t)
-	confirmPendingUser(t, store, "ana@example.com")
-	app := confirmApp(t, confirmFailingStore{store})
+	app := signupApp(t, signupFailingStore{})
 	logs := captureLogs(app)
 
 	rec := confirmResend(app.Router(), "ana@example.com", "198.51.100.90")
@@ -417,7 +383,7 @@ func TestConfirmResendServerErrorIsLoggedWithoutTheAddress(t *testing.T) {
 // --- GET /aguardando ---
 
 func TestAguardandoPage(t *testing.T) {
-	r := confirmApp(t, stubStore{}).Router()
+	r := signupApp(t, stubStore{}).Router()
 	rec := serve(r, http.MethodGet, "/aguardando")
 	confirmAssertPage(t, rec, http.StatusOK, "Cadastro em análise", confirmWaitingText, `href="/entrar"`)
 }
@@ -425,7 +391,7 @@ func TestAguardandoPage(t *testing.T) {
 // --- the whole flow ---
 
 func TestConfirmFlowKeepsTheTokenAndTheAddressOutOfTheLogs(t *testing.T) {
-	app, store := confirmStoreApp(t)
+	app, store := signupStoreApp(t)
 	logs := captureLogs(app)
 	r := app.Router()
 	u := confirmPendingUser(t, store, "ana@example.com")

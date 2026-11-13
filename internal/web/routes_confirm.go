@@ -3,6 +3,7 @@ package web
 import (
 	"errors"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -41,9 +42,10 @@ func (a *App) confirmRoutes(public, authed *gin.RouterGroup) {
 	public.GET("/aguardando", a.confirmWaiting)
 }
 
-// confirmRender shows the confirmation page in one of its states.
-func (a *App) confirmRender(c *gin.Context, status int, v confirmView) {
-	a.page(c, status, "auth/confirmar", PageData{Title: "Confirmar e-mail", Data: v})
+// confirmRender shows the confirmation page in one of its states. form refills
+// the resend form (nil for none).
+func (a *App) confirmRender(c *gin.Context, status int, form url.Values, v confirmView) {
+	a.page(c, status, "auth/confirmar", PageData{Title: "Confirmar e-mail", Form: form, Data: v})
 }
 
 // confirmShow is where the e-mailed link lands. It only shows a button: a GET
@@ -54,10 +56,10 @@ func (a *App) confirmRender(c *gin.Context, status int, v confirmView) {
 func (a *App) confirmShow(c *gin.Context) {
 	token := c.Query("token")
 	if token == "" {
-		a.confirmRender(c, http.StatusBadRequest, confirmView{State: confirmStateResend, Message: confirmMsgInvalid})
+		a.confirmRender(c, http.StatusBadRequest, nil, confirmView{State: confirmStateResend, Message: confirmMsgInvalid})
 		return
 	}
-	a.confirmRender(c, http.StatusOK, confirmView{State: confirmStateButton, Token: token})
+	a.confirmRender(c, http.StatusOK, nil, confirmView{State: confirmStateButton, Token: token})
 }
 
 // confirmSubmit spends the link. The token is not echoed anywhere, and the logs
@@ -72,7 +74,7 @@ func (a *App) confirmSubmit(c *gin.Context) {
 	case err == nil:
 		a.redirect(c, "/aguardando")
 	case errors.Is(err, accounts.ErrConfirmInvalid):
-		a.confirmRender(c, http.StatusBadRequest, confirmView{State: confirmStateResend, Message: confirmMsgInvalid})
+		a.confirmRender(c, http.StatusBadRequest, nil, confirmView{State: confirmStateResend, Message: confirmMsgInvalid})
 	default:
 		a.Log.Error("confirm email", "err", err)
 		c.String(http.StatusInternalServerError, "erro interno")
@@ -98,11 +100,7 @@ func (a *App) confirmResend(c *gin.Context) {
 		allowed = a.Limits.EmailAction.Allow("resend-email:"+signupEmailKey(email), now)
 	}
 	if !allowed {
-		a.page(c, http.StatusTooManyRequests, "auth/confirmar", PageData{
-			Title: "Confirmar e-mail",
-			Form:  form,
-			Data:  confirmView{State: confirmStateResend, Message: msgTooMany},
-		})
+		a.confirmRender(c, http.StatusTooManyRequests, form, confirmView{State: confirmStateResend, Message: msgTooMany})
 		return
 	}
 	if err := accounts.ResendConfirmation(c.Request.Context(), a.Store, a.Cfg.Origin, email, now); err != nil {
@@ -110,7 +108,7 @@ func (a *App) confirmResend(c *gin.Context) {
 		c.String(http.StatusInternalServerError, "erro interno")
 		return
 	}
-	a.confirmRender(c, http.StatusOK, confirmView{State: confirmStateSent, Message: confirmMsgSent})
+	a.confirmRender(c, http.StatusOK, nil, confirmView{State: confirmStateSent, Message: confirmMsgSent})
 }
 
 // confirmWaiting is where a confirmed account waits for the admin.

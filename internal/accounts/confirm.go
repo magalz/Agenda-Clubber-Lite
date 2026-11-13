@@ -96,14 +96,9 @@ func confirmNotifyAdmins(ctx context.Context, r domain.Repos, origin string, now
 }
 
 // confirmPhone formats the stored digits the way people write a Brazilian
-// number: (81) 98765-4321, or (81) 8765-4321 for ten digits. Anything else is
-// returned unchanged.
+// number: (81) 98765-4321, or (81) 8765-4321 for ten digits. Stored phones are
+// 10 or 11 digits (domain.User.Validate), so the final return is only a guard.
 func confirmPhone(digits string) string {
-	for _, c := range digits {
-		if c < '0' || c > '9' {
-			return digits
-		}
-	}
 	switch len(digits) {
 	case 11:
 		return "(" + digits[:2] + ") " + digits[2:7] + "-" + digits[7:]
