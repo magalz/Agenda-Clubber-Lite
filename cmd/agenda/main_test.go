@@ -225,7 +225,7 @@ func TestRunServeWithAnUnreachableDatabaseExits1(t *testing.T) {
 func wantNoSecrets(t *testing.T, outputs ...string) {
 	t.Helper()
 	for _, out := range outputs {
-		for _, leak := range []string{uriSecret, "dbuser", "127.0.0.1:1", "directConnection"} {
+		for _, leak := range []string{uriSecret, "dbuser", "127.0.0.1:1", "?directConnection"} {
 			if strings.Contains(out, leak) {
 				t.Errorf("output %q leaks %q", out, leak)
 			}

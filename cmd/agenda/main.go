@@ -20,6 +20,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/magalz/agenda-clubber-lite/internal/config"
+	"github.com/magalz/agenda-clubber-lite/internal/store/mongostore"
 	"github.com/magalz/agenda-clubber-lite/internal/web"
 )
 
@@ -30,6 +31,7 @@ const (
 
 commands:
   serve           run the web server (default)
+  migrate         create or update the database schema (safe to run again)
   healthcheck     probe the running server's /healthz and exit 0 if it answers 200
 `
 )
@@ -42,8 +44,8 @@ func main() {
 }
 
 // run dispatches the subcommand and returns the process exit code. Later
-// subcommands (migrate, create-admin, seed-dev) join the switch; each reads
-// only the configuration it uses.
+// subcommands (create-admin, seed-dev) join the switch; each reads only the
+// configuration it uses.
 func run(ctx context.Context, args []string, getenv func(string) string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
 		args = []string{"serve"}
@@ -51,6 +53,8 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout,
 	switch {
 	case args[0] == "serve" && len(args) == 1:
 		return serve(ctx, getenv, stdout, stderr)
+	case args[0] == "migrate" && len(args) == 1:
+		return migrate(ctx, getenv, stdout, stderr)
 	case args[0] == "healthcheck" && len(args) == 1:
 		return healthcheck(ctx, getenv, stderr)
 	default:
@@ -116,9 +120,54 @@ func healthcheck(ctx context.Context, getenv func(string) string, stderr io.Writ
 	return 0
 }
 
-// serve runs the HTTP server until ctx is canceled and shuts it down. It
-// validates the whole configuration, MONGO_URI included, but opens no database
-// yet: a later task wires the MongoDB store in.
+// openStore opens the MongoDB store and makes sure its schema is in place, both
+// within openTimeout. Its errors are fixed texts, never the driver's: those may
+// name the server, and the URI may hold a password.
+func openStore(ctx context.Context, cfg config.MongoConfig) (*mongostore.Store, error) {
+	ctx, cancel := context.WithTimeout(ctx, openTimeout)
+	defer cancel()
+	store, err := mongostore.Open(ctx, cfg.URI, cfg.DB)
+	if err != nil {
+		return nil, errors.New("cannot open the database")
+	}
+	if err := store.EnsureSchema(ctx); err != nil {
+		_ = closeStore(store)
+		return nil, errors.New("cannot create the database schema")
+	}
+	return store, nil
+}
+
+// closeStore releases the connections on a context of its own, bounded by
+// shutdownTimeout: the one serve and migrate ran with may be canceled already.
+func closeStore(store *mongostore.Store) error {
+	ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+	defer cancel()
+	return store.Close(ctx)
+}
+
+// migrate creates or updates the database schema and exits. It reads the MongoDB
+// settings and no other variable, and is safe to run again.
+func migrate(ctx context.Context, getenv func(string) string, stdout, stderr io.Writer) int {
+	cfg, err := config.LoadMongo(getenv)
+	if err != nil {
+		fmt.Fprintf(stderr, "agenda: %v\n", err)
+		return 1
+	}
+	store, err := openStore(ctx, cfg)
+	if err != nil {
+		fmt.Fprintf(stderr, "agenda: migrate: %v\n", err)
+		return 1
+	}
+	if err := closeStore(store); err != nil {
+		fmt.Fprintln(stderr, "agenda: migrate: closing the database failed")
+	}
+	fmt.Fprintln(stdout, "schema ready")
+	return 0
+}
+
+// serve opens the database, runs the HTTP server until ctx is canceled and shuts
+// both down. It validates the whole configuration first. The database is not
+// handed to the web app yet.
 func serve(ctx context.Context, getenv func(string) string, stdout, stderr io.Writer) int {
 	cfg, err := config.Load(getenv)
 	if err != nil {
@@ -126,6 +175,20 @@ func serve(ctx context.Context, getenv func(string) string, stdout, stderr io.Wr
 		return 1
 	}
 	log := newLogger(cfg, stdout)
+
+	store, err := openStore(ctx, cfg.Mongo)
+	if err != nil {
+		log.Error("database failed", "err", err)
+		return 1
+	}
+	// Deferred, so it runs after the server has shut down, and also when the
+	// server failed to listen.
+	defer func() {
+		if err := closeStore(store); err != nil {
+			log.Error("closing the database failed")
+		}
+	}()
+	log.Info("database ready", "db", cfg.Mongo.DB)
 
 	srv := newServer(cfg, log)
 
