@@ -18,6 +18,9 @@ import (
 // to it too.
 const DefaultAddr = ":8120"
 
+// DefaultSMTPFrom is the sender address when SMTP_FROM is unset.
+const DefaultSMTPFrom = "IgnisDev <ignisdev@magalz.space>"
+
 // SMTPConfig holds the outgoing mail settings.
 type SMTPConfig struct {
 	Host     string
@@ -126,6 +129,7 @@ type Config struct {
 	TrustedProxyCIDRs []string // validated CIDR strings
 	SMTP              SMTPConfig
 	Mongo             MongoConfig
+	MailDropDir       string // dev only: write outgoing mail as .eml files here instead of sending
 }
 
 // IsDev reports whether the service runs in development mode.
@@ -175,7 +179,14 @@ func Load(getenv func(string) string) (Config, error) {
 	}
 	cfg.SMTP.Username = get("SMTP_USERNAME", "")
 	cfg.SMTP.Password = getenv("SMTP_PASSWORD") // verbatim: a password may carry spaces
-	cfg.SMTP.From = get("SMTP_FROM", "IgnisDev <ignisdev@magalz.space>")
+	cfg.SMTP.From = get("SMTP_FROM", DefaultSMTPFrom)
+
+	// A drop folder replaces SMTP, so it must never take over in production,
+	// where a stray variable would silently swallow every email.
+	cfg.MailDropDir = get("MAIL_DROP_DIR", "")
+	if cfg.MailDropDir != "" && cfg.Env != "dev" {
+		return Config{}, fmt.Errorf(`MAIL_DROP_DIR: only allowed with APP_ENV=dev`)
+	}
 
 	if cfg.Mongo, err = LoadMongo(getenv); err != nil {
 		return Config{}, err

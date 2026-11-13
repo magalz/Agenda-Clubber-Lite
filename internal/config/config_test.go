@@ -109,6 +109,41 @@ func TestLoadOverrides(t *testing.T) {
 	}
 }
 
+func TestLoadMailDropDir(t *testing.T) {
+	tests := []struct {
+		name string
+		kv   []string
+		want string
+	}{
+		{"unset in prod", withMongo(), ""},
+		{"unset in dev", withMongo("APP_ENV", "dev"), ""},
+		{"blank in prod counts as unset", withMongo("MAIL_DROP_DIR", "   "), ""},
+		{"set in dev", withMongo("APP_ENV", "dev", "MAIL_DROP_DIR", "tmp/mail"), "tmp/mail"},
+		{"trimmed in dev", withMongo("APP_ENV", "dev", "MAIL_DROP_DIR", "  /var/mail-drop  "), "/var/mail-drop"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg, err := Load(getenvOf(tt.kv...))
+			if err != nil {
+				t.Fatalf("Load: %v", err)
+			}
+			if cfg.MailDropDir != tt.want {
+				t.Errorf("MailDropDir = %q, want %q", cfg.MailDropDir, tt.want)
+			}
+		})
+	}
+}
+
+func TestLoadMailDropDirRefusedInProdDoesNotEchoThePath(t *testing.T) {
+	_, err := Load(getenvOf(withMongo("MAIL_DROP_DIR", "/home/someone/private-drop")...))
+	if err == nil || !strings.Contains(err.Error(), "MAIL_DROP_DIR:") {
+		t.Fatalf("Load error = %v, want one naming MAIL_DROP_DIR", err)
+	}
+	if strings.Contains(err.Error(), "private-drop") {
+		t.Errorf("error %q echoes the path", err)
+	}
+}
+
 func TestLoadOriginNormalization(t *testing.T) {
 	tests := []struct{ in, want string }{
 		{"https://agenda.example", "https://agenda.example"},
@@ -210,6 +245,8 @@ func TestLoadInvalid(t *testing.T) {
 		{"smtp port too large", withMongo("SMTP_PORT", "65536"), "SMTP_PORT"},
 		{"mongo uri missing", withOrigin(), "MONGO_URI"},
 		{"mongo db invalid", withMongo("MONGO_DB", "bad name"), "MONGO_DB"},
+		{"mail drop dir in prod", withMongo("MAIL_DROP_DIR", "/tmp/mail"), "MAIL_DROP_DIR"},
+		{"mail drop dir with explicit prod", withMongo("APP_ENV", "prod", "MAIL_DROP_DIR", "/tmp/mail"), "MAIL_DROP_DIR"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

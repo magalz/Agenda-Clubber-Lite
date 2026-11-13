@@ -4,6 +4,7 @@ go 1.27
 
 require (
 	github.com/gin-gonic/gin v1.12.0
+	github.com/wneessen/go-mail v0.8.1
 	go.mongodb.org/mongo-driver/v2 v2.10.0
 )
 
