@@ -75,14 +75,7 @@ func (r users) update(ctx context.Context, id string, update any) error {
 	if err != nil {
 		return err
 	}
-	res, err := r.coll().UpdateOne(ctx, bson.M{"_id": oid}, update)
-	if err != nil {
-		return wrap("update user", err)
-	}
-	if res.MatchedCount == 0 {
-		return domain.ErrNotFound
-	}
-	return nil
+	return updateOne(ctx, r.coll(), "update user", oid, update)
 }
 
 func (r users) SetStatus(ctx context.Context, id string, status domain.UserStatus, now time.Time) error {

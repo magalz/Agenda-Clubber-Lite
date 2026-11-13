@@ -103,12 +103,5 @@ func (r outbox) update(ctx context.Context, id, op string, update bson.M) error 
 	if err != nil {
 		return err
 	}
-	res, err := r.coll().UpdateOne(ctx, bson.M{"_id": oid}, update)
-	if err != nil {
-		return wrap(op, err)
-	}
-	if res.MatchedCount == 0 {
-		return domain.ErrNotFound
-	}
-	return nil
+	return updateOne(ctx, r.coll(), op, oid, update)
 }
