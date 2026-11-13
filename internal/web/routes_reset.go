@@ -121,14 +121,21 @@ func (a *App) resetShow(c *gin.Context) {
 
 // resetSubmit sets the new password. The token and the password are not echoed
 // anywhere, and the logs never see them. A done reset has ended every session
-// of the account, so the request's own cookie is cleared too.
+// of the account, so the request's own cookie is cleared too. A working link
+// with a refused password costs argon2 work (the history check) and stays
+// usable, so the form is limited per client address, like login.
 func (a *App) resetSubmit(c *gin.Context) {
+	allowed := a.Limits.Login.Allow("reset:"+c.ClientIP(), a.Now())
 	form, err := a.parseForm(c)
 	if err != nil {
 		c.String(http.StatusBadRequest, "requisição inválida")
 		return
 	}
 	token := form.Get("token")
+	if !allowed {
+		a.page(c, http.StatusTooManyRequests, "auth/senha-redefinir", PageData{Title: "Nova senha", Data: resetView{State: resetStateForm, Token: token, Message: msgTooMany, Checklist: passwordChecklist(true)}})
+		return
+	}
 	err = accounts.ResetPassword(c.Request.Context(), a.Store, token, form.Get("password"), form.Get("password_confirm"), a.Now())
 	var fieldErrs domain.FieldErrors
 	switch {
