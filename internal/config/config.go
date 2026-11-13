@@ -126,6 +126,7 @@ type Config struct {
 	TrustedProxyCIDRs []string // validated CIDR strings
 	SMTP              SMTPConfig
 	Mongo             MongoConfig
+	MailDropDir       string // dev only: write outgoing mail as .eml files here instead of sending
 }
 
 // IsDev reports whether the service runs in development mode.
