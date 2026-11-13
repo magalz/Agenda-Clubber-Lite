@@ -1,1 +1,20 @@
-{{define "subject"}}{{end}}{{define "text"}}{{end}}{{define "html"}}{{end}}
+{{/* The wording depends on .Kind; a Kind the templates do not know is an error, never a blank. */}}
+{{define "subject"}}{{if eq .Kind "join"}}Pedido de entrada: {{.UserName}} em {{.CollectiveName}}{{else if eq .Kind "new_collective"}}Coletivo novo para aprovar: {{.CollectiveName}}{{else if eq .Kind "rename"}}Coletivo renomeado: {{.OldName}} → {{.CollectiveName}}{{else}}{{fail "kind" .Kind}}{{end}}{{end}}
+
+{{define "heading"}}{{if eq .Kind "join"}}pedido_de_entrada{{else if eq .Kind "new_collective"}}coletivo_novo{{else if eq .Kind "rename"}}coletivo_renomeado{{else}}{{fail "kind" .Kind}}{{end}}{{end}}
+
+{{define "sentence"}}{{if eq .Kind "join"}}{{.UserName}} pediu para entrar em {{.CollectiveName}} como {{.Role}}.{{else if eq .Kind "new_collective"}}{{.UserName}} pediu para criar {{.CollectiveName}}.{{else if eq .Kind "rename"}}{{.UserName}} mudou o nome de {{.OldName}} para {{.CollectiveName}}.{{else}}{{fail "kind" .Kind}}{{end}}{{end}}
+
+{{define "text"}}$ {{template "heading" .}}
+
+{{template "sentence" .}}
+
+[→] {{.Link}}
+
+{{template "text_footer"}}
+{{end}}
+
+{{define "html"}}{{template "html_open" .}}<p style="margin:0 0 16px;font-family:'Space Mono',Menlo,Consolas,'Courier New',monospace;font-size:18px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;">$ {{template "heading" .}}</p>
+<p style="margin:0 0 16px;">{{template "sentence" .}}</p>
+{{if eq .Kind "rename"}}{{template "html_button" btn "Ver coletivos" .Link}}{{else}}{{template "html_button" btn "Abrir aprovações" .Link}}{{end}}
+{{template "html_close" .}}{{end}}

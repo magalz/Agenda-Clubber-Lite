@@ -139,7 +139,7 @@ type email struct {
 
 // templateFuncs is shared by both sets, so an email's text and HTML parts are
 // written from one source.
-var templateFuncs = map[string]any{"btn": btn}
+var templateFuncs = map[string]any{"btn": btn, "fail": fail, "lines": lines}
 
 // button is what the btn function hands to the html_button partial.
 type button struct {
@@ -150,6 +150,18 @@ type button struct {
 // btn makes a button for the html_button partial. It returns a plain struct, so
 // html/template escapes the label and the link like any other value.
 func btn(label, href string) button { return button{Label: label, Href: href} }
+
+// fail makes a template stop on a value it has no wording for (an unknown
+// outcome or kind), so Render returns an error instead of a blank or a default.
+func fail(what, got string) (string, error) {
+	return "", fmt.Errorf("unknown %s %q", what, got)
+}
+
+// lines splits user text into its lines, so the HTML part can join them with
+// <br>: the text stays escaped and no template.HTML is needed.
+func lines(s string) []string {
+	return strings.Split(strings.ReplaceAll(s, "\r\n", "\n"), "\n")
+}
 
 var emails = map[Template]email{
 	TemplateVerifyEmail:     compile(TemplateVerifyEmail, VerifyEmailData{}),

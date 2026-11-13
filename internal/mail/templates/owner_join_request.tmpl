@@ -1,1 +1,15 @@
-{{define "subject"}}{{end}}{{define "text"}}{{end}}{{define "html"}}{{end}}
+{{define "subject"}}Novo pedido para entrar em {{.CollectiveName}}{{end}}
+
+{{define "text"}}$ pedido_de_entrada
+
+{{.UserName}} pediu para entrar em {{.CollectiveName}} como {{.Role}}.
+
+[→] {{.Link}}
+
+{{template "text_footer"}}
+{{end}}
+
+{{define "html"}}{{template "html_open" .}}<p style="margin:0 0 16px;font-family:'Space Mono',Menlo,Consolas,'Courier New',monospace;font-size:18px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;">$ pedido_de_entrada</p>
+<p style="margin:0 0 16px;">{{.UserName}} pediu para entrar em {{.CollectiveName}} como {{.Role}}.</p>
+{{template "html_button" btn "Ver pedidos" .Link}}
+{{template "html_close" .}}{{end}}
