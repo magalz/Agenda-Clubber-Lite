@@ -1,0 +1,4 @@
+{{/* field-error: the validation message of one field, or nothing. Call it with
+     {{template "field-error" (dict "Errors" .Errors "Field" "email")}}.
+     components.css adds the "[erro] " prefix, so the text here is the bare message. */}}
+{{define "field-error"}}{{with .Errors}}{{with index . $.Field}}<p class="field-error" id="erro-{{$.Field}}">{{.}}</p>{{end}}{{end}}{{end}}

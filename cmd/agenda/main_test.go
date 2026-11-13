@@ -24,6 +24,7 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 
 	"github.com/magalz/agenda-clubber-lite/internal/config"
+	"github.com/magalz/agenda-clubber-lite/internal/domain"
 	"github.com/magalz/agenda-clubber-lite/internal/store/mongotest"
 )
 
@@ -31,6 +32,17 @@ func TestMain(m *testing.M) {
 	gin.SetMode(gin.TestMode)
 	os.Exit(m.Run())
 }
+
+// noStore is a domain.Store for the tests that build a server and never reach
+// the database.
+type noStore struct{}
+
+func (noStore) Repos() domain.Repos { return domain.Repos{} }
+func (noStore) WithTx(context.Context, func(context.Context, domain.Repos) error) error {
+	panic("main test: noStore.WithTx")
+}
+func (noStore) Ping(context.Context) error  { return nil }
+func (noStore) Close(context.Context) error { return nil }
 
 func getenvOf(kv ...string) func(string) string {
 	m := map[string]string{}
@@ -265,6 +277,18 @@ func TestRunServesAndShutsDownGracefully(t *testing.T) {
 	}
 	if gin.Mode() != gin.ReleaseMode {
 		t.Errorf("gin mode = %q, want release in prod", gin.Mode())
+	}
+
+	// The database reaches the web app: the calendar needs a session, so a
+	// request without a cookie is sent to the login page.
+	noFollow := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	home, err := noFollow.Get("http://" + addr + "/")
+	if err != nil {
+		t.Fatalf("GET /: %v", err)
+	}
+	home.Body.Close()
+	if home.StatusCode != http.StatusSeeOther || home.Header.Get("Location") != "/entrar" {
+		t.Errorf("GET / without a session = %d Location %q, want 303 /entrar", home.StatusCode, home.Header.Get("Location"))
 	}
 
 	cancel()
@@ -509,7 +533,7 @@ func TestNewServerSettings(t *testing.T) {
 	gin.DefaultWriter = io.Discard // debug mode prints its route table
 	t.Cleanup(func() { gin.DefaultWriter = os.Stdout; gin.SetMode(gin.TestMode) })
 
-	srv := newServer(config.Config{Env: "prod", Addr: ":8120", Location: time.UTC}, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	srv := newServer(config.Config{Env: "prod", Addr: ":8120", Location: time.UTC}, slog.New(slog.NewJSONHandler(io.Discard, nil)), noStore{})
 	if srv.Addr != ":8120" || srv.Handler == nil {
 		t.Errorf("Addr = %q, Handler = %v", srv.Addr, srv.Handler)
 	}
@@ -521,7 +545,7 @@ func TestNewServerSettings(t *testing.T) {
 		t.Errorf("prod gin mode = %q, want release", gin.Mode())
 	}
 
-	newServer(config.Config{Env: "dev", Addr: ":8120", Location: time.UTC}, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	newServer(config.Config{Env: "dev", Addr: ":8120", Location: time.UTC}, slog.New(slog.NewJSONHandler(io.Discard, nil)), noStore{})
 	if gin.Mode() != gin.DebugMode {
 		t.Errorf("dev gin mode = %q, want debug", gin.Mode())
 	}

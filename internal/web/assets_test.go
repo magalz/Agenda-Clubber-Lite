@@ -271,7 +271,7 @@ func TestStaticRoutesAreGetAndHeadOnly(t *testing.T) {
 	r, _ := newRouter(t)
 	for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodPatch} {
 		t.Run(method, func(t *testing.T) {
-			if rec := do(r, method, "/static/css/base.css", nil); rec.Code != http.StatusNotFound {
+			if rec := do(r, method, "/static/css/base.css", nil, withOrigin); rec.Code != http.StatusNotFound {
 				t.Errorf("status = %d, want 404", rec.Code)
 			}
 		})
