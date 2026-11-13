@@ -358,6 +358,58 @@ func TestWorkerRecordsAFailureWhenCanceledMidSend(t *testing.T) {
 	}
 }
 
+func TestWorkerRecordsASentMessageWhenCanceledMidSend(t *testing.T) {
+	ob := newOutbox(t)
+	clock := &fakeClock{t: workerT0}
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	// The message goes out, and the shutdown comes before the worker can say so.
+	sender := &fakeSender{send: func(context.Context, domain.OutboxMessage) error {
+		cancel()
+		return nil
+	}}
+	w := newWorker(ob, sender, clock, discardLog)
+	enqueue(t, ob, "ana@example.com", workerT0)
+
+	wantRun(t, w, ctx, 1, 0)
+	// Long after the lease ran out, a message that was not marked sent is claimable.
+	if left := peek(t, ob, workerT0.Add(time.Hour)); len(left) != 0 {
+		t.Fatalf("a message that was sent is still in the outbox: %+v", left)
+	}
+}
+
+func TestWorkerReadsTheClockAfterTheSend(t *testing.T) {
+	ob := newOutbox(t)
+	clock := &fakeClock{t: workerT0}
+	failure := errors.New("smtp: 451 try again later")
+	slowSend := 2 * time.Minute
+	calls := 0
+	sender := &fakeSender{send: func(context.Context, domain.OutboxMessage) error {
+		calls++
+		if calls == 1 {
+			clock.Set(workerT0.Add(slowSend)) // the send takes 2 minutes
+		}
+		return failure
+	}}
+	w := newWorker(ob, sender, clock, discardLog)
+	m := enqueue(t, ob, "ana@example.com", workerT0)
+
+	wantRun(t, w, t.Context(), 0, 1)
+	if calls != 1 {
+		t.Fatalf("Send called %d times, want 1", calls)
+	}
+
+	// The 1 minute retry delay counts from when the send ended, not from when it began.
+	retryAt := workerT0.Add(slowSend + RetryDelays[0])
+	if early := peek(t, ob, retryAt.Add(-time.Millisecond)); len(early) != 0 {
+		t.Fatalf("the message is due before %s: %+v", retryAt.Format(time.RFC3339), early)
+	}
+	got := peek(t, ob, retryAt)
+	if len(got) != 1 || got[0].ID != m.ID || !got[0].NextAttemptAt.Equal(retryAt) {
+		t.Fatalf("stored message = %+v, want %s due at %s", got, m.ID, retryAt.Format(time.RFC3339))
+	}
+}
+
 func TestWorkerBoundsEachSend(t *testing.T) {
 	ob := newOutbox(t)
 	clock := &fakeClock{t: workerT0}
