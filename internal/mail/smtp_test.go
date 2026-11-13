@@ -488,11 +488,8 @@ func checkNoCredentials(t *testing.T, err error, username, password string) {
 	t.Helper()
 	var forms []string
 	for _, secret := range []string{username, password} {
-		forms = append(forms,
-			secret,
-			strings.Trim(strconv.Quote(secret), `"`),
-			strings.Join(strings.Fields(secret), " "),
-		)
+		quoted := strconv.Quote(secret)
+		forms = append(forms, secret, quoted[1:len(quoted)-1], strings.Join(strings.Fields(secret), " "))
 	}
 	forms = append(forms, base64.StdEncoding.EncodeToString([]byte("\x00"+username+"\x00"+password)))
 	for _, form := range forms {

@@ -5,6 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"net/mail"
+	"net/textproto"
+	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -19,6 +22,8 @@ const (
 	smtpTimeout = 15 * time.Second
 	// smtpImplicitTLSPort is the port where the TLS handshake comes first.
 	smtpImplicitTLSPort = 465
+	// authFailed is how go-mail words an error from the AUTH exchange.
+	authFailed = "SMTP AUTH failed"
 )
 
 // SMTPSender sends through an SMTP server. With a username it logs in with
@@ -73,14 +78,7 @@ func newSMTPSender(cfg config.SMTPConfig, extra ...gomail.Option) (*SMTPSender, 
 		if cfg.Port == smtpImplicitTLSPort {
 			opts = append(opts, gomail.WithSSL())
 		}
-		// A Replacer tries its pairs in order at each position, so the longer
-		// credential goes first: otherwise one that starts the other would
-		// leave the rest of it in the text.
-		secrets := []string{cfg.Username, cfg.Password}
-		if len(cfg.Password) > len(cfg.Username) {
-			secrets[0], secrets[1] = secrets[1], secrets[0]
-		}
-		redactor = strings.NewReplacer(secrets[0], "[redacted]", secrets[1], "[redacted]")
+		redactor = newRedactor(cfg.Username, cfg.Password)
 	}
 	client, err := gomail.NewClient(cfg.Host, append(opts, extra...)...)
 	if err != nil {
@@ -102,11 +100,44 @@ func (s *SMTPSender) Send(ctx context.Context, m domain.OutboxMessage) error {
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return fmt.Errorf("mail: send: %w", ctxErr)
 		}
-		text := strings.Join(strings.Fields(err.Error()), " ")
-		if s.redactor != nil {
-			text = s.redactor.Replace(text)
-		}
-		return errors.New("mail: send: " + text)
+		return s.sendError(err)
 	}
 	return nil
+}
+
+// sendError returns err as one line that carries neither credential.
+func (s *SMTPSender) sendError(err error) error {
+	text := err.Error()
+	if s.redactor != nil {
+		var reply *textproto.Error
+		if errors.As(err, &reply) && strings.Contains(text, authFailed) {
+			// The server was handed the password in this exchange and may repeat
+			// it in any shape, even as the base64 of the AUTH line, so only its
+			// status is kept.
+			return fmt.Errorf("mail: send: the SMTP server refused the login (%d)", reply.Code)
+		}
+		// Redact before the whitespace is collapsed, or a password with a run of
+		// spaces would no longer match.
+		text = s.redactor.Replace(text)
+	}
+	return errors.New("mail: send: " + strings.Join(strings.Fields(text), " "))
+}
+
+// newRedactor returns a Replacer that hides each secret as written and as
+// strconv.Quote writes it between the quotes, which is how net/textproto shows
+// a server's reply. A Replacer tries its pairs in order at each position, so
+// the longer form goes first: otherwise one that starts another would leave the
+// rest of it in the text.
+func newRedactor(secrets ...string) *strings.Replacer {
+	forms := make([]string, 0, 2*len(secrets))
+	for _, secret := range secrets {
+		quoted := strconv.Quote(secret)
+		forms = append(forms, secret, quoted[1:len(quoted)-1])
+	}
+	slices.SortStableFunc(forms, func(a, b string) int { return len(b) - len(a) })
+	pairs := make([]string, 0, 2*len(forms))
+	for _, form := range forms {
+		pairs = append(pairs, form, "[redacted]")
+	}
+	return strings.NewReplacer(pairs...)
 }
