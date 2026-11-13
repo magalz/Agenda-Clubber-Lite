@@ -6,7 +6,8 @@
      Two plain forms follow the list. Both are ordinary posts (no HTMX is needed), and a 422 comes back to this page with
      .Form refilled and .Errors set.
        POST /coletivos/entrar  join an approved collective. Fields: collective_name (the search box), collective_id
-                               (hidden), role (owner = Administrador, member = Membro). Errors: "collective", "role".
+                               (hidden), role (owner = Administrador, member = Membro). Errors: "collective", a form-level
+                               message shown above the form (the search box points at it with aria-describedby), and "role".
                                collective_id is filled by the collectivePicker component (web/static/js/app.js,
                                data-mode="join"), which loads /coletivos/sugestoes into #collective-suggestions-box: a
                                post with no pick gets the "collective" error, and never creates a collective. The join
@@ -36,6 +37,7 @@
   {{end}}
   <section class="stack" aria-labelledby="entrar-titulo">
     <h2 class="uppercase-label" id="entrar-titulo">pedir para entrar</h2>
+    {{template "field-error" (dict "Errors" .Errors "Field" "collective")}}
     <form method="post" action="/coletivos/entrar" class="stack">
       <div class="stack" x-data="collectivePicker" data-mode="join">
         <div class="field" @mousedown="onListMousedown" @click="onListClick" @click.outside="close">
@@ -44,7 +46,6 @@
           <input type="hidden" id="collective_id" name="collective_id" value="{{.Form.Get "collective_id"}}">
           <div id="collective-suggestions-box"></div>
           <p class="hint" id="collective-pick-hint">comece a digitar e escolha na lista um coletivo ou uma produtora já aprovados</p>
-          {{template "field-error" (dict "Errors" .Errors "Field" "collective")}}
         </div>
         <fieldset class="stack stack--sm" role="radiogroup"{{with index .Errors "role"}} aria-invalid="true" aria-describedby="erro-role"{{end}}>
           <legend class="label label--required">papel</legend>

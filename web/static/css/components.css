@@ -874,8 +874,8 @@
        <button class="btn btn--sm" type="submit">[✕] RECUSAR</button>
      </details>
    The <details> goes inside the <form method="post"> that sends the decision, so the textarea and the button post with it,
-   and it works without JavaScript. The <summary> is a target of at least 1.5rem, underlined like a link, with the focus
-   ring of the rest of the app (2px solid --color-focus). Once open, the label, textarea and button stack under it. No
+   and it works without JavaScript. The <summary> is a target of at least 1.5rem, underlined like a link, and gets the focus
+   ring of the rest of the app from base.css (:focus-visible). Once open, the label, textarea and button stack under it. No
    radius, no motion. */
 .reason-form {
   font-size: var(--text-xs);
@@ -887,10 +887,6 @@
   min-height: 1.5rem;
   cursor: pointer;
   text-decoration: underline;
-}
-.reason-form summary:focus-visible {
-  outline: 2px solid var(--color-focus);
-  outline-offset: 2px;
 }
 .reason-form > :not(summary) {
   margin-top: var(--space-2);

@@ -740,7 +740,4 @@ func TestColetivosComponentsAreStyled(t *testing.T) {
 			t.Errorf("components.css has no rule for %s", selector)
 		}
 	}
-	if !strings.Contains(string(css), ".reason-form summary:focus-visible") {
-		t.Error("components.css has no focus ring for .reason-form summary")
-	}
 }
