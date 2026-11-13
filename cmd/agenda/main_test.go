@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net"
@@ -215,6 +216,9 @@ func TestRunServeWithAnUnreachableDatabaseExits1(t *testing.T) {
 	if took := time.Since(start); took > 3*time.Second {
 		t.Errorf("serve took %v to give up, want it bounded by openTimeout", took)
 	}
+	if !strings.Contains(stdout.String(), openHint) {
+		t.Errorf("stdout = %q, want the log to say why: %q", stdout.String(), openHint)
+	}
 	wantNoSecrets(t, stdout.String(), stderr.String())
 	if _, err := http.Get("http://" + addr + "/healthz"); err == nil {
 		t.Error("the server answers although the database never opened")
@@ -354,10 +358,35 @@ func TestRunMigrateWithAnUnreachableDatabaseExits1(t *testing.T) {
 	if took := time.Since(start); took > 3*time.Second {
 		t.Errorf("migrate took %v to give up, want it bounded by openTimeout", took)
 	}
-	if stdout.Len() != 0 || !strings.Contains(stderr.String(), "agenda:") {
-		t.Errorf("stdout = %q, stderr = %q; want nothing on stdout and a reason on stderr", stdout.String(), stderr.String())
+	if stdout.Len() != 0 || !strings.Contains(stderr.String(), "agenda: migrate: "+openHint) {
+		t.Errorf("stdout = %q, stderr = %q; want nothing on stdout and %q on stderr", stdout.String(), stderr.String(), openHint)
 	}
 	wantNoSecrets(t, stdout.String(), stderr.String())
+}
+
+// openHint is what an operator reads when the server cannot be reached: the fixed
+// text of mongostore.Open, with the step that failed.
+const openHint = "cannot open the database: mongostore: cannot reach the MongoDB server"
+
+// openStore passes on the text of Open, which is fixed and holds nothing of the
+// URI, but not the error itself: an error that wraps another one could be
+// unwrapped and printed with more than that.
+func TestOpenStoreSaysWhyTheDatabaseDoesNotOpen(t *testing.T) {
+	old := openTimeout
+	openTimeout = 500 * time.Millisecond
+	t.Cleanup(func() { openTimeout = old })
+
+	_, err := openStore(context.Background(), config.MongoConfig{URI: unreachableURI, DB: "agenda"})
+	if err == nil {
+		t.Fatal("openStore succeeded on an unreachable server")
+	}
+	if err.Error() != openHint {
+		t.Errorf("error = %q, want %q", err, openHint)
+	}
+	if inner := errors.Unwrap(err); inner != nil {
+		t.Errorf("the error wraps another one, which may carry the URI: %v", inner)
+	}
+	wantNoSecrets(t, err.Error())
 }
 
 func TestHealthzURL(t *testing.T) {
