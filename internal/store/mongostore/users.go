@@ -253,3 +253,13 @@ func (s *Store) clearRef(ctx context.Context, collection, field string, id bson.
 	}
 	return nil
 }
+
+// ListByStatus is a stub until T3.2 implements it.
+func (r users) ListByStatus(ctx context.Context, status domain.UserStatus, limit int) ([]domain.User, error) {
+	return nil, errNotImplemented
+}
+
+// Approve is a stub until T3.2 implements it.
+func (r users) Approve(ctx context.Context, id, by string, now time.Time) error {
+	return errNotImplemented
+}

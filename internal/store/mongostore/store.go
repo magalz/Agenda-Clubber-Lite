@@ -31,6 +31,10 @@ const serverSelectionTimeout = 10 * time.Second
 
 var _ domain.Store = (*Store)(nil)
 
+// errNotImplemented is what the methods that phase 3 adds return until the task
+// that owns each one replaces its stub.
+var errNotImplemented = errors.New("mongostore: not implemented")
+
 // Store is a domain.Store on one MongoDB database.
 type Store struct {
 	client *mongo.Client
@@ -91,12 +95,13 @@ func requireReplicaSet(hello bson.M) error {
 // context of a call, if there is one, so the same values serve WithTx.
 func (s *Store) Repos() domain.Repos {
 	return domain.Repos{
-		Users:       users{s},
-		Tokens:      tokens{s},
-		Sessions:    sessions{s},
-		Collectives: collectives{s},
-		Memberships: memberships{s},
-		Outbox:      outbox{s},
+		Users:        users{s},
+		Tokens:       tokens{s},
+		Sessions:     sessions{s},
+		Collectives:  collectives{s},
+		Memberships:  memberships{s},
+		Outbox:       outbox{s},
+		AuditEntries: auditEntries{s},
 	}
 }
 
