@@ -1,12 +1,14 @@
-# Local development stack: the app plus Mailpit, which catches every email the
-# app sends (UI at http://127.0.0.1:8025), so nothing leaves the machine.
+# Local development stack: the app, a single-node MongoDB replica set and
+# Mailpit, which catches every email the app sends (UI at http://127.0.0.1:8025),
+# so nothing leaves the machine. MongoDB publishes no port: only the app, on the
+# compose network, reaches it.
 #
 #   cp .env.example .env          # once; env_file below needs it to exist
 #   podman compose -f deploy/compose.dev.yml up -d --build
-#   podman compose -f deploy/compose.dev.yml down -v    # -v also drops the data volume
+#   podman compose -f deploy/compose.dev.yml down -v    # -v also drops the MongoDB data volume
 #
 # .env may hold real credentials; the environment block overrides everything
-# that could reach a real mail server or break the dev origin.
+# that could reach a real mail server or database, or break the dev origin.
 name: agenda-dev
 
 services:
@@ -22,7 +24,8 @@ services:
       # Inside the container the server must listen on all interfaces and on
       # the port the published mapping and the healthcheck use, whatever .env says.
       APP_ADDR: ":8120"
-      DATA_DIR: /data
+      MONGO_URI: mongodb://mongo:27017/?directConnection=true
+      MONGO_DB: agenda
       SMTP_HOST: mailpit
       SMTP_PORT: "1025"
       SMTP_USERNAME: ""
@@ -37,8 +40,6 @@ services:
       - ALL
     security_opt:
       - no-new-privileges:true
-    volumes:
-      - agenda-data:/data
     healthcheck:
       test: ["CMD", "/app/agenda", "healthcheck"]
       interval: 10s
@@ -46,7 +47,41 @@ services:
       retries: 3
       start_period: 5s
     depends_on:
-      - mailpit
+      mongo:
+        condition: service_healthy
+      mailpit:
+        condition: service_started
+    restart: unless-stopped
+
+  mongo:
+    # mongo:8.0 (8.0.38 when pinned), multi-arch index digest
+    image: docker.io/library/mongo@sha256:d97fea17ccb8d004cd137be8dab54d70d0df11be69c9f422aefe4484c8414ab7
+    # The image's mongodb user; with a non-root user its entrypoint skips gosu.
+    user: "999:999"
+    # Transactions need a replica set, so even a single node runs as rs0.
+    command: ["--replSet", "rs0", "--bind_ip_all", "--wiredTigerCacheSizeGB", "0.25"]
+    volumes:
+      - mongo-data:/data/db
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    # No published ports: the app reaches mongo:27017 on the compose network.
+    # mongosh exits 0 whatever it prints, so the check quits 1 itself. It also
+    # initiates the replica set on the first run (rs.status() fails with
+    # NotYetInitialized until then) and is healthy only as the writable primary.
+    # The wrapping function keeps mongosh from printing rs.status() into the health log.
+    healthcheck:
+      test:
+        - CMD
+        - mongosh
+        - --quiet
+        - --eval
+        - "(function () { try { rs.status() } catch (e) { if (e.codeName !== 'NotYetInitialized') throw e; rs.initiate({_id: 'rs0', members: [{_id: 0, host: 'localhost:27017'}]}) } if (!db.hello().isWritablePrimary) quit(1) })()"
+      interval: 5s
+      timeout: 10s
+      retries: 30
+      start_period: 10s
     restart: unless-stopped
 
   mailpit:
@@ -69,4 +104,4 @@ services:
     restart: unless-stopped
 
 volumes:
-  agenda-data: {}
+  mongo-data: {}

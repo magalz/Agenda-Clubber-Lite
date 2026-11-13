@@ -3,7 +3,6 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"io"
@@ -12,7 +11,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -22,22 +20,18 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/magalz/agenda-clubber-lite/internal/config"
-	"github.com/magalz/agenda-clubber-lite/internal/store"
+	"github.com/magalz/agenda-clubber-lite/internal/store/mongostore"
 	"github.com/magalz/agenda-clubber-lite/internal/web"
 )
 
 const (
 	shutdownTimeout = 15 * time.Second
 
-	// dbFile is the database's name inside DATA_DIR.
-	dbFile = "agenda.db"
-
 	usage = `usage: agenda [command]
 
 commands:
   serve           run the web server (default)
-  migrate         create the database or bring its schema up to date
-  backup <dest>   write a copy of the database to dest, which must not exist
+  migrate         create or update the database schema (safe to run again)
   healthcheck     probe the running server's /healthz and exit 0 if it answers 200
 `
 )
@@ -50,7 +44,8 @@ func main() {
 }
 
 // run dispatches the subcommand and returns the process exit code. Later
-// subcommands (create-admin, seed-dev) join the switch.
+// subcommands (create-admin, seed-dev) join the switch; each reads only the
+// configuration it uses.
 func run(ctx context.Context, args []string, getenv func(string) string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
 		args = []string{"serve"}
@@ -60,8 +55,6 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout,
 		return serve(ctx, getenv, stdout, stderr)
 	case args[0] == "migrate" && len(args) == 1:
 		return migrate(ctx, getenv, stdout, stderr)
-	case args[0] == "backup" && len(args) == 2:
-		return backup(ctx, getenv, args[1], stdout, stderr)
 	case args[0] == "healthcheck" && len(args) == 1:
 		return healthcheck(ctx, getenv, stderr)
 	default:
@@ -69,6 +62,10 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout,
 		return 2
 	}
 }
+
+// openTimeout bounds opening the database and creating its schema; a variable
+// so a test can shorten it.
+var openTimeout = 30 * time.Second
 
 // healthcheckTimeout bounds one probe; a variable so a test can shorten it.
 var healthcheckTimeout = 3 * time.Second
@@ -123,83 +120,56 @@ func healthcheck(ctx context.Context, getenv func(string) string, stderr io.Writ
 	return 0
 }
 
-// loadCLIConfig loads the configuration for the commands that do not serve
-// HTTP. They need DATA_DIR and nothing else, so an unset APP_ORIGIN, which
-// config.Load requires, gets a placeholder; a value that is set is still
-// validated.
-func loadCLIConfig(getenv func(string) string) (config.Config, error) {
-	return config.Load(func(key string) string {
-		if key == "APP_ORIGIN" && strings.TrimSpace(getenv(key)) == "" {
-			return "http://localhost"
-		}
-		return getenv(key)
-	})
-}
-
-// openMigrated opens the database in cfg.DataDir and brings its schema up to
-// date. The caller closes the returned database.
-func openMigrated(ctx context.Context, cfg config.Config) (*sql.DB, error) {
-	db, err := store.Open(ctx, filepath.Join(cfg.DataDir, dbFile))
+// openStore opens the MongoDB store and makes sure its schema is in place, both
+// within openTimeout. Its errors are fixed texts, never the driver's: those may
+// name the server, and the URI may hold a password. The text of mongostore.Open
+// is one of them (it says what failed and holds nothing of the URI), but only its
+// text is passed on, not the error: %s, never %w.
+func openStore(ctx context.Context, cfg config.MongoConfig) (*mongostore.Store, error) {
+	ctx, cancel := context.WithTimeout(ctx, openTimeout)
+	defer cancel()
+	store, err := mongostore.Open(ctx, cfg.URI, cfg.DB)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("cannot open the database: %s", err)
 	}
-	if err := store.Migrate(ctx, db); err != nil {
-		db.Close()
-		return nil, err
+	if err := store.EnsureSchema(ctx); err != nil {
+		_ = closeStore(store)
+		return nil, errors.New("cannot create the database schema")
 	}
-	return db, nil
+	return store, nil
 }
 
-// migrate creates the database or brings its schema up to date.
+// closeStore releases the connections on a context of its own, bounded by
+// shutdownTimeout: the one serve and migrate ran with may be canceled already.
+func closeStore(store *mongostore.Store) error {
+	ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+	defer cancel()
+	return store.Close(ctx)
+}
+
+// migrate creates or updates the database schema and exits. It reads the MongoDB
+// settings and no other variable, and is safe to run again.
 func migrate(ctx context.Context, getenv func(string) string, stdout, stderr io.Writer) int {
-	cfg, err := loadCLIConfig(getenv)
+	cfg, err := config.LoadMongo(getenv)
 	if err != nil {
 		fmt.Fprintf(stderr, "agenda: %v\n", err)
 		return 1
 	}
-	db, err := openMigrated(ctx, cfg)
+	store, err := openStore(ctx, cfg)
 	if err != nil {
-		fmt.Fprintf(stderr, "agenda: %v\n", err)
+		fmt.Fprintf(stderr, "agenda: migrate: %v\n", err)
 		return 1
 	}
-	if err := db.Close(); err != nil {
-		fmt.Fprintf(stderr, "agenda: close database: %v\n", err)
-		return 1
+	if err := closeStore(store); err != nil {
+		fmt.Fprintln(stderr, "agenda: migrate: closing the database failed")
 	}
-	fmt.Fprintln(stdout, "agenda: database is up to date")
+	fmt.Fprintln(stdout, "schema ready")
 	return 0
 }
 
-// backup writes a copy of the existing database to dest.
-func backup(ctx context.Context, getenv func(string) string, dest string, stdout, stderr io.Writer) int {
-	cfg, err := loadCLIConfig(getenv)
-	if err != nil {
-		fmt.Fprintf(stderr, "agenda: %v\n", err)
-		return 1
-	}
-	path := filepath.Join(cfg.DataDir, dbFile)
-	// store.Open would create an empty database here, and a backup of that
-	// would pass for a real one.
-	if _, err := os.Stat(path); err != nil {
-		fmt.Fprintf(stderr, "agenda: no database to back up: %v\n", err)
-		return 1
-	}
-	db, err := store.Open(ctx, path)
-	if err != nil {
-		fmt.Fprintf(stderr, "agenda: %v\n", err)
-		return 1
-	}
-	defer db.Close()
-	if err := store.Backup(ctx, db, dest); err != nil {
-		fmt.Fprintf(stderr, "agenda: %v\n", err)
-		return 1
-	}
-	fmt.Fprintf(stdout, "agenda: backup written to %s\n", dest)
-	return 0
-}
-
-// serve opens and migrates the database, then runs the HTTP server until ctx
-// is canceled and shuts it down.
+// serve opens the database, runs the HTTP server until ctx is canceled and shuts
+// both down. It validates the whole configuration first. The database is not
+// handed to the web app yet.
 func serve(ctx context.Context, getenv func(string) string, stdout, stderr io.Writer) int {
 	cfg, err := config.Load(getenv)
 	if err != nil {
@@ -208,16 +178,19 @@ func serve(ctx context.Context, getenv func(string) string, stdout, stderr io.Wr
 	}
 	log := newLogger(cfg, stdout)
 
-	db, err := openMigrated(ctx, cfg)
+	store, err := openStore(ctx, cfg.Mongo)
 	if err != nil {
-		log.Error("database unavailable", "err", err)
+		log.Error("database failed", "err", err)
 		return 1
 	}
+	// Deferred, so it runs after the server has shut down, and also when the
+	// server failed to listen.
 	defer func() {
-		if err := db.Close(); err != nil {
-			log.Error("close database failed", "err", err)
+		if err := closeStore(store); err != nil {
+			log.Error("closing the database failed")
 		}
 	}()
+	log.Info("database ready", "db", cfg.Mongo.DB)
 
 	srv := newServer(cfg, log)
 

@@ -1,7 +1,8 @@
 # Agenda Clubber Lite image. Build context is the repository root:
 #   podman build -f deploy/Containerfile -t localhost/agenda:latest .
-# The binary is CGO-free (modernc SQLite), so the builder always runs on the
-# build host's architecture and cross-compiles for the target (amd64 or arm64).
+# The binary is CGO-free (pure Go, the MongoDB driver included), so the builder
+# always runs on the build host's architecture and cross-compiles for the target
+# (amd64 or arm64).
 
 # golang:1.27-alpine, multi-arch index digest
 FROM --platform=$BUILDPLATFORM docker.io/library/golang:1.27-alpine@sha256:eb61c3873c97416fff0116553fff65d67a3549f72e11d9758849a689cdd8b523 AS build
@@ -14,20 +15,15 @@ RUN go mod download
 COPY . .
 ARG TARGETOS TARGETARCH
 RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
-    go build -trimpath -ldflags "-s -w" -o /out/agenda ./cmd/agenda \
- && mkdir /out/data
+    go build -trimpath -ldflags "-s -w" -o /out/agenda ./cmd/agenda
 
 # gcr.io/distroless/static-debian12:nonroot, multi-arch index digest
 FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab
 COPY --from=build /out/agenda /app/agenda
-# An empty /data owned by the nonroot user (65532), so a fresh named volume
-# mounted there starts out writable by the app.
-COPY --from=build --chown=65532:65532 /out/data /data
 
-ENV APP_ADDR=:8120 DATA_DIR=/data APP_TZ=America/Fortaleza
+ENV APP_ADDR=:8120 APP_TZ=America/Fortaleza
 USER nonroot:nonroot
 EXPOSE 8120
-VOLUME ["/data"]
 
 # Podman builds OCI images by default and OCI has no HEALTHCHECK, so this line
 # only takes effect with `--format docker`; compose.dev.yml defines the same
