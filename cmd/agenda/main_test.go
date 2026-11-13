@@ -29,7 +29,6 @@ import (
 	"github.com/magalz/agenda-clubber-lite/internal/config"
 	"github.com/magalz/agenda-clubber-lite/internal/domain"
 	"github.com/magalz/agenda-clubber-lite/internal/mail"
-	"github.com/magalz/agenda-clubber-lite/internal/store/mongostore"
 	"github.com/magalz/agenda-clubber-lite/internal/store/mongotest"
 )
 
@@ -615,28 +614,6 @@ func countLevel(logs, level string) int {
 		}
 	}
 	return n
-}
-
-// openTestStore opens the database that mongoEnv named, for a test that seeds
-// and inspects it while serve runs on the same one.
-func openTestStore(t *testing.T, env []string) *mongostore.Store {
-	t.Helper()
-	get := getenvOf(env...)
-	s, err := mongostore.Open(t.Context(), get("MONGO_URI"), get("MONGO_DB"))
-	if err != nil {
-		t.Fatalf("open the test database: %v", err) // the text of Open holds nothing of the URI
-	}
-	t.Cleanup(func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		if err := s.Close(ctx); err != nil {
-			t.Errorf("close the test store: %v", err)
-		}
-	})
-	if err := s.EnsureSchema(t.Context()); err != nil {
-		t.Fatalf("create the schema: %v", err)
-	}
-	return s
 }
 
 // serveInBackground runs serve on a free port, with the environment kv on top of
