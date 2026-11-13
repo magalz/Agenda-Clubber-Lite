@@ -78,5 +78,14 @@ func (r tokens) Consume(ctx context.Context, purpose domain.TokenPurpose, hash [
 	return d.token(), nil
 }
 
-// DeleteExpired is a stub until the next commit.
-func (r tokens) DeleteExpired(ctx context.Context, now time.Time) (int, error) { return 0, nil }
+// DeleteExpired removes the tokens that are used or have ExpiresAt up to now.
+func (r tokens) DeleteExpired(ctx context.Context, now time.Time) (int, error) {
+	res, err := r.coll().DeleteMany(ctx, bson.M{"$or": bson.A{
+		bson.M{"used_at": bson.M{"$ne": nil}},
+		bson.M{"expires_at": bson.M{"$lte": now}},
+	}})
+	if err != nil {
+		return 0, wrap("delete expired tokens", err)
+	}
+	return int(res.DeletedCount), nil
+}

@@ -290,8 +290,8 @@ func (d membershipDoc) membership() domain.Membership {
 
 // --- outbox ---
 
-// outboxDoc is stored by the outbox repository, which the next task adds; the
-// document and its validator live here so the schema is complete in one place.
+// outboxDoc is stored by the outbox repository (outbox.go). ClaimedUntil is the
+// lease and is unset while nobody holds one.
 type outboxDoc struct {
 	ID            bson.ObjectID `bson:"_id"`
 	To            string        `bson:"to"`
