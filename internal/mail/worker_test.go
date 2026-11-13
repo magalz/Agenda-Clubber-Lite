@@ -133,12 +133,13 @@ func enqueue(t *testing.T, ob domain.Outbox, to string, next time.Time) domain.O
 	return m
 }
 
-// peek returns the messages that are due at at. The outbox has no Get, so Claim
-// is the only way to look. A lease of 0 has run out when Claim returns, so
-// peeking leaves nothing leased.
+// peek returns the oldest message that is due at at, or none. The outbox has no
+// Get, so Claim is the only way to look. A lease of 0 has run out when Claim
+// returns, so peeking leaves nothing leased; the limit is 1 because a call that
+// leases for 0 may return the same message again.
 func peek(t *testing.T, ob domain.Outbox, at time.Time) []domain.OutboxMessage {
 	t.Helper()
-	msgs, err := ob.Claim(t.Context(), at, 0, 10)
+	msgs, err := ob.Claim(t.Context(), at, 0, 1)
 	if err != nil {
 		t.Fatalf("peek at %s: %v", at.Format(time.RFC3339), err)
 	}
