@@ -86,7 +86,10 @@ type Users interface {
 	// Approve moves the user from pending_approval to active and sets ApprovedBy
 	// (to by), ApprovedAt and UpdatedAt (to now). A user in any other status is
 	// ErrConflict and is left unchanged. A missing user, or a by that names no
-	// user, is ErrNotFound and nothing changes.
+	// user (an empty by included), is ErrNotFound and nothing changes; the
+	// reference check comes first, so an unknown by is ErrNotFound whatever the
+	// user's status. The store only checks that by exists: who may approve is
+	// the caller's rule.
 	Approve(ctx context.Context, id, by string, now time.Time) error
 
 	// RecentPasswordHashes returns the current hash first, then the previous one
