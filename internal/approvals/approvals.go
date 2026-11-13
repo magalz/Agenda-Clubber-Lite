@@ -117,6 +117,15 @@ func requireAdmin(actor domain.User) error {
 	return nil
 }
 
+// requireOwner returns the actor's membership in the collective when the actor
+// has an active account and is an approved Administrador there (role owner,
+// status approved), read through r so that, inside the caller's transaction, it
+// sees the role as it is now. Anything else, an unknown collective included, is
+// ErrNotAllowed: the caller never learns more than "not yours".
+func requireOwner(ctx context.Context, r domain.Repos, actor domain.User, collectiveID string) (domain.Membership, error) {
+	return domain.Membership{}, nil
+}
+
 // wrap names the step of a flow that failed, for example "approve collective:
 // read collective". A domain.FieldErrors from the store means the flow built an
 // entity the store refuses, which is a bug and not something the person can

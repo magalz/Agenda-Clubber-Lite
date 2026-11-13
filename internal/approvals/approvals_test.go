@@ -130,6 +130,50 @@ func TestRequireAdmin(t *testing.T) {
 	}
 }
 
+func TestRequireOwner(t *testing.T) {
+	s := newTestStore(t)
+	creator := insertUser(t, s, "master@agenda.test")
+	c := insertCollective(t, s, "Coletivo Dono", creator.ID, func(c *domain.Collective) { c.Status = domain.CollectiveStatusApproved })
+	member := func(email string, role domain.Role, status domain.MembershipStatus, mutate ...func(*domain.User)) domain.User {
+		u := insertUser(t, s, email, mutate...)
+		insertMembership(t, s, domain.Membership{UserID: u.ID, CollectiveID: c.ID, Role: role, Status: status, RequestedAt: testNow})
+		return u
+	}
+	owner := member("adm@agenda.test", domain.RoleOwner, domain.MembershipStatusApproved)
+	plain := member("membro@agenda.test", domain.RoleMember, domain.MembershipStatusApproved)
+	waiting := member("pedido@agenda.test", domain.RoleOwner, domain.MembershipStatusPending)
+	blocked := member("bloqueado@agenda.test", domain.RoleOwner, domain.MembershipStatusApproved,
+		func(u *domain.User) { u.Status = domain.UserStatusDisabled })
+	outsider := insertUser(t, s, "fora@agenda.test")
+
+	m, err := requireOwner(t.Context(), s.Repos(), owner, c.ID)
+	if err != nil {
+		t.Fatalf("approved Administrador: err = %v, want nil", err)
+	}
+	if m.UserID != owner.ID || m.CollectiveID != c.ID || m.Role != domain.RoleOwner {
+		t.Errorf("approved Administrador: membership = %+v, want the actor's owner membership", m)
+	}
+
+	tests := []struct {
+		name  string
+		actor domain.User
+		id    string
+	}{
+		{"approved member", plain, c.ID},
+		{"pending Administrador", waiting, c.ID},
+		{"disabled Administrador", blocked, c.ID},
+		{"no membership", outsider, c.ID},
+		{"unknown collective", owner, "nope"},
+		{"nobody", domain.User{}, c.ID},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := requireOwner(t.Context(), s.Repos(), tt.actor, tt.id)
+			requireErrorIs(t, err, ErrNotAllowed)
+		})
+	}
+}
+
 func TestWrap(t *testing.T) {
 	err := wrap("approve collective: read collective", domain.ErrNotFound)
 	if !errors.Is(err, domain.ErrNotFound) {
