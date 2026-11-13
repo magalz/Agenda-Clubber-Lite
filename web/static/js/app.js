@@ -26,7 +26,7 @@
   const SUGGEST_URL = '/coletivos/sugestoes';
 
   const HINT_NEW =
-    'nome novo: quem cria um coletivo novo entra como dono. para entrar como membro, escolha um já cadastrado na lista';
+    'nome novo: quem cria um coletivo novo entra como administrador (master). para entrar como membro, escolha um já cadastrado na lista';
 
   // (00) 0000-0000 up to 10 digits, (00) 00000-0000 with 11. No literal is added before the digit that needs it,
   // so deleting a digit never leaves a dangling "-" or ") ".
@@ -206,7 +206,7 @@
     // Collective picker on the signup form: #collective_name is a combobox over the suggestions that
     // /coletivos/sugestoes returns into #collective-suggestions-box (partials/signup-suggestions.html).
     // Picking an option fills the hidden #collective_id; any typing clears it. A name with no pick is a NEW
-    // collective, whose creator is its owner: the script then selects Dono and disables Membro.
+    // collective, whose creator is its owner: the script then selects Administrador and disables Membro.
     Alpine.data('collectivePicker', () => {
       let nameInput;
       let idInput;

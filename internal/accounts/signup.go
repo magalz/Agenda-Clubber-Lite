@@ -25,7 +25,7 @@ const (
 	signupMsgRole             = "escolha o seu papel"
 	signupMsgPick             = "escolha um coletivo da lista"
 	signupMsgNameInUse        = "nome já em uso; escolha outro"
-	signupMsgNewAsOwner       = "quem cria um coletivo novo entra como dono"
+	signupMsgNewAsOwner       = "quem cria um coletivo novo entra como administrador (master)"
 	signupMsgControl          = "não use quebras de linha nem caracteres de controle"
 )
 

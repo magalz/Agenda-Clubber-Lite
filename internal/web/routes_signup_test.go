@@ -287,7 +287,7 @@ func TestSignupFormPage(t *testing.T) {
 	for _, c := range []struct{ name, value, label string }{
 		{"collective_kind", "coletivo", "Coletivo"},
 		{"collective_kind", "produtora", "Produtora"},
-		{"role", "owner", "Dono"},
+		{"role", "owner", "Administrador"},
 		{"role", "member", "Membro"},
 	} {
 		tag := signupInput(t, body, c.name, c.value)
@@ -342,7 +342,7 @@ func TestSignupFormPage(t *testing.T) {
 	for _, want := range []string{
 		"DDD + número, sem +55",
 		"comece a digitar para ver os já cadastrados, ou escreva um nome novo",
-		"quem cria um coletivo novo entra como dono",
+		"quem cria um coletivo novo entra como administrador (master)",
 		`href="/entrar"`,
 		`<div id="collective-suggestions-box"></div>`,
 	} {

@@ -301,7 +301,7 @@ func TestSignupCollectiveErrorsWriteNothing(t *testing.T) {
 		{"picked collective that is rejected", func(in *SignupInput) { in.CollectiveID = rejected.ID }, "collective", "escolha um coletivo da lista"},
 		{"picked collective of the other kind", func(in *SignupInput) { in.CollectiveID = produtora.ID }, "collective", "escolha um coletivo da lista"},
 		{"picked collective that does not exist", func(in *SignupInput) { in.CollectiveID = "no-such-collective" }, "collective", "escolha um coletivo da lista"},
-		{"member of a new collective", func(in *SignupInput) { in.CollectiveName = "Totalmente Nova"; in.Role = domain.RoleMember }, "role", "quem cria um coletivo novo entra como dono"},
+		{"member of a new collective", func(in *SignupInput) { in.CollectiveName = "Totalmente Nova"; in.Role = domain.RoleMember }, "role", "quem cria um coletivo novo entra como administrador (master)"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
