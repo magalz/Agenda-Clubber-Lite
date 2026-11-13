@@ -228,6 +228,13 @@ func RunTx(t *testing.T, newStore NewStore) {
 		{"Ping succeeds on a working store", func(t *testing.T, e env) {
 			noErr(t, "Ping", e.s.Ping(e.ctx))
 		}},
+		{"Close can be called twice, and the Store is unusable after it", func(t *testing.T, e env) {
+			noErr(t, "first Close", e.s.Close(e.ctx))
+			noErr(t, "second Close", e.s.Close(e.ctx))
+			if err := e.s.Ping(e.ctx); err == nil {
+				t.Error("Ping after Close succeeded")
+			}
+		}},
 		{"WithTx commits the writes when fn returns nil, and fn sees its own writes", func(t *testing.T, e env) {
 			var w written
 			err := e.s.WithTx(e.ctx, func(ctx context.Context, r domain.Repos) error {

@@ -72,6 +72,30 @@ func RunTokens(t *testing.T, newStore NewStore) {
 				t.Errorf("Consume of the older token after a failed create: %v", err)
 			}
 		}},
+		{"create with a hash that is already stored is ErrConflict and changes nothing", func(t *testing.T, e env) {
+			ana, bia := e.user("ana"), e.user("bia")
+			first := e.token(ana.ID, resetPassword, "dup")
+			// Same user and purpose: retiring the older token must not survive the failed insert.
+			again := newToken(ana.ID, resetPassword, "dup", func(tok *domain.Token) {
+				tok.CreatedAt = at(time.Minute)
+				tok.ExpiresAt = at(2 * time.Hour)
+			})
+			isErr(t, "create with the same hash, user and purpose", e.r.Tokens.Create(e.ctx, &again), domain.ErrConflict)
+			// Another user and purpose: the hash is unique across all tokens.
+			other := newToken(bia.ID, verifyEmail, "dup")
+			isErr(t, "create with the same hash for another user and purpose", e.r.Tokens.Create(e.ctx, &other), domain.ErrConflict)
+			_, err := e.r.Tokens.Consume(e.ctx, verifyEmail, other.Hash, at(2*time.Minute))
+			isErr(t, "Consume of the token that was refused", err, domain.ErrNotFound)
+			// The user is checked before the hash.
+			ghost := newToken(unknownRefs[1], resetPassword, "dup")
+			isErr(t, "create for an unknown user with a stored hash", e.r.Tokens.Create(e.ctx, &ghost), domain.ErrNotFound)
+
+			got, err := e.r.Tokens.Consume(e.ctx, first.Purpose, first.Hash, at(2*time.Minute))
+			noErr(t, "Consume of the first token", err)
+			want := first
+			want.UsedAt = ptr(at(2 * time.Minute))
+			wantEqual(t, "consumed token", normToken(got), normToken(want))
+		}},
 		{"Consume marks the token used, and a second Consume finds nothing", func(t *testing.T, e env) {
 			u := e.user("ana")
 			tok := e.token(u.ID, resetPassword, "t1")

@@ -97,7 +97,9 @@ type Tokens interface {
 	// caller set is ignored) and stores every other field as given. The user
 	// t.UserID must exist, else ErrNotFound. Before storing t, it marks every
 	// token of the same user and purpose that is still unused as used, with
-	// UsedAt set to t.CreatedAt, so only the newest link works.
+	// UsedAt set to t.CreatedAt, so only the newest link works. A token whose
+	// Hash is already stored is ErrConflict, and then nothing changes: the
+	// earlier tokens are not retired.
 	Create(ctx context.Context, t *Token) error
 
 	// Consume finds the token with this purpose and hash that is unused and has
@@ -269,6 +271,6 @@ type Store interface {
 	Ping(ctx context.Context) error
 
 	// Close releases the connections. The Store and its repositories must not
-	// be used after it.
+	// be used after it. Closing a Store that is already closed returns nil.
 	Close(ctx context.Context) error
 }
