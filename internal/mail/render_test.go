@@ -40,7 +40,7 @@ func renderCases() []renderCase {
 			data:    ExistingAccountData{Name: "Ana Souza", LoginLink: linkLogin, ResetLink: linkReset},
 			subject: "Você já tem uma conta · Agenda Clubber",
 			links:   []string{linkLogin, linkReset},
-			phrases: []string{"Ana Souza"},
+			phrases: []string{"Ana Souza", "1 hora"}, // the reset link here is the same token link as in the reset email
 		},
 		{
 			name: "admin new signup",
