@@ -283,6 +283,30 @@ func RunTx(t *testing.T, newStore NewStore) {
 			isErr(t, "WithTx", err, errRollback)
 			f.wantUntouched(e)
 		}},
+		// A method that is atomic by itself (the cascade of Users.Delete, the
+		// retirement of tokens in Tokens.Create) takes part in the transaction of
+		// its caller, so the caller's rollback undoes it. A transaction of its own
+		// would have committed it.
+		{"a call that is atomic by itself joins the transaction of its caller", func(t *testing.T, e env) {
+			ana := e.user("ana")
+			old := e.token(ana.ID, resetPassword, "old")
+			fresh := newToken(ana.ID, resetPassword, "fresh")
+			err := e.s.WithTx(e.ctx, func(ctx context.Context, r domain.Repos) error {
+				if err := r.Tokens.Create(ctx, &fresh); err != nil { // retires "old"
+					return err
+				}
+				if err := r.Users.Delete(ctx, ana.ID); err != nil { // cascades
+					return err
+				}
+				return errRollback
+			})
+			isErr(t, "WithTx", err, errRollback)
+			e.getUser(ana.ID)
+			_, err = e.r.Tokens.Consume(e.ctx, resetPassword, old.Hash, at(time.Minute))
+			noErr(t, "Consume of the old token, which the rolled-back Tokens.Create must not retire", err)
+			_, err = e.r.Tokens.Consume(e.ctx, resetPassword, fresh.Hash, at(time.Minute))
+			isErr(t, "Consume of the token the rolled-back Tokens.Create made", err, domain.ErrNotFound)
+		}},
 		{"an ErrNotFound leaves the transaction usable", func(t *testing.T, e env) {
 			err := e.s.WithTx(e.ctx, func(ctx context.Context, r domain.Repos) error {
 				for name, call := range map[string]func() error{

@@ -2,7 +2,6 @@ package mongostore_test
 
 import (
 	"context"
-	"crypto/sha256"
 	"errors"
 	"slices"
 	"strings"
@@ -217,112 +216,7 @@ func TestSchemaRefusesMalformedDocuments(t *testing.T) {
 	}
 }
 
-// --- values that start with $ ---
-
-// A caller's string that starts with $ is a field path inside an aggregation
-// update unless it is quoted, so the store must keep it as plain text.
-func TestDollarValuesAreStoredAsText(t *testing.T) {
-	s := mongotest.New(t)
-	r := s.Repos()
-	ctx := t.Context()
-
-	u := newUser("ana")
-	u.Name = "$gt"
-	u.PasswordHash = "$password_hash"
-	if err := r.Users.Create(ctx, &u); err != nil {
-		t.Fatalf("create user: %v", err)
-	}
-	for _, hash := range []string{"$$ROOT", "$$REMOVE", "$name", "$argon2id$v=19$m=65536,t=3,p=4$c2FsdA$aGFzaA"} {
-		if err := r.Users.ChangePassword(ctx, u.ID, hash, now); err != nil {
-			t.Fatalf("ChangePassword(%q): %v", hash, err)
-		}
-		got, err := r.Users.RecentPasswordHashes(ctx, u.ID)
-		if err != nil {
-			t.Fatalf("RecentPasswordHashes: %v", err)
-		}
-		if len(got) != 2 || got[0] != hash {
-			t.Errorf("RecentPasswordHashes after ChangePassword(%q) = %q", hash, got)
-		}
-	}
-	stored, err := r.Users.ByID(ctx, u.ID)
-	if err != nil {
-		t.Fatalf("ByID: %v", err)
-	}
-	if stored.Name != "$gt" {
-		t.Errorf("Name = %q, want $gt", stored.Name)
-	}
-	if stored.PasswordHash != "$argon2id$v=19$m=65536,t=3,p=4$c2FsdA$aGFzaA" {
-		t.Errorf("PasswordHash = %q", stored.PasswordHash)
-	}
-
-	// The same value as a lookup key finds nothing: it is a string, not an operator.
-	if _, err := r.Users.ByEmail(ctx, "$ne"); !errors.Is(err, domain.ErrNotFound) {
-		t.Errorf("ByEmail($ne) error = %v, want ErrNotFound", err)
-	}
-	if _, err := r.Collectives.ByNameKey(ctx, "$ne"); !errors.Is(err, domain.ErrNotFound) {
-		t.Errorf("ByNameKey($ne) error = %v, want ErrNotFound", err)
-	}
-}
-
-// --- times ---
-
-// The converters in docs.go copy times as they are: the driver decodes a BSON
-// datetime to UTC, which is what the contract wants. The suite compares instants
-// only, so this pins the zone, for a document read by a query and one returned
-// by an update.
-func TestTimesAreReadBackInUTC(t *testing.T) {
-	s := mongotest.New(t)
-	r := s.Repos()
-	ctx := t.Context()
-
-	local := now.In(time.FixedZone("UTC-3", -3*60*60))
-	u := newUser("ana")
-	u.PasswordChangedAt, u.CreatedAt, u.UpdatedAt = local, local, local
-	u.LockedUntil, u.EmailVerifiedAt, u.ApprovedAt = &local, &local, &local
-	if err := r.Users.Create(ctx, &u); err != nil {
-		t.Fatalf("create user: %v", err)
-	}
-	tok := newToken(u.ID, "t1")
-	tok.CreatedAt, tok.ExpiresAt = local, local.Add(time.Hour)
-	if err := r.Tokens.Create(ctx, &tok); err != nil {
-		t.Fatalf("create token: %v", err)
-	}
-
-	got, err := r.Users.ByID(ctx, u.ID)
-	if err != nil {
-		t.Fatalf("ByID: %v", err)
-	}
-	used, err := r.Tokens.Consume(ctx, tok.Purpose, tok.Hash, local.Add(time.Minute))
-	if err != nil {
-		t.Fatalf("Consume: %v", err)
-	}
-
-	for name, tm := range map[string]*time.Time{
-		"user.PasswordChangedAt": &got.PasswordChangedAt,
-		"user.CreatedAt":         &got.CreatedAt,
-		"user.UpdatedAt":         &got.UpdatedAt,
-		"user.LockedUntil":       got.LockedUntil,
-		"user.EmailVerifiedAt":   got.EmailVerifiedAt,
-		"user.ApprovedAt":        got.ApprovedAt,
-		"token.CreatedAt":        &used.CreatedAt,
-		"token.ExpiresAt":        &used.ExpiresAt,
-		"token.UsedAt":           used.UsedAt,
-	} {
-		switch {
-		case tm == nil:
-			t.Errorf("%s: not stored", name)
-		case tm.Location() != time.UTC:
-			t.Errorf("%s is in %v, want UTC", name, tm.Location())
-		}
-	}
-}
-
-// --- WithTx ---
-
-var (
-	now     = time.Date(2026, 11, 12, 16, 0, 0, 0, time.UTC)
-	errBoom = errors.New("boom")
-)
+var now = time.Date(2026, 11, 12, 16, 0, 0, 0, time.UTC)
 
 func newUser(name string) domain.User {
 	return domain.User{
@@ -337,21 +231,9 @@ func newUser(name string) domain.User {
 	}
 }
 
-func newToken(userID, tag string) domain.Token {
-	return domain.Token{
-		UserID:    userID,
-		Purpose:   domain.TokenPurposeResetPassword,
-		Hash:      sha256Of(tag),
-		CreatedAt: now,
-		ExpiresAt: now.Add(time.Hour),
-	}
-}
+// --- WithTx ---
 
-func sha256Of(tag string) []byte {
-	h := sha256.Sum256([]byte(tag))
-	return h[:]
-}
-
+// The contract of WithTx is in the suite; this checks how this backend does it.
 func TestWithTxHandsFnAContextWithASession(t *testing.T) {
 	s := mongotest.New(t)
 	var seen bool
@@ -364,47 +246,5 @@ func TestWithTxHandsFnAContextWithASession(t *testing.T) {
 	}
 	if !seen {
 		t.Error("the context of fn carries no session")
-	}
-}
-
-// A method that is atomic by itself (the cascade of Users.Delete, the
-// retirement of tokens in Tokens.Create) joins the transaction of its caller,
-// so the caller's rollback undoes it. A transaction of its own would have
-// committed it.
-func TestSelfAtomicCallsJoinTheCallersTransaction(t *testing.T) {
-	s := mongotest.New(t)
-	r := s.Repos()
-	ctx := t.Context()
-
-	ana := newUser("ana")
-	if err := r.Users.Create(ctx, &ana); err != nil {
-		t.Fatalf("create user: %v", err)
-	}
-	old := newToken(ana.ID, "old")
-	if err := r.Tokens.Create(ctx, &old); err != nil {
-		t.Fatalf("create token: %v", err)
-	}
-
-	err := s.WithTx(ctx, func(ctx context.Context, r domain.Repos) error {
-		fresh := newToken(ana.ID, "fresh")
-		if err := r.Tokens.Create(ctx, &fresh); err != nil { // retires "old"
-			return err
-		}
-		if err := r.Users.Delete(ctx, ana.ID); err != nil { // cascades
-			return err
-		}
-		return errBoom
-	})
-	if !errors.Is(err, errBoom) {
-		t.Fatalf("WithTx error = %v, want errBoom", err)
-	}
-	if _, err := r.Users.ByID(ctx, ana.ID); err != nil {
-		t.Errorf("the rolled-back Users.Delete removed the user: %v", err)
-	}
-	if _, err := r.Tokens.Consume(ctx, old.Purpose, old.Hash, now.Add(time.Minute)); err != nil {
-		t.Errorf("the rolled-back Tokens.Create retired the old token: %v", err)
-	}
-	if _, err := r.Tokens.Consume(ctx, old.Purpose, sha256Of("fresh"), now.Add(time.Minute)); !errors.Is(err, domain.ErrNotFound) {
-		t.Errorf("the rolled-back Tokens.Create left the new token: error = %v", err)
 	}
 }

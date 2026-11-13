@@ -33,6 +33,21 @@ func RunUsers(t *testing.T, newStore NewStore) {
 			_, err := e.r.Users.ByID(e.ctx, "chosen-by-the-caller")
 			isErr(t, "ByID of the ID the caller chose", err, domain.ErrNotFound)
 		}},
+		{"times come back in UTC, whatever the zone they were written in", func(t *testing.T, e env) {
+			local := inLocalZone(base)
+			u := newUser("ana", func(u *domain.User) {
+				u.PasswordChangedAt, u.CreatedAt, u.UpdatedAt = local, local, local
+				u.LockedUntil, u.EmailVerifiedAt, u.ApprovedAt = &local, &local, &local
+			})
+			noErr(t, "create", e.r.Users.Create(e.ctx, &u))
+			got := e.getUser(u.ID)
+			wantUTC(t, "PasswordChangedAt", &got.PasswordChangedAt, base)
+			wantUTC(t, "CreatedAt", &got.CreatedAt, base)
+			wantUTC(t, "UpdatedAt", &got.UpdatedAt, base)
+			wantUTC(t, "LockedUntil", got.LockedUntil, base)
+			wantUTC(t, "EmailVerifiedAt", got.EmailVerifiedAt, base)
+			wantUTC(t, "ApprovedAt", got.ApprovedAt, base)
+		}},
 		{"create gives each user its own ID", func(t *testing.T, e env) {
 			a, b := e.user("ana"), e.user("bia")
 			if a.ID == b.ID {
@@ -187,6 +202,37 @@ func RunUsers(t *testing.T, newStore NewStore) {
 				_, err := e.r.Users.RecentPasswordHashes(e.ctx, id)
 				isErr(t, fmt.Sprintf("RecentPasswordHashes(%q)", id), err, domain.ErrNotFound)
 			}
+		}},
+		// A string that starts with $ is a field path inside a MongoDB aggregation
+		// update unless it is quoted, and an operator if it becomes a filter key:
+		// every backend must keep it as plain text.
+		{"values that start with $ are stored and looked up as plain text", func(t *testing.T, e env) {
+			u := e.user("ana", func(u *domain.User) {
+				u.Name = "$gt"
+				u.PasswordHash = "$password_hash"
+			})
+			const argon = "$argon2id$v=19$m=65536,t=3,p=4$c2FsdA$aGFzaA"
+			for i, hash := range []string{"$$ROOT", "$$REMOVE", "$name", argon} {
+				noErr(t, fmt.Sprintf("ChangePassword(%q)", hash), e.r.Users.ChangePassword(e.ctx, u.ID, hash, at(time.Duration(i+1)*time.Minute)))
+				got, err := e.r.Users.RecentPasswordHashes(e.ctx, u.ID)
+				noErr(t, "RecentPasswordHashes", err)
+				if len(got) != 2 || got[0] != hash {
+					t.Errorf("RecentPasswordHashes after ChangePassword(%q) = %q", hash, got)
+				}
+			}
+			stored := e.getUser(u.ID)
+			if stored.Name != "$gt" {
+				t.Errorf("Name = %q, want $gt", stored.Name)
+			}
+			if stored.PasswordHash != argon {
+				t.Errorf("PasswordHash = %q, want %q", stored.PasswordHash, argon)
+			}
+
+			// The same text as a lookup key finds nothing: it is a string, not an operator.
+			_, err := e.r.Users.ByEmail(e.ctx, "$ne")
+			isErr(t, "ByEmail($ne)", err, domain.ErrNotFound)
+			_, err = e.r.Collectives.ByNameKey(e.ctx, "$ne")
+			isErr(t, "Collectives.ByNameKey($ne)", err, domain.ErrNotFound)
 		}},
 		{"ChangePassword refuses an empty hash and changes nothing", func(t *testing.T, e env) {
 			u := e.user("ana")
