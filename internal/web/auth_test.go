@@ -1065,17 +1065,16 @@ func TestHomeForASignedInUser(t *testing.T) {
 func TestNewAppLimits(t *testing.T) {
 	app := newTestApp(t)
 	tests := []struct {
-		name    string
-		l       *auth.Limiter
-		limit   int
-		window  time.Duration
-		perUser bool
+		name   string
+		l      *auth.Limiter
+		limit  int
+		window time.Duration
 	}{
-		{"login", app.Limits.Login, 10, time.Minute, false},
-		{"signup", app.Limits.Signup, 5, time.Hour, false},
-		{"email action", app.Limits.EmailAction, 5, time.Hour, false},
-		{"suggestions", app.Limits.Suggestions, 60, time.Minute, false},
-		{"password check", app.Limits.PasswordCheck, 30, time.Minute, true},
+		{"login", app.Limits.Login, 10, time.Minute},
+		{"signup", app.Limits.Signup, 5, time.Hour},
+		{"email action", app.Limits.EmailAction, 5, time.Hour},
+		{"suggestions", app.Limits.Suggestions, 60, time.Minute},
+		{"password check", app.Limits.PasswordCheck, 30, time.Minute},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
