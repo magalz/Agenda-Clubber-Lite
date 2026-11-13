@@ -24,18 +24,18 @@ const (
 	loginTestWrong    = "Senha-Errada-2"
 )
 
-// The messages the login page shows; the first is the bare text, the others are
-// checked as the brief words them.
+// The messages the login page shows. A wrong password and a locked account get
+// the one and the same message (loginMsgFailed), so a lock does not tell that an
+// e-mail is registered.
 const (
-	loginMsgFailed          = "e-mail ou senha incorretos."
-	loginMsgLocked          = "muitas tentativas erradas. por segurança, a conta fica bloqueada por 15 minutos."
+	loginMsgFailed          = "e-mail ou senha incorretos. depois de 5 tentativas erradas, a conta fica bloqueada por 15 minutos."
 	loginMsgPendingEmail    = "confirme seu e-mail antes de entrar."
 	loginMsgPendingApproval = "seu cadastro aguarda a aprovação do admin. você recebe um e-mail quando for aprovado."
 	loginMsgDisabled        = "esta conta está desativada. fale com "
 )
 
 // loginMessages lists every status message by a text that identifies it.
-var loginMessages = []string{loginMsgFailed, loginMsgLocked, loginMsgPendingEmail, loginMsgPendingApproval, loginMsgDisabled, msgTooMany}
+var loginMessages = []string{loginMsgFailed, loginMsgPendingEmail, loginMsgPendingApproval, loginMsgDisabled, msgTooMany}
 
 // loginWebHash is the argon2id hash of loginTestPassword, built once: hashing is
 // slow on purpose.
@@ -302,7 +302,7 @@ func TestLoginFailures(t *testing.T) {
 	}{
 		{"unknown email", nil, "ninguem@agenda.test", loginTestPassword, loginMsgFailed},
 		{"wrong password", func(*domain.User) {}, loginTestEmail, loginTestWrong, loginMsgFailed},
-		{"locked", func(u *domain.User) { u.LockedUntil = &soon }, loginTestEmail, loginTestPassword, loginMsgLocked},
+		{"locked", func(u *domain.User) { u.LockedUntil = &soon }, loginTestEmail, loginTestPassword, loginMsgFailed},
 		{"pending email", func(u *domain.User) { u.Status = domain.UserStatusPendingEmail }, loginTestEmail, loginTestPassword, loginMsgPendingEmail},
 		{"pending approval", func(u *domain.User) { u.Status = domain.UserStatusPendingApproval }, loginTestEmail, loginTestPassword, loginMsgPendingApproval},
 		{"disabled", func(u *domain.User) { u.Status = domain.UserStatusDisabled }, loginTestEmail, loginTestPassword, loginMsgDisabled},
@@ -357,7 +357,7 @@ func TestLoginDoesNotRevealTheStatusWithoutThePassword(t *testing.T) {
 			if !strings.Contains(msg, loginMsgFailed) {
 				t.Errorf("a wrong password shows %q, want %q", msg, loginMsgFailed)
 			}
-			for _, leak := range []string{loginMsgLocked, loginMsgPendingEmail, loginMsgPendingApproval, loginMsgDisabled} {
+			for _, leak := range []string{loginMsgPendingEmail, loginMsgPendingApproval, loginMsgDisabled} {
 				if strings.Contains(rec.Body.String(), leak) {
 					t.Errorf("a wrong password reveals %q", leak)
 				}
@@ -400,27 +400,66 @@ func TestLoginDisabledPointsToTheContactAddress(t *testing.T) {
 		`<a href="mailto:ignisdev@magalz.space">ignisdev@magalz.space</a>`)
 }
 
+// The lock is real (it is in the store) but the page never says so: every wrong
+// password, the one that locks included, and the right password under the lock
+// get the same message.
 func TestLoginLocksTheAccountAfterFiveWrongPasswords(t *testing.T) {
 	e := newLoginEnv(t)
-	e.user(t)
+	u := e.user(t)
+	locked := func() bool {
+		t.Helper()
+		got, err := e.store.Repos().Users.ByID(context.Background(), u.ID)
+		if err != nil {
+			t.Fatalf("ByID: %v", err)
+		}
+		return got.LockedUntil != nil && got.LockedUntil.After(e.app.Now())
+	}
 
 	for i := 1; i < accounts.LoginMaxFailures; i++ {
 		rec := e.signIn(loginTestEmail, loginTestWrong, "")
 		if rec.Code != http.StatusUnauthorized || !strings.Contains(loginStatus(t, rec.Body.String()), loginMsgFailed) {
 			t.Fatalf("wrong password %d: %d, want 401 with %q", i, rec.Code, loginMsgFailed)
 		}
+		if locked() {
+			t.Fatalf("the account is locked after %d wrong passwords", i)
+		}
 	}
 	rec := e.signIn(loginTestEmail, loginTestWrong, "")
-	if rec.Code != http.StatusUnauthorized || !strings.Contains(loginStatus(t, rec.Body.String()), loginMsgLocked) {
-		t.Fatalf("the fifth wrong password: %d, want 401 with %q", rec.Code, loginMsgLocked)
+	if rec.Code != http.StatusUnauthorized || !strings.Contains(loginStatus(t, rec.Body.String()), loginMsgFailed) {
+		t.Fatalf("the fifth wrong password: %d, want 401 with %q", rec.Code, loginMsgFailed)
+	}
+	if !locked() {
+		t.Fatal("the account is not locked in the store after the fifth wrong password")
 	}
 
-	// The right password does not get through a lock.
+	// The right password does not get through a lock, and it is told the same.
 	rec = e.signIn(loginTestEmail, loginTestPassword, "")
-	if rec.Code != http.StatusUnauthorized || !strings.Contains(loginStatus(t, rec.Body.String()), loginMsgLocked) {
-		t.Errorf("the right password while locked: %d, want 401 with %q", rec.Code, loginMsgLocked)
+	if rec.Code != http.StatusUnauthorized || !strings.Contains(loginStatus(t, rec.Body.String()), loginMsgFailed) {
+		t.Errorf("the right password while locked: %d, want 401 with %q", rec.Code, loginMsgFailed)
 	}
 	wantNoCookie(t, rec)
+}
+
+// A lock must not tell which e-mails are registered: every wrong password for a
+// registered account (the fifth, which locks it, included) and for an unknown
+// e-mail gets the same status and the same page, but for the address typed.
+func TestLoginAnswersTheSameForARegisteredAndAnUnknownEmail(t *testing.T) {
+	const unknown = "ninguem@agenda.test"
+	e := newLoginEnv(t)
+	e.user(t)
+
+	for i := 1; i <= accounts.LoginMaxFailures; i++ {
+		registered := e.signIn(loginTestEmail, loginTestWrong, "/eventos/12")
+		stranger := e.signIn(unknown, loginTestWrong, "/eventos/12")
+		if registered.Code != stranger.Code {
+			t.Errorf("wrong password %d: status %d for a registered e-mail, %d for an unknown one", i, registered.Code, stranger.Code)
+		}
+		gotRegistered := strings.ReplaceAll(registered.Body.String(), loginTestEmail, "EMAIL")
+		gotStranger := strings.ReplaceAll(stranger.Body.String(), unknown, "EMAIL")
+		if gotRegistered != gotStranger {
+			t.Errorf("wrong password %d: the pages differ.\nregistered: %s\nunknown: %s", i, loginStatus(t, registered.Body.String()), loginStatus(t, stranger.Body.String()))
+		}
+	}
 }
 
 // --- POST /entrar, rate limit, bad input, server errors ---
