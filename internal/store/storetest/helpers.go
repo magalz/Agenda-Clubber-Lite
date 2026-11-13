@@ -338,20 +338,26 @@ func unsetTime(t *testing.T, what string, got *time.Time) {
 	}
 }
 
-// wantIDs ends the subtest on a mismatch, because the checks that follow read
-// the messages it vouched for.
-func wantIDs(t *testing.T, what string, got []domain.OutboxMessage, want ...domain.OutboxMessage) {
+// wantIDsBy ends the subtest on a mismatch, because the checks that follow read
+// the elements it vouched for. id returns the ID of an element.
+func wantIDsBy[T any](t *testing.T, what string, id func(T) string, got []T, want ...T) {
 	t.Helper()
 	g, w := make([]string, len(got)), make([]string, len(want))
 	for i := range got {
-		g[i] = got[i].ID
+		g[i] = id(got[i])
 	}
 	for i := range want {
-		w[i] = want[i].ID
+		w[i] = id(want[i])
 	}
 	if !reflect.DeepEqual(g, w) {
 		t.Fatalf("%s: IDs = %v, want %v", what, g, w)
 	}
+}
+
+// wantIDs is wantIDsBy for the messages of the outbox.
+func wantIDs(t *testing.T, what string, got []domain.OutboxMessage, want ...domain.OutboxMessage) {
+	t.Helper()
+	wantIDsBy(t, what, func(m domain.OutboxMessage) string { return m.ID }, got, want...)
 }
 
 func wantStrings(t *testing.T, what string, got []string, want ...string) {
@@ -405,6 +411,11 @@ func normView(v domain.MembershipView) domain.MembershipView {
 	return v
 }
 
+func normMemberView(v domain.MemberView) domain.MemberView {
+	v.Membership = normMembership(v.Membership)
+	return v
+}
+
 func normToken(t domain.Token) domain.Token {
 	t.ExpiresAt = ms(t.ExpiresAt)
 	t.UsedAt = msPtr(t.UsedAt)
@@ -430,6 +441,16 @@ func normMessage(m domain.OutboxMessage) domain.OutboxMessage {
 func normAuditEntry(a domain.AuditEntry) domain.AuditEntry {
 	a.At = ms(a.At)
 	return a
+}
+
+// normAll applies norm to every element of list. The result is never nil, so
+// an empty list compares equal to another empty one.
+func normAll[T any](list []T, norm func(T) T) []T {
+	out := make([]T, len(list))
+	for i, v := range list {
+		out[i] = norm(v)
+	}
+	return out
 }
 
 // --- concurrency: the goroutines only call the store and return what they got;

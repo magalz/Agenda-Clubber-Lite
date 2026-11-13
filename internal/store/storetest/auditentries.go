@@ -3,7 +3,6 @@ package storetest
 import (
 	"fmt"
 	"math"
-	"reflect"
 	"sort"
 	"strings"
 	"testing"
@@ -19,29 +18,7 @@ func (e env) auditList(limit int) []domain.AuditEntry {
 	return got
 }
 
-func normAuditEntries(list []domain.AuditEntry) []domain.AuditEntry {
-	out := make([]domain.AuditEntry, len(list))
-	for i, a := range list {
-		out[i] = normAuditEntry(a)
-	}
-	return out
-}
-
-// wantAuditIDs ends the subtest on a mismatch, because the checks that follow
-// read the entries it vouched for.
-func wantAuditIDs(t *testing.T, what string, got []domain.AuditEntry, want ...domain.AuditEntry) {
-	t.Helper()
-	g, w := make([]string, len(got)), make([]string, len(want))
-	for i := range got {
-		g[i] = got[i].ID
-	}
-	for i := range want {
-		w[i] = want[i].ID
-	}
-	if !reflect.DeepEqual(g, w) {
-		t.Fatalf("%s: IDs = %v, want %v", what, g, w)
-	}
-}
+func auditID(a domain.AuditEntry) string { return a.ID }
 
 // RunAuditEntries runs the contract of domain.AuditEntries.
 func RunAuditEntries(t *testing.T, newStore NewStore) {
@@ -72,13 +49,13 @@ func RunAuditEntries(t *testing.T, newStore NewStore) {
 			}
 
 			got := e.auditList(10)
-			wantEqual(t, "listed entries", normAuditEntries(got), normAuditEntries([]domain.AuditEntry{second, first}))
+			wantEqual(t, "listed entries", normAll(got, normAuditEntry), normAll([]domain.AuditEntry{second, first}, normAuditEntry))
 			wantUTC(t, "At of the newer entry", &got[0].At, second.At)
 			wantUTC(t, "At of the older entry", &got[1].At, first.At)
 		}},
 		{"Create stores an entry without the optional fields as one that has none", func(t *testing.T, e env) {
 			a := e.auditEntry()
-			wantEqual(t, "listed entries", normAuditEntries(e.auditList(10)), normAuditEntries([]domain.AuditEntry{a}))
+			wantEqual(t, "listed entries", normAll(e.auditList(10), normAuditEntry), normAll([]domain.AuditEntry{a}, normAuditEntry))
 		}},
 		{"Create stores every action", func(t *testing.T, e env) {
 			actions := []domain.AuditAction{
@@ -94,7 +71,7 @@ func RunAuditEntries(t *testing.T, newStore NewStore) {
 				a := e.auditEntry(func(a *domain.AuditEntry) { a.Action = action; a.At = at(time.Duration(i) * time.Second) })
 				want = append([]domain.AuditEntry{a}, want...)
 			}
-			wantEqual(t, "listed entries", normAuditEntries(e.auditList(domain.ListLimitMax)), normAuditEntries(want))
+			wantEqual(t, "listed entries", normAll(e.auditList(domain.ListLimitMax), normAuditEntry), normAll(want, normAuditEntry))
 		}},
 		{"Create stores names and texts of the greatest length, in runes", func(t *testing.T, e env) {
 			a := e.auditEntry(func(a *domain.AuditEntry) {
@@ -104,7 +81,7 @@ func RunAuditEntries(t *testing.T, newStore NewStore) {
 				a.Detail = strings.Repeat("→", domain.AuditTextMax)
 				a.Reason = strings.Repeat("ô", domain.AuditTextMax)
 			})
-			wantEqual(t, "listed entries", normAuditEntries(e.auditList(10)), normAuditEntries([]domain.AuditEntry{a}))
+			wantEqual(t, "listed entries", normAll(e.auditList(10), normAuditEntry), normAll([]domain.AuditEntry{a}, normAuditEntry))
 		}},
 		{"Create validates the entry and stores nothing", func(t *testing.T, e env) {
 			tooLong := func(n int) string { return strings.Repeat("a", n+1) }
@@ -138,7 +115,7 @@ func RunAuditEntries(t *testing.T, newStore NewStore) {
 				})
 				want = append([]domain.AuditEntry{a}, want...)
 			}
-			wantEqual(t, "listed entries", normAuditEntries(e.auditList(domain.ListLimitMax)), normAuditEntries(want))
+			wantEqual(t, "listed entries", normAll(e.auditList(domain.ListLimitMax), normAuditEntry), normAll(want, normAuditEntry))
 		}},
 		{"List of an empty store returns nothing", func(t *testing.T, e env) {
 			for _, limit := range []int{-1, 0, 1, domain.ListLimitMax} {
@@ -167,8 +144,8 @@ func RunAuditEntries(t *testing.T, newStore NewStore) {
 			want := append([]domain.AuditEntry{newest, justAfter}, ties...)
 			want = append(want, oldest)
 			got := e.auditList(10)
-			wantAuditIDs(t, "List", got, want...)
-			wantEqual(t, "listed entries", normAuditEntries(got), normAuditEntries(want))
+			wantIDsBy(t, "List", auditID, got, want...)
+			wantEqual(t, "listed entries", normAll(got, normAuditEntry), normAll(want, normAuditEntry))
 		}},
 		{"List returns at most limit entries, with limit clamped to 1..ListLimitMax", func(t *testing.T, e env) {
 			oldest := e.auditEntry(func(a *domain.AuditEntry) { a.At = at(time.Minute) })
@@ -190,7 +167,7 @@ func RunAuditEntries(t *testing.T, newStore NewStore) {
 				{limit: 2 * domain.ListLimitMax, want: all},
 				{limit: math.MaxInt, want: all},
 			} {
-				wantAuditIDs(t, fmt.Sprintf("List(%d)", tc.limit), e.auditList(tc.limit), tc.want...)
+				wantIDsBy(t, fmt.Sprintf("List(%d)", tc.limit), auditID, e.auditList(tc.limit), tc.want...)
 			}
 		}},
 		{"Deleting a user or a collective leaves the entries as they were", func(t *testing.T, e env) {
@@ -212,13 +189,13 @@ func RunAuditEntries(t *testing.T, newStore NewStore) {
 				a.CollectiveID, a.CollectiveName = c.ID, c.Name
 				a.Detail = "Luz -> Bloco Luz"
 			})
-			want := normAuditEntries([]domain.AuditEntry{byUser, about})
-			wantEqual(t, "listed entries before the deletes", normAuditEntries(e.auditList(10)), want)
+			want := normAll([]domain.AuditEntry{byUser, about}, normAuditEntry)
+			wantEqual(t, "listed entries before the deletes", normAll(e.auditList(10), normAuditEntry), want)
 
 			noErr(t, "delete the user", e.r.Users.Delete(e.ctx, u.ID))
-			wantEqual(t, "listed entries after deleting the user", normAuditEntries(e.auditList(10)), want)
+			wantEqual(t, "listed entries after deleting the user", normAll(e.auditList(10), normAuditEntry), want)
 			noErr(t, "delete the collective", e.r.Collectives.Delete(e.ctx, c.ID))
-			wantEqual(t, "listed entries after deleting the collective", normAuditEntries(e.auditList(10)), want)
+			wantEqual(t, "listed entries after deleting the collective", normAll(e.auditList(10), normAuditEntry), want)
 
 			_, err := e.r.Users.ByID(e.ctx, u.ID)
 			isErr(t, "ByID of the deleted user", err, domain.ErrNotFound)
