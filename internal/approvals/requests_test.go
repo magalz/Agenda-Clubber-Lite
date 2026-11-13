@@ -14,16 +14,20 @@ import (
 
 // requestsFixture is a store with two site admins, an approved collective Alfa
 // with two Administradores (master, its creator, and owner) and one Membro, and
-// a person with an active account who belongs to nothing.
+// a person with an active account who belongs to nothing. Two disabled accounts
+// are there to be left out of every notice: gone, an approved Administrador of
+// Alfa, and goneAdmin, a site admin.
 type requestsFixture struct {
-	s      domain.Store
-	admin  domain.User
-	admin2 domain.User
-	master domain.User
-	owner  domain.User
-	member domain.User
-	person domain.User
-	c      domain.Collective
+	s         domain.Store
+	admin     domain.User
+	admin2    domain.User
+	goneAdmin domain.User
+	master    domain.User
+	owner     domain.User
+	gone      domain.User
+	member    domain.User
+	person    domain.User
+	c         domain.Collective
 }
 
 // newRequestsFixture builds the store; mutate adjusts Alfa before it is stored.
@@ -31,19 +35,21 @@ func newRequestsFixture(t *testing.T, mutate ...func(*domain.Collective)) reques
 	t.Helper()
 	s := newTestStore(t)
 	f := requestsFixture{
-		s:      s,
-		admin:  insertAdmin(t, s, "ada@agenda.test"),
-		admin2: insertAdmin(t, s, "ayla@agenda.test"),
-		master: insertUser(t, s, "ana@agenda.test"),
-		owner:  insertUser(t, s, "olga@agenda.test"),
-		member: insertUser(t, s, "mia@agenda.test"),
-		person: insertUser(t, s, "bia@agenda.test"),
+		s:         s,
+		admin:     insertAdmin(t, s, "ada@agenda.test"),
+		admin2:    insertAdmin(t, s, "ayla@agenda.test"),
+		goneAdmin: insertUser(t, s, "gabi@agenda.test", func(u *domain.User) { u.IsAdmin, u.Status = true, domain.UserStatusDisabled }),
+		master:    insertUser(t, s, "ana@agenda.test"),
+		owner:     insertUser(t, s, "olga@agenda.test"),
+		gone:      insertUser(t, s, "gil@agenda.test", func(u *domain.User) { u.Status = domain.UserStatusDisabled }),
+		member:    insertUser(t, s, "mia@agenda.test"),
+		person:    insertUser(t, s, "bia@agenda.test"),
 	}
 	f.c = requestsApprovedCollective(t, s, "Alfa", f, mutate...)
 	for _, m := range []struct {
 		user domain.User
 		role domain.Role
-	}{{f.master, domain.RoleOwner}, {f.owner, domain.RoleOwner}, {f.member, domain.RoleMember}} {
+	}{{f.master, domain.RoleOwner}, {f.owner, domain.RoleOwner}, {f.gone, domain.RoleOwner}, {f.member, domain.RoleMember}} {
 		insertMembership(t, s, requestsMembership(f.c.ID, m.user.ID, m.role, domain.MembershipStatusApproved, f))
 	}
 	return f
@@ -106,6 +112,12 @@ func requestsRequireEmail(t *testing.T, by map[string]domain.OutboxMessage, to d
 			t.Errorf("email to %s lacks %q:\n%s", to.Email, want, msg.Text)
 		}
 	}
+}
+
+// requestsWithStatus is u with its account in the given status.
+func requestsWithStatus(u domain.User, s domain.UserStatus) domain.User {
+	u.Status = s
+	return u
 }
 
 func requestsFields(t *testing.T, err error) domain.FieldErrors {
@@ -191,11 +203,16 @@ func TestRequestJoin(t *testing.T) {
 				t.Errorf("collective = %+v, want %+v", got, want)
 			}
 
-			// The Administradores of Alfa and the site admins are told, each once; the
-			// Membro is not.
+			// The active Administradores of Alfa and the active site admins are told,
+			// each once; the Membro and the disabled accounts are not.
 			by := requestsByRecipient(t, outboxMessages(t, f.s))
 			if len(by) != 4 {
 				t.Errorf("%d people got an email, want the two Administradores and the two admins: %+v", len(by), by)
+			}
+			for _, u := range []domain.User{f.member, f.gone, f.goneAdmin} {
+				if _, told := by[u.Email]; told {
+					t.Errorf("%s got an email, want none", u.Email)
+				}
 			}
 			for _, u := range []domain.User{f.master, f.owner} {
 				requestsRequireEmail(t, by, u, "Novo pedido para entrar em Alfa",
@@ -231,8 +248,6 @@ func TestRequestJoinRefused(t *testing.T) {
 	refused := insertUser(t, f.s, "rita@agenda.test")
 	insertMembership(t, f.s, requestsMembership(f.c.ID, refused.ID, domain.RoleMember, domain.MembershipStatusRejected, f))
 
-	withStatus := func(u domain.User, s domain.UserStatus) domain.User { u.Status = s; return u }
-
 	for _, tc := range []struct {
 		name         string
 		actor        domain.User
@@ -242,8 +257,8 @@ func TestRequestJoinRefused(t *testing.T) {
 		fields       domain.FieldErrors // exact field errors when set
 	}{
 		{name: "zero actor", actor: domain.User{}, collectiveID: f.c.ID, role: domain.RoleMember, err: ErrNotAllowed},
-		{name: "account awaiting approval", actor: withStatus(f.person, domain.UserStatusPendingApproval), collectiveID: f.c.ID, role: domain.RoleMember, err: ErrNotAllowed},
-		{name: "disabled account", actor: withStatus(f.person, domain.UserStatusDisabled), collectiveID: f.c.ID, role: domain.RoleMember, err: ErrNotAllowed},
+		{name: "account awaiting approval", actor: requestsWithStatus(f.person, domain.UserStatusPendingApproval), collectiveID: f.c.ID, role: domain.RoleMember, err: ErrNotAllowed},
+		{name: "disabled account", actor: requestsWithStatus(f.person, domain.UserStatusDisabled), collectiveID: f.c.ID, role: domain.RoleMember, err: ErrNotAllowed},
 		{name: "empty role", actor: f.person, collectiveID: f.c.ID, role: "", fields: nil},
 		{name: "unknown role", actor: f.person, collectiveID: f.c.ID, role: "master", fields: nil},
 		{name: "unknown collective", actor: f.person, collectiveID: "no-such-collective", role: domain.RoleMember, fields: domain.FieldErrors{"collective": requestsMsgNotFound}},
@@ -453,7 +468,6 @@ func TestRequestCollectiveNameLength(t *testing.T) {
 
 func TestRequestCollectiveRefusedActor(t *testing.T) {
 	f := newRequestsFixture(t)
-	withStatus := func(u domain.User, s domain.UserStatus) domain.User { u.Status = s; return u }
 	for _, tc := range []struct {
 		name  string
 		actor domain.User
@@ -461,10 +475,10 @@ func TestRequestCollectiveRefusedActor(t *testing.T) {
 		coll  string
 	}{
 		{"zero actor", domain.User{}, domain.CollectiveKindColetivo, "Nova Casa"},
-		{"account awaiting approval", withStatus(f.person, domain.UserStatusPendingApproval), domain.CollectiveKindColetivo, "Nova Casa"},
-		{"disabled account", withStatus(f.person, domain.UserStatusDisabled), domain.CollectiveKindColetivo, "Nova Casa"},
+		{"account awaiting approval", requestsWithStatus(f.person, domain.UserStatusPendingApproval), domain.CollectiveKindColetivo, "Nova Casa"},
+		{"disabled account", requestsWithStatus(f.person, domain.UserStatusDisabled), domain.CollectiveKindColetivo, "Nova Casa"},
 		// The actor comes first: a refused account learns nothing about the input.
-		{"refused account and bad input", withStatus(f.person, domain.UserStatusDisabled), "festa", ""},
+		{"refused account and bad input", requestsWithStatus(f.person, domain.UserStatusDisabled), "festa", ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			requireErrorIs(t, RequestCollective(t.Context(), f.s, testOrigin, tc.actor, tc.coll, tc.kind, testNow.Add(time.Hour)), ErrNotAllowed)
@@ -636,8 +650,6 @@ func TestRenameCollectiveRefused(t *testing.T) {
 	refused := insertUser(t, f.s, "rita@agenda.test")
 	insertMembership(t, f.s, requestsMembership(f.c.ID, refused.ID, domain.RoleOwner, domain.MembershipStatusRejected, f))
 
-	withStatus := func(u domain.User, s domain.UserStatus) domain.User { u.Status = s; return u }
-
 	for _, tc := range []struct {
 		name         string
 		actor        domain.User
@@ -648,7 +660,7 @@ func TestRenameCollectiveRefused(t *testing.T) {
 		fields       domain.FieldErrors
 	}{
 		{name: "zero actor", actor: domain.User{}, collectiveID: f.c.ID, newName: "Alfa Prime", err: ErrNotAllowed},
-		{name: "disabled Administrador", actor: withStatus(f.master, domain.UserStatusDisabled), collectiveID: f.c.ID, newName: "Alfa Prime", err: ErrNotAllowed},
+		{name: "disabled Administrador", actor: requestsWithStatus(f.master, domain.UserStatusDisabled), collectiveID: f.c.ID, newName: "Alfa Prime", err: ErrNotAllowed},
 		{name: "not a member", actor: f.person, collectiveID: f.c.ID, newName: "Alfa Prime", err: ErrNotAllowed},
 		{name: "a Membro", actor: f.member, collectiveID: f.c.ID, newName: "Alfa Prime", err: ErrNotAllowed},
 		{name: "site admin who is not an Administrador of it", actor: f.admin, collectiveID: f.c.ID, newName: "Alfa Prime", err: ErrNotAllowed},
