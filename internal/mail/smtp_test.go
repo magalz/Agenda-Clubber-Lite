@@ -64,7 +64,11 @@ func startFakeSMTP(t *testing.T, opts fakeSMTPOptions) *fakeSMTP {
 		t.Fatalf("listen: %v", err)
 	}
 	f := &fakeSMTP{opts: opts, ln: ln, delivered: make(chan deliveredMail, 8)}
-	var wg sync.WaitGroup
+	var (
+		wg    sync.WaitGroup
+		mu    sync.Mutex
+		conns []net.Conn
+	)
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -73,6 +77,9 @@ func startFakeSMTP(t *testing.T, opts fakeSMTPOptions) *fakeSMTP {
 			if err != nil {
 				return
 			}
+			mu.Lock()
+			conns = append(conns, conn)
+			mu.Unlock()
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
@@ -82,6 +89,14 @@ func startFakeSMTP(t *testing.T, opts fakeSMTPOptions) *fakeSMTP {
 	}()
 	t.Cleanup(func() {
 		ln.Close()
+		// A client that gave up without a QUIT (go-mail does not close the
+		// connection when STARTTLS or AUTH fails) must not hold the test for
+		// the server's read deadline.
+		mu.Lock()
+		for _, c := range conns {
+			c.Close()
+		}
+		mu.Unlock()
 		wg.Wait()
 	})
 	return f

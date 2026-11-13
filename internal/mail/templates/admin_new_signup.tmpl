@@ -1,0 +1,33 @@
+{{define "subject"}}Novo cadastro para aprovar: {{.UserName}}{{end}}
+
+{{define "text"}}$ novo_cadastro
+
+Um novo cadastro está esperando aprovação na Agenda Clubber.
+
+Nome: {{.UserName}}
+E-mail: {{.UserEmail}}
+{{if .UserPhone}}Telefone: {{.UserPhone}}{{if .PhoneIsWhatsApp}} (WhatsApp){{end}}
+{{end}}
+Coletivos e produtoras:
+{{range .Collectives}}- {{.Name}} · {{.Kind}} · {{.Role}}{{if .New}} · novo{{end}}
+{{else}}- nenhum
+{{end}}
+[→] {{.AdminLink}}
+
+{{template "text_footer"}}
+{{end}}
+
+{{define "html"}}{{template "html_open" .}}<p style="margin:0 0 16px;font-family:'Space Mono',Menlo,Consolas,'Courier New',monospace;font-size:18px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;">$ novo_cadastro</p>
+<p style="margin:0 0 16px;">Um novo cadastro está esperando aprovação na Agenda Clubber.</p>
+<table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 16px;">
+<tr><td style="padding:2px 16px 2px 0;color:#8a8a92;">Nome</td><td style="padding:2px 0;">{{.UserName}}</td></tr>
+<tr><td style="padding:2px 16px 2px 0;color:#8a8a92;">E-mail</td><td style="padding:2px 0;">{{.UserEmail}}</td></tr>
+{{if .UserPhone}}<tr><td style="padding:2px 16px 2px 0;color:#8a8a92;">Telefone</td><td style="padding:2px 0;">{{.UserPhone}}{{if .PhoneIsWhatsApp}} (WhatsApp){{end}}</td></tr>
+{{end}}</table>
+<p style="margin:0 0 8px;color:#8a8a92;">Coletivos e produtoras</p>
+<table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 16px;">
+{{range .Collectives}}<tr><td style="padding:2px 16px 2px 0;">{{.Name}}</td><td style="padding:2px 16px 2px 0;">{{.Kind}}</td><td style="padding:2px 16px 2px 0;">{{.Role}}</td><td style="padding:2px 0;color:#ff7285;">{{if .New}}novo{{end}}</td></tr>
+{{else}}<tr><td style="padding:2px 0;color:#8a8a92;">nenhum</td></tr>
+{{end}}</table>
+{{template "html_button" btn "Abrir aprovações" .AdminLink}}
+{{template "html_close" .}}{{end}}

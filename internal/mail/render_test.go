@@ -1,6 +1,7 @@
 package mail
 
 import (
+	"html"
 	"strings"
 	"testing"
 )
@@ -92,11 +93,12 @@ func TestRender(t *testing.T) {
 					t.Errorf("html prints %q %d time(s), want it in the button and as text", link, n)
 				}
 			}
+			shown := html.UnescapeString(htmlBody) // html/template writes a + as &#43;
 			for _, phrase := range tc.phrases {
 				if !strings.Contains(text, phrase) {
 					t.Errorf("text lacks %q:\n%s", phrase, text)
 				}
-				if !strings.Contains(htmlBody, phrase) {
+				if !strings.Contains(shown, phrase) {
 					t.Errorf("html lacks %q", phrase)
 				}
 			}

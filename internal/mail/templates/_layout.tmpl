@@ -1,0 +1,33 @@
+{{/* Shared pieces of every email: the dark page, the wordmark, the button and the footer. */}}
+{{define "html_open"}}<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>{{template "subject" .}}</title>
+</head>
+<body style="margin:0;padding:0;background:#050506;color:#e8e8ea;">
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#050506;">
+<tr><td align="center" style="padding:24px 12px;">
+<table role="presentation" width="560" cellspacing="0" cellpadding="0" border="0" style="width:100%;max-width:560px;background:#0b0b0d;border:1px solid #23232a;">
+<tr><td style="padding:20px 24px;border-bottom:1px solid #23232a;font-family:'Space Mono',Menlo,Consolas,'Courier New',monospace;font-size:16px;font-weight:700;letter-spacing:.05em;color:#e8e8ea;">◢◤ AGENDA_CLUBBER</td></tr>
+<tr><td style="padding:24px;font-family:'JetBrains Mono',Menlo,Consolas,'Courier New',monospace;font-size:14px;line-height:1.6;color:#e8e8ea;">
+{{end}}
+
+{{define "html_close"}}
+</td></tr>
+<tr><td style="padding:16px 24px;border-top:1px solid #23232a;font-family:'JetBrains Mono',Menlo,Consolas,'Courier New',monospace;font-size:12px;line-height:1.5;color:#8a8a92;">$ feito por IgnisDev · <a href="mailto:ignisdev@magalz.space" style="color:#ff7285;text-decoration:underline;">ignisdev@magalz.space</a></td></tr>
+</table>
+</td></tr>
+</table>
+</body>
+</html>
+{{end}}
+
+{{/* html_button takes the value of btn: a button with a label and a link, and the link again as text. */}}
+{{define "html_button"}}<table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 12px;"><tr><td style="background:#ff2040;border:1px solid #ff2040;"><a href="{{.Href}}" style="display:inline-block;padding:12px 20px;font-family:'Space Mono',Menlo,Consolas,'Courier New',monospace;font-size:14px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:#000000;text-decoration:none;">[→] {{.Label}}</a></td></tr></table>
+<p style="margin:0 0 16px;font-size:12px;line-height:1.5;color:#8a8a92;">Se o botão não abrir, copie este link para o navegador:<br><a href="{{.Href}}" style="color:#ff7285;text-decoration:underline;word-break:break-all;">{{.Href}}</a></p>{{end}}
+
+{{define "text_footer"}}--
+$ feito por IgnisDev · ignisdev@magalz.space{{end}}
