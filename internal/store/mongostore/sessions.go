@@ -50,15 +50,8 @@ func (r sessions) Get(ctx context.Context, hash []byte) (domain.Session, error) 
 }
 
 func (r sessions) Touch(ctx context.Context, hash []byte, lastSeen, expiresAt time.Time) error {
-	res, err := r.coll().UpdateOne(ctx, bson.M{"_id": hash},
+	return updateOne(ctx, r.coll(), "touch session", hash,
 		bson.M{"$set": bson.M{"last_seen_at": lastSeen, "expires_at": expiresAt}})
-	if err != nil {
-		return wrap("touch session", err)
-	}
-	if res.MatchedCount == 0 {
-		return domain.ErrNotFound
-	}
-	return nil
 }
 
 func (r sessions) Delete(ctx context.Context, hash []byte) error {

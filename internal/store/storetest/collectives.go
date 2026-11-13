@@ -136,7 +136,7 @@ func RunCollectives(t *testing.T, newStore NewStore) {
 				return e.r.Collectives.Create(e.ctx, &c)
 			})
 			wantOneWinner(t, "create", errs, domain.ErrNameTaken)
-			wantNames(t, "the stored collectives", e.search("concorrente", "", 50), "Casa Concorrente")
+			wantNames(t, "the stored collectives", e.search("concorrente", "", domain.SearchLimitMax), "Casa Concorrente")
 		}},
 		{"ByID returns ErrNotFound for an ID that is not a collective", func(t *testing.T, e env) {
 			e.collective("Casa Azul", coletivo, cApproved)
@@ -173,28 +173,28 @@ func RunCollectives(t *testing.T, newStore NewStore) {
 				{"preta", nil}, // rejected
 				{"nada disso", nil},
 			} {
-				wantNames(t, fmt.Sprintf("SearchApproved(%q)", tc.query), e.search(tc.query, "", 50), tc.want...)
+				wantNames(t, fmt.Sprintf("SearchApproved(%q)", tc.query), e.search(tc.query, "", domain.SearchLimitMax), tc.want...)
 			}
 		}},
 		{"SearchApproved with an empty query returns every approved collective", func(t *testing.T, e env) {
 			e.searchFixture()
 			all := []string{"Ação Direta", "Beco da Casa", "C.A. Funk", "Casa Azul", "Casa Verde"}
-			wantNames(t, "empty query", e.search("", "", 50), all...)
-			wantNames(t, "blank query", e.search("   ", "", 50), all...)
+			wantNames(t, "empty query", e.search("", "", domain.SearchLimitMax), all...)
+			wantNames(t, "blank query", e.search("   ", "", domain.SearchLimitMax), all...)
 		}},
 		{"SearchApproved filters by kind", func(t *testing.T, e env) {
 			e.searchFixture()
-			wantNames(t, "coletivo", e.search("", coletivo, 50), "Ação Direta", "Beco da Casa", "Casa Azul")
-			wantNames(t, "produtora", e.search("", produtora, 50), "C.A. Funk", "Casa Verde")
-			wantNames(t, "casa in produtora", e.search("casa", produtora, 50), "Casa Verde")
-			wantNames(t, "casa in coletivo", e.search("casa", coletivo, 50), "Beco da Casa", "Casa Azul")
+			wantNames(t, "coletivo", e.search("", coletivo, domain.SearchLimitMax), "Ação Direta", "Beco da Casa", "Casa Azul")
+			wantNames(t, "produtora", e.search("", produtora, domain.SearchLimitMax), "C.A. Funk", "Casa Verde")
+			wantNames(t, "casa in produtora", e.search("casa", produtora, domain.SearchLimitMax), "Casa Verde")
+			wantNames(t, "casa in coletivo", e.search("casa", coletivo, domain.SearchLimitMax), "Beco da Casa", "Casa Azul")
 		}},
 		{"SearchApproved treats the query as plain text, never as a pattern", func(t *testing.T, e env) {
 			e.searchFixture()
-			wantNames(t, ".", e.search(".", "", 50), "C.A. Funk")
-			wantNames(t, "c.a.", e.search("c.a.", "", 50), "C.A. Funk")
+			wantNames(t, ".", e.search(".", "", domain.SearchLimitMax), "C.A. Funk")
+			wantNames(t, "c.a.", e.search("c.a.", "", domain.SearchLimitMax), "C.A. Funk")
 			for _, q := range []string{".*", "(", "[a-z]", "^casa", "casa$", "casa|beco", `\`, "c.sa", "ca+sa", "?"} {
-				wantNames(t, fmt.Sprintf("SearchApproved(%q)", q), e.search(q, "", 50))
+				wantNames(t, fmt.Sprintf("SearchApproved(%q)", q), e.search(q, "", domain.SearchLimitMax))
 			}
 		}},
 		{"SearchApproved orders by name key in byte order", func(t *testing.T, e env) {
@@ -202,13 +202,14 @@ func RunCollectives(t *testing.T, newStore NewStore) {
 			for _, name := range []string{"Luza", "Luz_1", "Luz 2", "ação luz", "Luz-1", "Beta Luz", "Luz 10"} {
 				e.collective(name, coletivo, cApproved)
 			}
-			wantNames(t, "luz", e.search("luz", "", 50), "ação luz", "Beta Luz", "Luz 10", "Luz 2", "Luz-1", "Luz_1", "Luza")
+			wantNames(t, "luz", e.search("luz", "", domain.SearchLimitMax), "ação luz", "Beta Luz", "Luz 10", "Luz 2", "Luz-1", "Luz_1", "Luza")
 		}},
-		{"SearchApproved returns at most limit results, with limit clamped to 1..50", func(t *testing.T, e env) {
-			for i := 1; i <= 60; i++ {
+		{"SearchApproved returns at most limit results, with limit clamped to SearchLimitMin..SearchLimitMax", func(t *testing.T, e env) {
+			lo, hi := domain.SearchLimitMin, domain.SearchLimitMax
+			for i := 1; i <= hi+10; i++ {
 				e.collective(fmt.Sprintf("Bloco %02d", i), coletivo, cApproved)
 			}
-			for _, tc := range []struct{ limit, want int }{{10, 10}, {50, 50}, {51, 50}, {100, 50}, {1, 1}, {0, 1}, {-5, 1}} {
+			for _, tc := range []struct{ limit, want int }{{10, 10}, {hi, hi}, {hi + 1, hi}, {2 * hi, hi}, {lo, lo}, {lo - 1, lo}, {-5, lo}} {
 				got := e.search("bloco", "", tc.limit)
 				if len(got) != tc.want {
 					t.Errorf("SearchApproved with limit %d returned %d collectives, want %d", tc.limit, len(got), tc.want)

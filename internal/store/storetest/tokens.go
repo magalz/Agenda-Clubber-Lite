@@ -25,6 +25,17 @@ func RunTokens(t *testing.T, newStore NewStore) {
 			want.UsedAt = ptr(at(time.Minute))
 			wantEqual(t, "consumed token", normToken(got), normToken(want))
 		}},
+		{"Consume returns the times in UTC, whatever the zone they were written in", func(t *testing.T, e env) {
+			u := e.user("ana")
+			tok := e.token(u.ID, resetPassword, "t1", func(tok *domain.Token) {
+				tok.CreatedAt, tok.ExpiresAt = inLocalZone(base), inLocalZone(at(time.Hour))
+			})
+			got, err := e.r.Tokens.Consume(e.ctx, resetPassword, tok.Hash, inLocalZone(at(time.Minute)))
+			noErr(t, "Consume", err)
+			wantUTC(t, "CreatedAt", &got.CreatedAt, base)
+			wantUTC(t, "ExpiresAt", &got.ExpiresAt, at(time.Hour))
+			wantUTC(t, "UsedAt", got.UsedAt, at(time.Minute))
+		}},
 		{"create validates before it looks for the user", func(t *testing.T, e env) {
 			tok := newToken(unknownRefs[0], "bogus", "t1", func(tok *domain.Token) {
 				tok.Hash = []byte("short")

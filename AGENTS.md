@@ -103,7 +103,7 @@ Tokens are defined once in `web/static/css/tokens.css`; every other stylesheet u
 - Times are `time.Time` in UTC. MongoDB keeps millisecond precision, so compare stored and read-back times with `Truncate(time.Millisecond)`.
 - Token and session hashes are 32-byte `[]byte`, never a string or hex.
 - IDs are opaque strings: nothing outside the store parses or builds them.
-- MongoDB filters are built in code from typed values only, never from user-supplied JSON, and keys starting with `$` are rejected.
+- MongoDB filters are built in code from typed values only, never from user-supplied JSON. No filter or update key is ever built from user data, and user strings inside aggregation expressions are quoted with `$literal`. If a later change ever builds a key from data, it must add a guard that rejects keys starting with `$`.
 - Backups are `mongodump`, run outside the app; there is no `backup` subcommand.
 - CSS class names live in `web/static/css/components.css` (section comments list them and their markup contracts: wordmark, drawer, checklist `sr-only` state, `required` on `.label--required` controls). Use `.field-error` and `.spinner*` (not `.error` / `.spinner-input`).
 - The itsaplan commit hook only accepts the message (trailers included) through `-m` arguments, not `-F file`.

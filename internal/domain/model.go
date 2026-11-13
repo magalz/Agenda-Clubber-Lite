@@ -138,6 +138,15 @@ const (
 	TokenHashLen = 32
 
 	OutboxSubjectMax = 200
+
+	// OutboxErrorMax is how many runes of an error MarkFailed keeps in
+	// LastError.
+	OutboxErrorMax = 500
+
+	// SearchLimitMin and SearchLimitMax bound the limit of SearchApproved: a
+	// limit outside the range is clamped to it.
+	SearchLimitMin = 1
+	SearchLimitMax = 50
 )
 
 // Errors a backend returns and callers match with errors.Is.

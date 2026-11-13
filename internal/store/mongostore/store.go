@@ -174,6 +174,20 @@ func (s *Store) mustExist(ctx context.Context, collection string, id *bson.Objec
 	return nil
 }
 
+// updateOne applies update (a document or an aggregation pipeline) to the
+// document of coll whose _id is id; an id that names none is domain.ErrNotFound.
+// op names the operation in the error.
+func updateOne(ctx context.Context, coll *mongo.Collection, op string, id, update any) error {
+	res, err := coll.UpdateOne(ctx, bson.M{"_id": id}, update)
+	if err != nil {
+		return wrap(op, err)
+	}
+	if res.MatchedCount == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
+}
+
 // wrap adds the operation to a driver error and keeps the cause, so the driver's
 // error labels still reach WithTransaction.
 func wrap(op string, err error) error {

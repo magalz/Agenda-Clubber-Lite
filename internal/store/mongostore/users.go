@@ -12,12 +12,6 @@ import (
 	"github.com/magalz/agenda-clubber-lite/internal/domain"
 )
 
-// Messages of the field errors the store itself raises, as in package domain.
-const (
-	msgRequired = "campo obrigatório"
-	msgInvalid  = "valor inválido"
-)
-
 type users struct{ s *Store }
 
 var _ domain.Users = users{}
@@ -81,19 +75,12 @@ func (r users) update(ctx context.Context, id string, update any) error {
 	if err != nil {
 		return err
 	}
-	res, err := r.coll().UpdateOne(ctx, bson.M{"_id": oid}, update)
-	if err != nil {
-		return wrap("update user", err)
-	}
-	if res.MatchedCount == 0 {
-		return domain.ErrNotFound
-	}
-	return nil
+	return updateOne(ctx, r.coll(), "update user", oid, update)
 }
 
 func (r users) SetStatus(ctx context.Context, id string, status domain.UserStatus, now time.Time) error {
 	if !status.Valid() {
-		return domain.FieldErrors{"status": msgInvalid}
+		return domain.FieldErrors{"status": domain.MsgInvalid}
 	}
 	return r.update(ctx, id, bson.M{"$set": bson.M{"status": string(status), "updated_at": now}})
 }
@@ -132,7 +119,7 @@ func (r users) MarkEmailVerified(ctx context.Context, id string, now time.Time) 
 // with $literal: a string that starts with $ is a field path in a pipeline.
 func (r users) ChangePassword(ctx context.Context, id, newHash string, now time.Time) error {
 	if newHash == "" {
-		return domain.FieldErrors{"password_hash": msgRequired}
+		return domain.FieldErrors{"password_hash": domain.MsgRequired}
 	}
 	return r.update(ctx, id, mongo.Pipeline{
 		{{Key: "$set", Value: bson.M{

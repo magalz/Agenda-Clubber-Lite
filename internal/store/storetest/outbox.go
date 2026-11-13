@@ -206,20 +206,21 @@ func RunOutbox(t *testing.T, newStore NewStore) {
 			noErr(t, "MarkFailed", e.r.Outbox.MarkFailed(e.ctx, m.ID, "mailbox does not exist", nil))
 			wantIDs(t, "Claim", e.claim(at(1000*time.Hour), leaseFor, 10))
 		}},
-		{"MarkFailed cuts LastError to 500 runes", func(t *testing.T, e env) {
+		{"MarkFailed cuts LastError to OutboxErrorMax runes", func(t *testing.T, e env) {
 			m := e.message("a@example.com")
-			long := strings.Repeat("é", 400) + strings.Repeat("ã", 300)
+			// The cut falls inside the run of multi-byte "ã".
+			long := strings.Repeat("é", domain.OutboxErrorMax-100) + strings.Repeat("ã", 300)
 			retry := at(time.Minute)
 			noErr(t, "MarkFailed", e.r.Outbox.MarkFailed(e.ctx, m.ID, long, &retry))
 			got := e.claim(at(time.Hour), leaseFor, 10)
 			if len(got) != 1 {
 				t.Fatalf("Claim returned %d messages, want 1", len(got))
 			}
-			if n := utf8.RuneCountInString(got[0].LastError); n != 500 {
-				t.Errorf("LastError has %d runes, want 500", n)
+			if n := utf8.RuneCountInString(got[0].LastError); n != domain.OutboxErrorMax {
+				t.Errorf("LastError has %d runes, want %d", n, domain.OutboxErrorMax)
 			}
-			if want := string([]rune(long)[:500]); got[0].LastError != want {
-				t.Errorf("LastError is not the first 500 runes of the error")
+			if want := string([]rune(long)[:domain.OutboxErrorMax]); got[0].LastError != want {
+				t.Errorf("LastError is not the first %d runes of the error", domain.OutboxErrorMax)
 			}
 		}},
 		{"MarkFailed returns ErrNotFound for an unknown ID", func(t *testing.T, e env) {

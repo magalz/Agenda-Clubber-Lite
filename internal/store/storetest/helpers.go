@@ -292,6 +292,23 @@ func sameTimePtr(t *testing.T, what string, got *time.Time, want time.Time) {
 	sameTime(t, what, *got, want)
 }
 
+// inLocalZone returns the same instant in a zone that is not UTC, for the
+// subtests that write times in a zone and read them back.
+func inLocalZone(t time.Time) time.Time { return t.In(time.FixedZone("UTC-3", -3*60*60)) }
+
+// wantUTC checks that got is set, is in UTC and is the instant want.
+func wantUTC(t *testing.T, what string, got *time.Time, want time.Time) {
+	t.Helper()
+	switch {
+	case got == nil:
+		t.Errorf("%s is unset, want %v", what, want)
+	case got.Location() != time.UTC:
+		t.Errorf("%s is in %v, want UTC", what, got.Location())
+	default:
+		sameTime(t, what, *got, want)
+	}
+}
+
 func unsetTime(t *testing.T, what string, got *time.Time) {
 	t.Helper()
 	if got != nil {
