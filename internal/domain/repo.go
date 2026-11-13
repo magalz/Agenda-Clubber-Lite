@@ -167,7 +167,7 @@ type Collectives interface {
 	// the query is never a pattern, so ".", "(" or ".*" only match themselves).
 	// A kind that is not empty restricts the result to that kind. The result is
 	// in ascending NameKey order (byte order) and has at most limit entries,
-	// with limit clamped to the range 1 to 50.
+	// with limit clamped to the range SearchLimitMin to SearchLimitMax.
 	SearchApproved(ctx context.Context, query string, kind CollectiveKind, limit int) ([]Collective, error)
 
 	// Delete removes the collective and its memberships; the users stay. A
@@ -231,8 +231,8 @@ type Outbox interface {
 	// unknown ID is ErrNotFound.
 	MarkSent(ctx context.Context, id string, now time.Time) error
 
-	// MarkFailed adds 1 to Attempts, sets LastError (cut to its first 500
-	// runes) and clears the lease. With retryAt it sets NextAttemptAt to
+	// MarkFailed adds 1 to Attempts, sets LastError (cut to its first
+	// OutboxErrorMax runes) and clears the lease. With retryAt it sets NextAttemptAt to
 	// *retryAt; with nil retryAt it sets GaveUp and the message is never claimed
 	// again. An unknown ID is ErrNotFound.
 	MarkFailed(ctx context.Context, id string, lastError string, retryAt *time.Time) error
