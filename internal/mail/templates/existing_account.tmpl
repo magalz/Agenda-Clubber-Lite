@@ -10,6 +10,8 @@ Para entrar:
 Esqueceu a senha? Use este link para escolher outra:
 [→] {{.ResetLink}}
 
+O link de redefinição vale por 1 hora. Depois desse prazo ele deixa de funcionar.
+
 Não foi você? Pode ignorar esta mensagem.
 
 {{template "text_footer"}}
@@ -21,5 +23,6 @@ Não foi você? Pode ignorar esta mensagem.
 {{template "html_button" btn "Entrar" .LoginLink}}
 <p style="margin:0 0 16px;">Esqueceu a senha? Use este link para escolher outra:</p>
 {{template "html_button" btn "Redefinir senha" .ResetLink}}
+<p style="margin:0 0 16px;">O link de redefinição vale por 1 hora. Depois desse prazo ele deixa de funcionar.</p>
 <p style="margin:0;color:#8a8a92;">Não foi você? Pode ignorar esta mensagem.</p>
 {{template "html_close" .}}{{end}}
