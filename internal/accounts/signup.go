@@ -142,11 +142,12 @@ func signupValidate(in SignupInput) (signupFields, error) {
 	}
 	f.email = email
 
-	for _, r := range in.Phone {
-		if r >= '0' && r <= '9' {
-			f.phone += string(r)
+	f.phone = strings.Map(func(r rune) rune {
+		if r < '0' || r > '9' {
+			return -1
 		}
-	}
+		return r
+	}, in.Phone)
 	if n := len(f.phone); n < domain.PhoneMin || n > domain.PhoneMax {
 		fe.Add("phone", fmt.Sprintf("informe de %d a %d dígitos", domain.PhoneMin, domain.PhoneMax))
 	}
