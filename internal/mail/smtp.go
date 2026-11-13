@@ -100,13 +100,13 @@ func (s *SMTPSender) Send(ctx context.Context, m domain.OutboxMessage) error {
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return fmt.Errorf("mail: send: %w", ctxErr)
 		}
-		return s.sendError(err)
+		return s.sendError(err, m.To)
 	}
 	return nil
 }
 
 // sendError returns err as one line that carries neither credential.
-func (s *SMTPSender) sendError(err error) error {
+func (s *SMTPSender) sendError(err error, to string) error {
 	text := err.Error()
 	if s.redactor != nil {
 		var reply *textproto.Error

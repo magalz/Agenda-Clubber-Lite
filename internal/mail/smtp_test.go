@@ -37,6 +37,13 @@ type fakeSMTPOptions struct {
 	auth     bool        // advertise AUTH PLAIN (after STARTTLS when that is offered)
 	authEcho bool        // refuse AUTH with a 535 that repeats the credentials and the AUTH line
 	mailEcho bool        // accept AUTH, then refuse MAIL with a 550 that repeats the credentials
+
+	// Each of these refuses the message with a reply that repeats the recipient's
+	// address in upper case and as the client wrote it, and the credentials of the
+	// last AUTH PLAIN, the way a real server words "user unknown".
+	rcptRefuse    bool // 550 to RCPT
+	dataRefuse    bool // 554 to DATA, before the server asks for the content
+	contentRefuse bool // 554 to the end of the content
 }
 
 // deliveredMail is what the fake server got through MAIL, RCPT and DATA.
@@ -157,6 +164,14 @@ func (f *fakeSMTP) noDelivery(t *testing.T) {
 	}
 }
 
+// addrIn returns the address between the angle brackets of a MAIL or RCPT
+// argument such as "TO:<ana@example.com>".
+func addrIn(arg string) string {
+	_, rest, _ := strings.Cut(arg, "<")
+	addr, _, _ := strings.Cut(rest, ">")
+	return addr
+}
+
 func (f *fakeSMTP) serve(conn net.Conn) {
 	defer conn.Close()
 	_ = conn.SetDeadline(time.Now().Add(10 * time.Second))
@@ -177,7 +192,7 @@ func (f *fakeSMTP) serve(conn net.Conn) {
 		f.record(verb)
 		switch verb {
 		case "EHLO":
-			lines := []string{"fake.test greets you", "8BITMIME", "SMTPUTF8"}
+			lines := []string{"fake.test greets you", "8BITMIME", "SMTPUTF8", "ENHANCEDSTATUSCODES"}
 			if f.opts.tls != nil && !secured {
 				lines = append(lines, "STARTTLS")
 			}
@@ -241,13 +256,29 @@ func (f *fakeSMTP) serve(conn net.Conn) {
 			cur = deliveredMail{from: arg}
 			_ = tp.PrintfLine("250 2.1.0 ok")
 		case "RCPT":
+			if f.opts.rcptRefuse {
+				addr := addrIn(arg)
+				_ = tp.PrintfLine("550 5.1.1 <%s>: Recipient address rejected: user unknown for %s (login %s:%s)", strings.ToUpper(addr), addr, user, pass)
+				continue
+			}
 			cur.rcpt = append(cur.rcpt, arg)
 			_ = tp.PrintfLine("250 2.1.5 ok")
 		case "DATA":
+			if f.opts.dataRefuse {
+				addr := addrIn(cur.rcpt[0])
+				_ = tp.PrintfLine("554 5.6.0 <%s>: DATA refused for %s (login %s:%s)", strings.ToUpper(addr), addr, user, pass)
+				continue
+			}
 			_ = tp.PrintfLine("354 go ahead")
 			data, err := tp.ReadDotBytes()
 			if err != nil {
 				return
+			}
+			if f.opts.contentRefuse {
+				addr := addrIn(cur.rcpt[0])
+				_ = tp.PrintfLine("554 5.6.0 <%s>: content refused for %s (login %s:%s)", strings.ToUpper(addr), addr, user, pass)
+				cur = deliveredMail{}
+				continue
 			}
 			cur.data = data
 			f.delivered <- cur // before the reply, so a returned Send means it is queued
@@ -540,6 +571,110 @@ func TestSMTPSenderRedactsAwkwardCredentialsFromErrors(t *testing.T) {
 				}
 				srv.noDelivery(t)
 			})
+		}
+	}
+}
+
+// checkNoAddress fails the test if text names the address in any letter case.
+func checkNoAddress(t *testing.T, text, addr string) {
+	t.Helper()
+	if strings.Contains(strings.ToLower(text), strings.ToLower(addr)) {
+		t.Errorf("text leaks the address %s: %q", addr, text)
+	}
+}
+
+func TestSMTPSenderKeepsTheRecipientOutOfErrors(t *testing.T) {
+	// go-mail's SendError appends "affected recipient(s): <address>" to its text,
+	// and a server's refusal usually names the address too. The error that Send
+	// returns is logged and stored, so it keeps the status and the step that
+	// failed, and nothing that came from the recipient. The fields of a SendError
+	// are unexported, so the only way to get one with a recipient is a server that
+	// refuses the message.
+	const to = "Ana.Silva+agenda@Example.com" // mixed case: the server sees it lower-cased
+	serverTLS, clientTLS := selfSigned(t)
+	refusals := []struct {
+		name       string
+		opts       fakeSMTPOptions
+		wantStep   string // how go-mail words the step that failed
+		wantCode   string
+		wantStatus string
+	}{
+		{"recipient refused", fakeSMTPOptions{rcptRefuse: true}, "RCPT TO", "550", "5.1.1"},
+		{"DATA refused", fakeSMTPOptions{dataRefuse: true}, "DATA", "554", "5.6.0"},
+		{"content refused", fakeSMTPOptions{contentRefuse: true}, "DATA writer", "554", "5.6.0"},
+	}
+	for _, refusal := range refusals {
+		for _, login := range []bool{false, true} {
+			name := refusal.name + "/no login"
+			if login {
+				name = refusal.name + "/login"
+			}
+			t.Run(name, func(t *testing.T) {
+				opts := refusal.opts
+				var extra []gomail.Option
+				if login {
+					opts.tls, opts.auth = serverTLS, true
+					extra = append(extra, gomail.WithTLSConfig(clientTLS))
+				}
+				srv := startFakeSMTP(t, opts)
+				cfg := srv.config()
+				if login {
+					cfg.Username, cfg.Password = testUsername, testPassword
+				}
+				s, err := newSMTPSender(cfg, extra...)
+				if err != nil {
+					t.Fatalf("newSMTPSender: %v", err)
+				}
+				m := sampleMessage()
+				m.To = to
+				err = s.Send(context.Background(), m)
+				if err == nil {
+					t.Fatal("Send succeeded after a refusal, want an error")
+				}
+				checkNoAddress(t, err.Error(), to)
+				if login {
+					checkNoSecrets(t, err)
+				}
+				for _, want := range []string{refusal.wantStep, refusal.wantCode, refusal.wantStatus} {
+					if !strings.Contains(err.Error(), want) {
+						t.Errorf("error = %q, want %q kept", err, want)
+					}
+				}
+				if strings.ContainsAny(err.Error(), "\r\n") {
+					t.Errorf("error = %q, want one line", err)
+				}
+				srv.noDelivery(t)
+			})
+		}
+	}
+}
+
+func TestSMTPSenderRedactsTheRecipientFromOtherErrors(t *testing.T) {
+	// An error that is not a go-mail SendError keeps its text, minus the address:
+	// in any letter case, between angle brackets, and as %q writes it.
+	cases := []struct{ to, text, keep string }{
+		{"Ana.Silva+agenda@Example.com", "dial failed: 550 5.1.1 <Ana.Silva+agenda@Example.com>: user unknown", "550 5.1.1"},
+		{"Ana.Silva+agenda@Example.com", "closing: 551 <ANA.SILVA+AGENDA@EXAMPLE.COM> and ana.silva+agenda@example.com", "551"},
+		{"Ana.Silva+agenda@Example.com", `reply "552 for ana.silva+agenda@example.com"`, "552"},
+		{`o"brien\x@example.com`, `553 refused for "o\"brien\\x@example.com", also o"brien\x@example.com`, "553"},
+	}
+	for _, tc := range cases {
+		for _, withLogin := range []bool{false, true} {
+			cfg := config.SMTPConfig{Host: "smtp.example.com", Port: 587, From: testFrom}
+			if withLogin {
+				cfg.Username, cfg.Password = testUsername, testPassword
+			}
+			s, err := NewSMTPSender(cfg)
+			if err != nil {
+				t.Fatalf("NewSMTPSender: %v", err)
+			}
+			got := s.sendError(errors.New(tc.text), tc.to).Error()
+			quoted := strconv.Quote(tc.to)
+			checkNoAddress(t, got, tc.to)
+			checkNoAddress(t, got, quoted[1:len(quoted)-1])
+			if !strings.Contains(got, tc.keep) {
+				t.Errorf("sendError(%q) = %q, want %q kept", tc.text, got, tc.keep)
+			}
 		}
 	}
 }
