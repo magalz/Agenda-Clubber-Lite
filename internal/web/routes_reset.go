@@ -53,11 +53,17 @@ func (a *App) resetForgotRender(c *gin.Context, status int, form url.Values, v r
 	a.page(c, status, "auth/senha-esqueci", PageData{Title: "Esqueci a senha", Form: form, Data: v})
 }
 
-// resetFormRender shows the reset form with a 200, or with a 422 and the
-// messages of errs. The token stays in the hidden field and no password is
+// resetFormData is the reset form page: the token stays in the hidden field,
+// message (empty for none) is an alert above the form, and no password is
 // ever written back.
+func resetFormData(token, message string) PageData {
+	return PageData{Title: "Nova senha", Data: resetView{State: resetStateForm, Token: token, Message: message, Checklist: passwordChecklist(true)}}
+}
+
+// resetFormRender shows the reset form with a 200, or with a 422 and the
+// messages of errs.
 func (a *App) resetFormRender(c *gin.Context, token string, errs domain.FieldErrors) {
-	data := PageData{Title: "Nova senha", Data: resetView{State: resetStateForm, Token: token, Checklist: passwordChecklist(true)}}
+	data := resetFormData(token, "")
 	if errs == nil {
 		a.page(c, http.StatusOK, "auth/senha-redefinir", data)
 		return
@@ -133,7 +139,7 @@ func (a *App) resetSubmit(c *gin.Context) {
 	}
 	token := form.Get("token")
 	if !allowed {
-		a.page(c, http.StatusTooManyRequests, "auth/senha-redefinir", PageData{Title: "Nova senha", Data: resetView{State: resetStateForm, Token: token, Message: msgTooMany, Checklist: passwordChecklist(true)}})
+		a.page(c, http.StatusTooManyRequests, "auth/senha-redefinir", resetFormData(token, msgTooMany))
 		return
 	}
 	err = accounts.ResetPassword(c.Request.Context(), a.Store, token, form.Get("password"), form.Get("password_confirm"), a.Now())

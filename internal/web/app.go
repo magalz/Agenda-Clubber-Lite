@@ -31,7 +31,7 @@ type App struct {
 // Limits are the per-flow rate limiters. They live in memory, so each process
 // has its own count.
 type Limits struct {
-	Login         *auth.Limiter // 10 per minute per IP
+	Login         *auth.Limiter // 10 per minute per IP: login, and the reset form (key "reset:")
 	Signup        *auth.Limiter // 5 per hour per IP
 	EmailAction   *auth.Limiter // 5 per hour per IP: resend confirmation, forgot password
 	Suggestions   *auth.Limiter // 60 per minute per IP
