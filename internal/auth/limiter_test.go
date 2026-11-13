@@ -111,20 +111,35 @@ func TestLimiterKeysAreIndependent(t *testing.T) {
 	}
 }
 
-// The rule of a key must not depend on when the sweep last ran. A clock that
-// steps back leaves a key whose window has ended but that no sweep has dropped.
+// The rule of a key must not depend on when the sweep last ran. With a clock
+// that only moves forward a key created after a sweep can still end before the
+// next one, so the map holds a key whose window has ended and that no sweep has
+// dropped yet; the window check in Allow alone gives that key a new window.
 func TestLimiterWindowEndsEvenWhenNoSweepRuns(t *testing.T) {
 	l := NewLimiter(1, time.Minute)
-	l.Allow("late", limiterStart.Add(5*time.Minute)) // the sweep ran: next one at +6m
-	early := limiterStart.Add(2 * time.Minute)       // the clock stepped back
-	if !l.Allow("k", early) {
-		t.Fatal("first hit denied")
+	if !l.Allow("a", limiterStart) { // the first sweep: the next one may run at +1m
+		t.Fatal("first hit of a denied")
 	}
-	if l.Allow("k", early.Add(time.Minute-time.Nanosecond)) {
-		t.Error("hit before the window ends allowed")
+	b := limiterStart.Add(59 * time.Second) // b's window ends at +1m59s
+	if !l.Allow("b", b) {
+		t.Fatal("first hit of b denied")
 	}
-	if !l.Allow("k", early.Add(time.Minute)) {
-		t.Error("hit when the window ends denied")
+	if !l.Allow("a", limiterStart.Add(time.Minute)) { // sweeps a away, keeps b; the next sweep may run at +2m
+		t.Fatal("hit of a after its window ended denied")
+	}
+	if got := len(l.keys); got != 2 {
+		t.Fatalf("%d keys held, want 2 (b and the new window of a)", got)
+	}
+
+	if l.Allow("b", b.Add(time.Minute-time.Nanosecond)) {
+		t.Error("hit of b before its window ends allowed")
+	}
+	// Past b's end but before the next sweep: no sweep has dropped b.
+	if !l.Allow("b", b.Add(time.Minute)) {
+		t.Error("hit of b when its window ends denied")
+	}
+	if l.Allow("b", b.Add(time.Minute)) {
+		t.Error("second hit in the new window of b allowed")
 	}
 }
 

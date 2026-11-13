@@ -47,9 +47,10 @@ func NewLimiter(limit int, window time.Duration) *Limiter {
 // Memory is bounded: at most once per window the keys whose window has ended are
 // dropped, and while the map still holds maxKeys keys a new key is denied (fail
 // closed), so a flood of distinct keys cannot grow it or lift the limit of one
-// that is known. With a clock that does not run backwards no window ends
-// between two sweeps (every key was created at or after the last one), so the
-// key count the cap compares is exact.
+// that is known. A key created after a sweep can end before the next one (the
+// same holds when the clock steps back), so the map can hold keys whose window
+// has ended: the window check below gives such a key a new window, and the cap
+// can count it for up to one window.
 func (l *Limiter) Allow(key string, now time.Time) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
