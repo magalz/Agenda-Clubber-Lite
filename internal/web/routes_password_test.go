@@ -307,7 +307,8 @@ func TestPasswordChangeSetsThePasswordAndEndsTheOtherSessions(t *testing.T) {
 	rec := e.change(loginTestPassword, signupPassword, signupPassword)
 	body := confirmAssertPage(t, rec, http.StatusOK, "Trocar senha",
 		passwordMsgDone, `class="status status--ok" role="status"`, `<a href="/">ir para o calendário</a>`)
-	for _, absent := range []string{"<form", `name="password"`, `name="current_password"`, `role="alert"`} {
+	// The layout's own logout form is on the page; the change form is not.
+	for _, absent := range []string{`action="/senha/trocar"`, `name="password"`, `name="current_password"`, `role="alert"`} {
 		if strings.Contains(body, absent) {
 			t.Errorf("the done page holds %q", absent)
 		}

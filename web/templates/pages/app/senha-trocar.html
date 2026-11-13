@@ -1,0 +1,28 @@
+{{/* Change password, for a signed-in person: asked for from the account, or forced once the password is 90 days old
+     (the access rules send that person here and nowhere else). Data is a changeView, State one of two. "form": the
+     form; Expired says the password ran out (the intro names it), Email is the account's address (the checklist reads
+     it for "diferente do seu e-mail"), Checklist the password rules, history included, and Message, when set (rate
+     limit), is an alert above the form. The current password is asked first; the new one and its confirmation come
+     from the password-fields partial, which is given HistoryCheck so the history item is checked live (POST
+     /senha/verificar). No password is ever written back into the page. "done": the password was changed, the person's
+     other sessions ended and this one stays; Message is the status, and the page offers no form. */}}
+{{define "content"}}<div class="section-heading">
+  <h1 class="section-heading__title text-glow"><span class="section-heading__prompt" aria-hidden="true">~/ </span>trocar senha</h1>
+</div>
+<div class="stack">
+  {{if eq .Data.State "done"}}<p class="status status--ok" role="status">{{.Data.Message}}</p>
+  <p><a href="/">ir para o calendário</a></p>
+  {{else}}{{with .Data.Message}}<p class="status status--error" role="alert">{{.}}</p>
+  {{end}}<p>{{if .Data.Expired}}sua senha expirou. escolha uma nova para continuar.{{else}}escolha uma nova senha para a sua conta.{{end}}</p>
+  {{$cur := ""}}{{with .Errors}}{{$cur = index . "current_password"}}{{end -}}
+  <form method="post" action="/senha/trocar" class="stack">
+    <div class="field">
+      <label class="label label--required" for="current_password">senha atual</label>
+      <input class="input" type="password" id="current_password" name="current_password" autocomplete="current-password" required{{if $cur}} aria-describedby="erro-current_password" aria-invalid="true"{{end}}>
+      {{template "field-error" (dict "Errors" .Errors "Field" "current_password")}}
+    </div>
+    {{template "password-fields" (dict "Errors" .Errors "Checklist" .Data.Checklist "Autocomplete" "new-password" "Email" .Data.Email "HistoryCheck" "/senha/verificar")}}
+    <button class="btn btn--solid" type="submit">[→] TROCAR SENHA</button>
+  </form>
+  {{end}}
+</div>{{end}}
