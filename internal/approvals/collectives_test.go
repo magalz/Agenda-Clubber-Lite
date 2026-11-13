@@ -150,6 +150,44 @@ func TestApproveCollective(t *testing.T) {
 	}
 }
 
+// The collective's approval is the admin side of the creator's membership; the
+// membership becomes approved only when its owner side is set too. A creator
+// whose membership lacks the owner side (not what a signup leaves, but
+// approveCollectiveTx also serves flows that build the membership otherwise)
+// gets the admin side and stays pending.
+func TestApproveCollectiveCreatorWithoutOwnerSide(t *testing.T) {
+	s := newTestStore(t)
+	admin := insertAdmin(t, s, "ada@agenda.test")
+	creator := insertUser(t, s, "ana@agenda.test")
+	c := insertCollective(t, s, "Alfa", creator.ID)
+	insertMembership(t, s, domain.Membership{
+		UserID: creator.ID, CollectiveID: c.ID, Role: domain.RoleOwner, Status: domain.MembershipStatusPending,
+		RequestedAt: testNow,
+	})
+	now := testNow.Add(time.Hour)
+
+	if err := ApproveCollective(t.Context(), s, testOrigin, admin, c.ID, now); err != nil {
+		t.Fatalf("ApproveCollective: %v", err)
+	}
+
+	if got := collectiveOf(t, s, c.ID); got.Status != domain.CollectiveStatusApproved {
+		t.Errorf("collective status = %q, want approved", got.Status)
+	}
+	m := membershipOf(t, s, creator.ID, c.ID)
+	if m.Status != domain.MembershipStatusPending || m.DecidedAt != nil {
+		t.Errorf("membership = status %q, DecidedAt %v, want pending and not decided", m.Status, m.DecidedAt)
+	}
+	if m.AdminApprovedBy != admin.ID || !sameTime(m.AdminApprovedAt, now) {
+		t.Errorf("admin side = %q at %v, want %q at %v", m.AdminApprovedBy, m.AdminApprovedAt, admin.ID, now)
+	}
+	if m.OwnerApprovedBy != "" || m.OwnerApprovedAt != nil {
+		t.Errorf("owner side = %q at %v, want it still open", m.OwnerApprovedBy, m.OwnerApprovedAt)
+	}
+	if ok, err := s.Repos().Memberships.UserCanCreateEvents(t.Context(), creator.ID); err != nil || ok {
+		t.Errorf("UserCanCreateEvents = %v, %v, want false: one side is still open", ok, err)
+	}
+}
+
 func TestApproveCollectiveRefused(t *testing.T) {
 	// want is the sentinel the call returns; nil means the call returns an error
 	// that is none of the sentinels (a broken invariant the web layer shows as a
@@ -304,7 +342,9 @@ func TestRejectCollective(t *testing.T) {
 	if msg.To != f.creator.Email {
 		t.Errorf("email to %q, want %q", msg.To, f.creator.Email)
 	}
-	for _, want := range []string{f.creator.Name, "o coletivo Alfa: recusado", "motivo: o nome se confunde com outro coletivo", testOrigin + "/coletivos"} {
+	// The link is the login page: the creator may still await the account
+	// approval, and the collective the page would show is gone.
+	for _, want := range []string{f.creator.Name, "o coletivo Alfa: recusado", "motivo: o nome se confunde com outro coletivo", testOrigin + "/entrar"} {
 		if !strings.Contains(msg.Text, want) {
 			t.Errorf("email lacks %q:\n%s", want, msg.Text)
 		}
