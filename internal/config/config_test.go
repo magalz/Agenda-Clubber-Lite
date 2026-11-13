@@ -72,6 +72,23 @@ func TestLoadDefaults(t *testing.T) {
 	}
 }
 
+// withOrigin adds an SMTP host and username, so TestLoadDefaults no longer shows
+// that SMTP and the drop folder are empty by default; dev, which needs neither,
+// does.
+func TestLoadDevDefaultsLeaveSMTPAndTheDropFolderEmpty(t *testing.T) {
+	cfg, err := Load(getenvOf("APP_ENV", "dev", "APP_ORIGIN", okOrigin, "MONGO_URI", okMongo))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	want := SMTPConfig{Port: 587, From: "IgnisDev <ignisdev@magalz.space>"}
+	if cfg.SMTP != want {
+		t.Errorf("SMTP = %#v, want %#v", cfg.SMTP, want)
+	}
+	if cfg.MailDropDir != "" {
+		t.Errorf("MailDropDir = %q, want empty", cfg.MailDropDir)
+	}
+}
+
 func TestLoadOverrides(t *testing.T) {
 	cfg, err := Load(getenvOf(
 		"APP_ENV", "dev",

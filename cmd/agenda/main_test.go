@@ -320,12 +320,13 @@ func TestRunServesAndShutsDownGracefully(t *testing.T) {
 	if strings.Contains(stdout.String(), dbEnv[1]) {
 		t.Errorf("stdout logs the MongoDB URI: %q", stdout.String())
 	}
-	// Production sends through the SMTP relay; the log names it and holds no login.
-	if !strings.Contains(stdout.String(), "sending through SMTP") || !strings.Contains(stdout.String(), "smtp.example") {
-		t.Errorf("stdout = %q, want the SMTP relay logged", stdout.String())
+	// Production sends through the SMTP relay; the log names the kind of sender and
+	// holds neither the relay's host nor the login.
+	if !strings.Contains(stdout.String(), `"sender":"smtp"`) {
+		t.Errorf("stdout = %q, want the sender kind logged as smtp", stdout.String())
 	}
-	if strings.Contains(stdout.String(), "9b2e") {
-		t.Errorf("stdout logs the SMTP username or password: %q", stdout.String())
+	if strings.Contains(stdout.String(), "smtp.example") || strings.Contains(stdout.String(), "9b2e") {
+		t.Errorf("stdout logs the SMTP host, username or password: %q", stdout.String())
 	}
 	if got := collectionNames(t, dbEnv); len(got) != 6 {
 		t.Errorf("collections after serve = %v, want the six of the schema", got)
@@ -774,8 +775,8 @@ func TestRunServeDeliversQueuedMailThroughTheDropFolder(t *testing.T) {
 	if code != 0 {
 		t.Errorf("exit code = %d, want 0 after a clean shutdown", code)
 	}
-	if !strings.Contains(stdout, "drop folder") {
-		t.Errorf("stdout = %q, want the drop folder logged", stdout)
+	if !strings.Contains(stdout, "drop folder") || !strings.Contains(stdout, "sender=drop") {
+		t.Errorf("stdout = %q, want the drop folder logged as sender=drop", stdout)
 	}
 	if n := countLevel(stdout, "ERROR"); n != 0 {
 		t.Errorf("stdout has %d error lines: %s", n, stdout)
@@ -799,8 +800,8 @@ func TestRunServeWithoutASenderWarnsOnceAndLeavesTheOutbox(t *testing.T) {
 	if code != 0 {
 		t.Errorf("exit code = %d, want 0", code)
 	}
-	if n := countLevel(stdout, "WARN"); n != 1 || !strings.Contains(stdout, "SMTP_HOST") {
-		t.Errorf("stdout has %d warnings, want exactly one naming SMTP_HOST:\n%s", n, stdout)
+	if n := countLevel(stdout, "WARN"); n != 1 || !strings.Contains(stdout, "email sending disabled: no SMTP_HOST or MAIL_DROP_DIR") || !strings.Contains(stdout, "sender=none") {
+		t.Errorf("stdout has %d warnings, want exactly one saying email sending is disabled, with sender=none:\n%s", n, stdout)
 	}
 	if n := unsentMessages(t, store); n != 1 {
 		t.Errorf("%d messages are queued, want the 1 left for a later run with a sender", n)
@@ -869,8 +870,10 @@ func TestRunServePurgesExpiredSessionsAndTokens(t *testing.T) {
 	if code != 0 {
 		t.Errorf("exit code = %d, want 0", code)
 	}
-	if !strings.Contains(stdout, "removed expired rows") {
-		t.Errorf("stdout = %q, want the cleanup logged", stdout)
+	for _, want := range []string{`expired sessions removed" count=1`, `expired tokens removed" count=1`} {
+		if !strings.Contains(stdout, want) {
+			t.Errorf("stdout = %q, want the cleanup logged with %q", stdout, want)
+		}
 	}
 }
 
@@ -944,8 +947,8 @@ func TestNewSender(t *testing.T) {
 		if st, err := os.Stat(dir); err != nil || !st.IsDir() {
 			t.Errorf("the drop folder was not created: %v", err)
 		}
-		if !strings.Contains(buf.String(), "drop folder") || countLevel(buf.String(), "WARN") != 0 {
-			t.Errorf("log = %q, want the drop folder named and no warning", buf.String())
+		if !strings.Contains(buf.String(), "drop folder") || !strings.Contains(buf.String(), "sender=drop") || countLevel(buf.String(), "WARN") != 0 {
+			t.Errorf("log = %q, want the drop folder named, sender=drop and no warning", buf.String())
 		}
 	})
 
@@ -970,8 +973,12 @@ func TestNewSender(t *testing.T) {
 		if _, ok := s.(*mail.SMTPSender); !ok {
 			t.Errorf("sender = %T, want *mail.SMTPSender", s)
 		}
-		if !strings.Contains(buf.String(), "smtp.private-relay.example") {
-			t.Errorf("log = %q, want the relay named", buf.String())
+		if !strings.Contains(buf.String(), "sender=smtp") {
+			t.Errorf("log = %q, want sender=smtp", buf.String())
+		}
+		// The kind is logged, not the relay: no host, user or password.
+		if strings.Contains(buf.String(), "private-relay") {
+			t.Errorf("log = %q, want no SMTP host", buf.String())
 		}
 		noSecrets(t, buf.String())
 	})
@@ -985,8 +992,8 @@ func TestNewSender(t *testing.T) {
 		if s != nil {
 			t.Errorf("sender = %T, want none", s)
 		}
-		if n := countLevel(buf.String(), "WARN"); n != 1 || !strings.Contains(buf.String(), "SMTP_HOST") {
-			t.Errorf("log = %q, want exactly one warning naming SMTP_HOST", buf.String())
+		if n := countLevel(buf.String(), "WARN"); n != 1 || !strings.Contains(buf.String(), "email sending disabled: no SMTP_HOST or MAIL_DROP_DIR") || !strings.Contains(buf.String(), "sender=none") {
+			t.Errorf("log = %q, want exactly one warning that email sending is disabled, with sender=none", buf.String())
 		}
 	})
 
@@ -1183,7 +1190,24 @@ func TestStartJobsCleansUpOnEveryTick(t *testing.T) {
 	if !strings.Contains(logs, "sessions boom") {
 		t.Errorf("log = %q, want the failed session purge logged", logs)
 	}
-	if !strings.Contains(logs, "removed expired rows") || !strings.Contains(logs, "tokens=3") {
+	if !strings.Contains(logs, `expired tokens removed" count=3`) {
 		t.Errorf("log = %q, want the removed tokens counted", logs)
+	}
+	// The failed purge is an error, not a count.
+	if strings.Contains(logs, "expired sessions removed") {
+		t.Errorf("log = %q, want no count for the session purge that failed", logs)
+	}
+}
+
+// Each purge logs its count at Info on every run, also when nothing was removed:
+// an operator can see the cleanup ran.
+func TestPurgeExpiredLogsEachCountEvenWhenNothingWasRemoved(t *testing.T) {
+	var buf bytes.Buffer
+	log := slog.New(slog.NewTextHandler(&buf, nil))
+	purgeExpired(context.Background(), log, domain.Repos{Sessions: &fakeSessions{}, Tokens: &fakeTokens{}})
+	for _, want := range []string{`level=INFO msg="cleanup: expired sessions removed" count=0`, `level=INFO msg="cleanup: expired tokens removed" count=0`} {
+		if !strings.Contains(buf.String(), want) {
+			t.Errorf("log = %q, want %q", buf.String(), want)
+		}
 	}
 }
