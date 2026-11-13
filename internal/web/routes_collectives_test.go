@@ -179,6 +179,29 @@ func TestColetivosNeedsASession(t *testing.T) {
 	}
 }
 
+func TestColetivosPostsNeedTheAppsOrigin(t *testing.T) {
+	e := newColEnv(t)
+	c := colCollective(t, e.store, "Casa Verde", domain.CollectiveKindColetivo, domain.CollectiveStatusApproved)
+	forms := map[string]url.Values{
+		"/coletivos/entrar": {"collective_name": {"Casa Verde"}, "collective_id": {c.ID}, "role": {"member"}},
+		"/coletivos/novo":   {"name": {"Nova Casa"}, "kind": {"coletivo"}},
+	}
+	for target, form := range forms {
+		for name, mod := range map[string]func(*http.Request){
+			"no Origin":    func(*http.Request) {},
+			"other Origin": header("Origin", "https://evil.test"),
+		} {
+			rec := do(e.r, http.MethodPost, target, strings.NewReader(form.Encode()), header("Content-Type", "application/x-www-form-urlencoded"), withCookie(e.cookie), mod)
+			if rec.Code != http.StatusForbidden {
+				t.Errorf("POST %s with %s = %d, want 403", target, name, rec.Code)
+			}
+		}
+	}
+	if n := len(e.memberships(t)); n != 0 {
+		t.Errorf("%d memberships after the refused posts, want none", n)
+	}
+}
+
 func TestColetivosEmptyPage(t *testing.T) {
 	e := newColEnv(t)
 
@@ -410,6 +433,10 @@ func TestColetivosJoinFieldErrors(t *testing.T) {
 			}
 			body := rec.Body.String()
 			colWantError(t, body, tt.field, tt.message)
+			if tt.field == "collective" {
+				// A form-level message: it stands above the join form, under its heading.
+				inOrder(t, body, `id="entrar-titulo"`, `id="erro-collective"`, `action="/coletivos/entrar"`)
+			}
 			wantAll(t, "page", body, tt.kept...)
 			wantAll(t, "page", body, `action="/coletivos/entrar"`, `action="/coletivos/novo"`)
 			if after := len(e.memberships(t)); after != before {
