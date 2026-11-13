@@ -324,8 +324,8 @@ func (r memberships) ListByCollective(ctx context.Context, collectiveID string) 
 // keeps those of an active or pending_approval user. The sort runs after that
 // join, in memory, over the memberships with the user already dropped; the
 // collective is joined only for the rows that survive the limit. It clamps limit
-// itself: MongoDB reads a limit of 0 as "no limit" and a negative one as its
-// absolute value.
+// itself, to 1..ListLimitMax, because the $limit stage takes only a positive
+// number.
 func (r memberships) ListAwaitingAdmin(ctx context.Context, limit int) ([]domain.MembershipView, error) {
 	limit = min(max(limit, 1), domain.ListLimitMax)
 	cur, err := r.coll().Aggregate(ctx, mongo.Pipeline{
