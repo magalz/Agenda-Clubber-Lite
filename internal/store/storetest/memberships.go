@@ -8,14 +8,6 @@ import (
 	"github.com/magalz/agenda-clubber-lite/internal/domain"
 )
 
-func normViews(vs []domain.MembershipView) []domain.MembershipView {
-	out := make([]domain.MembershipView, len(vs))
-	for i, v := range vs {
-		out[i] = normView(v)
-	}
-	return out
-}
-
 func (e env) views(userID string) []domain.MembershipView {
 	e.t.Helper()
 	got, err := e.r.Memberships.ListByUser(e.ctx, userID)
@@ -76,7 +68,7 @@ func RunMemberships(t *testing.T, newStore NewStore) {
 				m.DecidedAt = ptr(at(3 * time.Minute))
 			})
 			want := []domain.MembershipView{{Membership: m, CollectiveName: "Casa Azul", CollectiveKind: produtora, CollectiveStatus: cApproved}}
-			wantEqual(t, "ListByUser", normViews(e.views(ana.ID)), normViews(want))
+			wantEqual(t, "ListByUser", normAll(e.views(ana.ID), normView), normAll(want, normView))
 		}},
 		{"create validates the membership", func(t *testing.T, e env) {
 			ana := e.user("ana")
