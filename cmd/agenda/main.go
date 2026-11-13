@@ -122,13 +122,15 @@ func healthcheck(ctx context.Context, getenv func(string) string, stderr io.Writ
 
 // openStore opens the MongoDB store and makes sure its schema is in place, both
 // within openTimeout. Its errors are fixed texts, never the driver's: those may
-// name the server, and the URI may hold a password.
+// name the server, and the URI may hold a password. The text of mongostore.Open
+// is one of them (it says what failed and holds nothing of the URI), but only its
+// text is passed on, not the error: %s, never %w.
 func openStore(ctx context.Context, cfg config.MongoConfig) (*mongostore.Store, error) {
 	ctx, cancel := context.WithTimeout(ctx, openTimeout)
 	defer cancel()
 	store, err := mongostore.Open(ctx, cfg.URI, cfg.DB)
 	if err != nil {
-		return nil, errors.New("cannot open the database")
+		return nil, fmt.Errorf("cannot open the database: %s", err)
 	}
 	if err := store.EnsureSchema(ctx); err != nil {
 		_ = closeStore(store)
