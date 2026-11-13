@@ -738,31 +738,31 @@ func TestSignupEmailKeyIsPrefixAndHash(t *testing.T) {
 	}
 }
 
-func TestSignupEmailKey(t *testing.T) {
-	key := signupEmailKey("ana@example.com")
-	if !strings.HasPrefix(key, "signup-email:") {
-		t.Errorf("key = %q, want the signup-email: prefix that keeps it apart from the IP keys", key)
+func TestEmailHash(t *testing.T) {
+	hash := emailHash("ana@example.com")
+	if len(hash) != 64 || strings.Trim(hash, "0123456789abcdef") != "" {
+		t.Errorf("hash = %q, want 64 lowercase hex digits and nothing else (the caller adds the key prefix)", hash)
 	}
-	// One address, one key, however it is spelled.
+	// One address, one hash, however it is spelled.
 	for _, spelling := range []string{"ANA@example.com", " ana@example.com ", "Ana@Example.com", "\tana@EXAMPLE.COM\n"} {
-		if got := signupEmailKey(spelling); got != key {
-			t.Errorf("key of %q = %q, want %q", spelling, got, key)
+		if got := emailHash(spelling); got != hash {
+			t.Errorf("hash of %q = %q, want %q", spelling, got, hash)
 		}
 	}
-	if got := signupEmailKey("bia@example.com"); got == key {
-		t.Errorf("another address has the same key %q", got)
+	if got := emailHash("bia@example.com"); got == hash {
+		t.Errorf("another address has the same hash %q", got)
 	}
 
 	// The post body may hold 64 KiB in the email field, and a limiter keeps its
 	// keys for a whole window: a key must not grow with what the client sends.
 	huge := strings.Repeat("a", 60<<10) + "@example.com"
-	if got := signupEmailKey(huge); len(got) > 128 {
-		t.Errorf("the key of a %d-byte address is %d bytes, want at most 128", len(huge), len(got))
+	if got := emailHash(huge); len(got) > 128 {
+		t.Errorf("the hash of a %d-byte address is %d bytes, want at most 128", len(huge), len(got))
 	}
 	// Bounded does not mean cut: addresses that differ only at the far end differ.
 	prefix := strings.Repeat("a", 4096)
-	if signupEmailKey(prefix+"1@example.com") == signupEmailKey(prefix+"2@example.com") {
-		t.Error("two long addresses that differ at the end share a key")
+	if emailHash(prefix+"1@example.com") == emailHash(prefix+"2@example.com") {
+		t.Error("two long addresses that differ at the end share a hash")
 	}
 }
 

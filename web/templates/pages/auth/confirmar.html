@@ -1,10 +1,12 @@
 {{/* E-mail confirmation. Data is a confirmView, State is one of three. "button": the e-mailed link was opened, and the
      page only offers the button whose POST spends the token (a GET never does, since mail scanners open links); Token is
-     the link's token, put in the form's hidden field. "resend": the link does not work, or the resend was refused;
+     the link's token, put in the form's hidden field; a Message (the post was refused as too frequent) is the alert
+     above the form, which stays so the same token can be tried again. "resend": the link does not work, or the resend was refused;
      Message is the alert above the form that asks for a new link, and .Form holds only the e-mail typed there. "sent":
      a new link was asked for; the same text is shown for every address. */}}
 {{define "content"}}<div class="stack">
-  {{if eq .Data.State "button"}}<p>quase lá. confirme que este e-mail é seu.</p>
+  {{if eq .Data.State "button"}}{{if .Data.Message}}<p class="status status--error" role="alert">{{.Data.Message}}</p>
+  {{end}}<p>quase lá. confirme que este e-mail é seu.</p>
   <form method="post" action="/confirmar" class="stack">
     <input type="hidden" name="token" value="{{.Data.Token}}">
     <button class="btn btn--solid" type="submit">[→] CONFIRMAR E-MAIL</button>

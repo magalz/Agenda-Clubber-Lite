@@ -4,7 +4,6 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
-	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -80,29 +79,22 @@ func (a *App) resetForgotShow(c *gin.Context) {
 	a.resetForgotRender(c, http.StatusOK, nil, resetView{State: resetStateForm})
 }
 
-// resetForgotSubmit mails a reset link. Every post counts against the client
-// address and, when it names an e-mail, against that e-mail too (from any
-// address), so one person cannot be mailed in bulk. A refused address does not
-// spend the e-mail's budget. The answer is the same page whether or not the
-// e-mail belongs to an active account, so the form cannot be used to find out
-// which addresses are registered.
+// resetForgotSubmit mails a reset link. The post is counted against the client
+// address and the e-mail (see emailForm). The answer is the same page whether or
+// not the e-mail belongs to an active account, so the form cannot be used to
+// find out which addresses are registered.
 func (a *App) resetForgotSubmit(c *gin.Context) {
 	now := a.Now()
-	allowed := a.Limits.EmailAction.Allow("forgot:"+c.ClientIP(), now)
-	form, err := a.parseForm(c)
+	form, allowed, err := a.emailForm(c, a.Limits.EmailAction, "forgot", now)
 	if err != nil {
 		c.String(http.StatusBadRequest, "requisição inválida")
 		return
-	}
-	email := form.Get("email")
-	if allowed && strings.TrimSpace(email) != "" {
-		allowed = a.Limits.EmailAction.Allow("forgot-email:"+signupEmailKey(email), now)
 	}
 	if !allowed {
 		a.resetForgotRender(c, http.StatusTooManyRequests, form, resetView{State: resetStateForm, Message: msgTooMany})
 		return
 	}
-	if err := accounts.RequestPasswordReset(c.Request.Context(), a.Store, a.Cfg.Origin, email, now); err != nil {
+	if err := accounts.RequestPasswordReset(c.Request.Context(), a.Store, a.Cfg.Origin, form.Get("email"), now); err != nil {
 		// The address is not logged: it says who asked.
 		a.Log.Error("request password reset", "err", err)
 		c.String(http.StatusInternalServerError, "erro interno")

@@ -64,17 +64,32 @@ func signupData(form url.Values, notice string) PageData {
 	}
 }
 
-// signupEmailKey is the limiter key that counts the posts naming an e-mail. It
-// holds the SHA-256 of the lowercased address, not the address: the body may
-// carry 64 KiB there, and a limiter keeps every key for its whole window.
-func signupEmailKey(email string) string {
+// emailHash is what follows the prefix of a limiter key that counts the posts
+// naming an e-mail: the hex SHA-256 of the lowercased address, not the address,
+// because the body may carry 64 KiB there and a limiter keeps every key for its
+// whole window.
+func emailHash(email string) string {
 	sum := sha256.Sum256([]byte(strings.ToLower(strings.TrimSpace(email))))
-	return "signup-email:" + hex.EncodeToString(sum[:])
+	return hex.EncodeToString(sum[:])
 }
 
-// emailForm is the stub of the helper the next commit writes.
+// emailForm opens the forms that mail a link (signup, resend, forgot). It counts
+// the post against the client address (key prefix+":"+address) and parses the
+// form; a body that cannot be parsed is the error, which the handler answers
+// with a 400. When the address was allowed and the form names an e-mail, it
+// counts the post against that e-mail too (key prefix+"-email:"+hash, from any
+// address), so one person cannot be mailed in bulk. A refused address does not
+// spend the e-mail's budget. It returns the form and whether the post is allowed.
 func (a *App) emailForm(c *gin.Context, lim *auth.Limiter, prefix string, now time.Time) (url.Values, bool, error) {
-	return nil, false, nil
+	allowed := lim.Allow(prefix+":"+c.ClientIP(), now)
+	form, err := a.parseForm(c)
+	if err != nil {
+		return nil, false, err
+	}
+	if email := form.Get("email"); allowed && strings.TrimSpace(email) != "" {
+		allowed = lim.Allow(prefix+"-email:"+emailHash(email), now)
+	}
+	return form, allowed, nil
 }
 
 // signupKept is the form without its passwords: a password is never written
@@ -94,21 +109,15 @@ func (a *App) signupSent(c *gin.Context) {
 	a.page(c, http.StatusOK, "auth/cadastro-enviado", PageData{Title: "Confira seu e-mail"})
 }
 
-// signupSubmit registers the account. Every post counts against the client
-// address, and, when it names an e-mail, against that e-mail too (from any
-// address), so one person cannot be mailed in bulk. A refused address does not
-// spend the e-mail's budget. The same page follows whether or not the e-mail
-// already had an account.
+// signupSubmit registers the account. The post is counted against the client
+// address and the e-mail (see emailForm). The same page follows whether or not
+// the e-mail already had an account.
 func (a *App) signupSubmit(c *gin.Context) {
 	now := a.Now()
-	allowed := a.Limits.Signup.Allow("signup:"+c.ClientIP(), now)
-	form, err := a.parseForm(c)
+	form, allowed, err := a.emailForm(c, a.Limits.Signup, "signup", now)
 	if err != nil {
 		c.String(http.StatusBadRequest, "requisição inválida")
 		return
-	}
-	if email := form.Get("email"); allowed && strings.TrimSpace(email) != "" {
-		allowed = a.Limits.Signup.Allow(signupEmailKey(email), now)
 	}
 	kept := signupKept(form)
 	if !allowed {
