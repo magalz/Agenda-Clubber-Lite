@@ -356,6 +356,37 @@ func TestPasswordChangeLetsAnExpiredPasswordThrough(t *testing.T) {
 	}
 }
 
+// The expiry banner links to this page, so here it would only point at itself,
+// and on the done page it would still warn about a password that was just
+// changed (the session's user is the one loaded before the change). No state of
+// the page shows it.
+func TestPasswordChangePageShowsNoExpiryBanner(t *testing.T) {
+	newEnv := func(t *testing.T) passwordEnv {
+		t.Helper()
+		e := newPasswordEnvWith(t, webTestNow.Add(-87*24*time.Hour), passwordOldHash())
+		// The premise: this very session sees the banner on the calendar.
+		home := confirmAssertPage(t, serve(e.r, http.MethodGet, "/", withCookie(e.cookie)), http.StatusOK, "Calendário",
+			"sua senha vence em 3 dias.", bannerLink)
+		wantAll(t, "banner link", linkAttrs(t, home, bannerLink), `href="`+bannerTarget+`"`)
+		return e
+	}
+
+	t.Run("the form", func(t *testing.T) {
+		e := newEnv(t)
+		wantNoBanner(t, confirmAssertPage(t, e.show(), http.StatusOK, "Trocar senha", `name="current_password"`))
+	})
+	t.Run("a refused form and a rate limited one", func(t *testing.T) {
+		e := newEnv(t)
+		e.app.Limits.PasswordCheck = auth.NewLimiter(1, time.Minute)
+		wantNoBanner(t, confirmAssertPage(t, e.change(passwordWrong, signupPassword, signupPassword), http.StatusUnprocessableEntity, "Trocar senha"))
+		wantNoBanner(t, confirmAssertPage(t, e.change(passwordWrong, signupPassword, signupPassword), http.StatusTooManyRequests, "Trocar senha", msgTooMany))
+	})
+	t.Run("the done page", func(t *testing.T) {
+		e := newEnv(t)
+		wantNoBanner(t, confirmAssertPage(t, e.change(loginTestPassword, signupPassword, signupPassword), http.StatusOK, "Trocar senha", passwordMsgDone))
+	})
+}
+
 func TestPasswordChangeRefusals(t *testing.T) {
 	for _, tc := range []struct {
 		name                       string

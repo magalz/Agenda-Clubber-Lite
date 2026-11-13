@@ -274,14 +274,80 @@ func TestSameOriginInTheRouter(t *testing.T) {
 	}
 }
 
-// A cross-site post is refused before any session is looked up.
+// A cross-site post is refused before any session is looked up. The test goes
+// through the real router, to routes it really has (an unknown path never reaches
+// the session middleware, whatever the order), with a cookie that is well formed,
+// so a session middleware that ran first would ask the store about it.
 func TestSameOriginRunsBeforeTheSession(t *testing.T) {
-	app := newTestApp(t) // its store panics when asked for a repository
-	r := authEngine(app)
-	cookie := &http.Cookie{Name: auth.SessionCookieName, Value: "whatever"}
-	rec := do(r, http.MethodPost, "/publica", nil, withCookie(cookie))
-	if rec.Code != http.StatusForbidden {
-		t.Errorf("status = %d, want 403 (a 500 means the session was loaded first)", rec.Code)
+	store := &countingStore{}
+	app := NewApp(testConfig(t), slog.New(slog.NewJSONHandler(&bytes.Buffer{}, nil)), store)
+	r := app.Router()
+	raw, _, err := auth.NewToken()
+	if err != nil {
+		t.Fatalf("NewToken: %v", err)
+	}
+	cookie := &http.Cookie{Name: auth.SessionCookieName, Value: raw}
+	form := header("Content-Type", "application/x-www-form-urlencoded")
+
+	// The premise: from the app's own origin the same request does reach the
+	// store (which has no sessions, so the request ends in a 500).
+	if rec := do(r, http.MethodPost, "/entrar", strings.NewReader(""), form, withOrigin, withCookie(cookie)); rec.Code != http.StatusInternalServerError || store.repos == 0 {
+		t.Fatalf("POST /entrar from the app's origin = %d with %d store lookups, want a 500 after a lookup: the cookie does not reach the session middleware", rec.Code, store.repos)
+	}
+
+	for _, path := range []string{"/entrar", "/senha/trocar", "/sair"} {
+		for name, origin := range map[string]func(*http.Request){
+			"no Origin":    func(*http.Request) {},
+			"other Origin": header("Origin", "https://evil.test"),
+		} {
+			store.repos = 0
+			rec := do(r, http.MethodPost, path, strings.NewReader(""), form, origin, withCookie(cookie))
+			if rec.Code != http.StatusForbidden {
+				t.Errorf("POST %s with %s = %d, want 403", path, name, rec.Code)
+			}
+			if store.repos != 0 {
+				t.Errorf("POST %s with %s: the session was looked up %d times before the Origin check", path, name, store.repos)
+			}
+		}
+	}
+}
+
+// --- no-store pages ---
+
+// Every page of the app says it must not be stored: the login form carries a
+// ?next= and the pages of a signed-in person show who they are. Healthz sets its
+// own header, and static files have their own policy (see the assets tests).
+func TestPagesAreNotStored(t *testing.T) {
+	app, store := newStoreApp(t)
+	r := app.Router()
+	cookie := loginAs(t, app, insertWebUser(t, store, "ana@agenda.test"))
+	form := header("Content-Type", "application/x-www-form-urlencoded")
+
+	for _, tt := range []struct {
+		name   string
+		method string
+		target string
+		body   string
+		mods   []func(*http.Request)
+		want   int
+	}{
+		{"login form", http.MethodGet, "/entrar", "", nil, http.StatusOK},
+		{"login failure", http.MethodPost, "/entrar", "email=ninguem%40agenda.test&password=x", []func(*http.Request){withOrigin, form}, http.StatusUnauthorized},
+		{"confirmation link", http.MethodGet, "/confirmar?token=x", "", nil, http.StatusOK},
+		{"reset link", http.MethodGet, "/senha/redefinir?token=x", "", nil, http.StatusOK},
+		{"calendar of a signed-in person", http.MethodGet, "/", "", []func(*http.Request){withCookie(cookie)}, http.StatusOK},
+		{"change password form", http.MethodGet, "/senha/trocar", "", []func(*http.Request){withCookie(cookie)}, http.StatusOK},
+		{"change password refusal", http.MethodPost, "/senha/trocar", "current_password=&password=&password_confirm=", []func(*http.Request){withOrigin, form, withCookie(cookie)}, http.StatusUnprocessableEntity},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := do(r, tt.method, tt.target, strings.NewReader(tt.body), tt.mods...)
+			if rec.Code != tt.want {
+				t.Fatalf("%s %s = %d, want %d", tt.method, tt.target, rec.Code, tt.want)
+			}
+			if got := rec.Header().Get("Cache-Control"); got != "no-store" {
+				t.Errorf("Cache-Control = %q, want no-store", got)
+			}
+		})
 	}
 }
 

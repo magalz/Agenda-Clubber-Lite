@@ -307,11 +307,13 @@ func (a *App) viewUser(c *gin.Context) *ViewUser {
 }
 
 // page renders a page with the signed-in user filled in, unless the handler set
-// one.
+// one. No page is stored: they carry the person's name and state, and the login
+// form its ?next=.
 func (a *App) page(c *gin.Context, status int, name string, data PageData) {
 	if data.User == nil {
 		data.User = a.viewUser(c)
 	}
+	c.Header("Cache-Control", "no-store")
 	a.Render.Page(c, status, name, data)
 }
 
