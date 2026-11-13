@@ -122,14 +122,15 @@ func (a *App) changeSubmit(c *gin.Context) {
 // would only cost argon2 work for an answer the submit gives anyway. A history
 // that cannot be read is a 500, which htmx does not swap, never "ok". The
 // budget is per account and apart from the form's, and a refused check is a
-// 429 for the same reason: the item on the page stays as it was.
+// 429 with an empty body, which htmx does not swap either: the item on the page
+// stays as it was.
 func (a *App) changeCheck(c *gin.Context) {
 	u, ok := a.changeUser(c)
 	if !ok {
 		return
 	}
 	if !a.Limits.PasswordCheck.Allow("check:"+u.ID, a.Now()) {
-		c.String(http.StatusTooManyRequests, msgTooMany)
+		c.Status(http.StatusTooManyRequests)
 		return
 	}
 	form, err := a.parseForm(c)
