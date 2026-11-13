@@ -69,8 +69,11 @@ type signupPrepared struct {
 // It returns nil on success and also when the email already has an account: the
 // person then gets an email saying so, and nothing else is written, so the
 // caller shows the same page either way and the form cannot be used to find
-// out which addresses are registered. A domain.FieldErrors holds what the
-// person can fix, under the keys name, email, phone, password, password_confirm,
+// out which addresses are registered. Every field error, those about the
+// collective and the role included, is decided before the account lookup, so a
+// registered address with a bad collective or role gets the same field errors
+// as a new one (and no email). A domain.FieldErrors holds what the person can
+// fix, under the keys name, email, phone, password, password_confirm,
 // collective_kind, collective and role; any other error is a server error.
 // origin is the site address (APP_ORIGIN) the email links start with.
 func Signup(ctx context.Context, store domain.Store, origin string, now time.Time, in SignupInput) error {
