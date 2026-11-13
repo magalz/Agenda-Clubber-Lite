@@ -196,8 +196,10 @@ func TestPasswordFieldsPartial(t *testing.T) {
 				t.Errorf("%s input %s has a value or aria-invalid", name, tag)
 			}
 		}
-		if tag := signupInput(t, body, "password", ""); !strings.Contains(tag, `aria-describedby="password-checklist"`) {
-			t.Errorf("password input %s does not point at the checklist", tag)
+		for _, name := range []string{"password", "password_confirm"} {
+			if tag := signupInput(t, body, name, ""); !strings.Contains(tag, `aria-describedby="password-checklist"`) {
+				t.Errorf("%s input %s does not point at the checklist", name, tag)
+			}
 		}
 		if got := strings.Count(body, `class="checklist__item"`); got != len(passwordChecklist(true)) {
 			t.Errorf("%d checklist items, want %d", got, len(passwordChecklist(true)))
@@ -225,7 +227,7 @@ func TestPasswordFieldsPartial(t *testing.T) {
 			}
 		}
 		confirm := signupInput(t, body, "password_confirm", "")
-		for _, want := range []string{`aria-invalid="true"`, `aria-describedby="erro-password_confirm"`} {
+		for _, want := range []string{`aria-invalid="true"`, `aria-describedby="password-checklist erro-password_confirm"`} {
 			if !strings.Contains(confirm, want) {
 				t.Errorf("confirmation input %s lacks %q", confirm, want)
 			}
