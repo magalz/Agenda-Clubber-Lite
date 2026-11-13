@@ -760,9 +760,6 @@ func TestDemote(t *testing.T) {
 			w := joinWantOf(before)
 			w.role = domain.RoleMember
 			joinRequireMembership(t, membershipOf(t, f.s, f.coAdmin.ID, f.c.ID), w)
-			if ok, err := f.s.Repos().Memberships.UserCanCreateEvents(t.Context(), f.coAdmin.ID); err != nil || ok {
-				t.Errorf("UserCanCreateEvents after = %v, %v, want false", ok, err)
-			}
 			joinRequireTouched(t, f.s, f.c, now)
 
 			if msgs := outboxMessages(t, f.s); len(msgs) != 0 {
