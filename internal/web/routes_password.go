@@ -60,10 +60,22 @@ func (a *App) changeUser(c *gin.Context) (domain.User, bool) {
 	return u, ok
 }
 
+// changePageUser is the signed-in person as the change pages show them: without
+// the expiry warning. The banner links here, so on this page it would only point
+// at itself, and after the change it would still warn, because the session's user
+// is the one loaded before it.
+func (a *App) changePageUser(c *gin.Context) *ViewUser {
+	v := a.viewUser(c)
+	if v != nil {
+		v.PasswordDaysLeft = 0
+	}
+	return v
+}
+
 // changeFormData is the change form page. message (empty for none) is an
 // alert above the form, and no password is ever written back.
-func (a *App) changeFormData(u domain.User, message string) PageData {
-	return PageData{Title: "Trocar senha", Nav: "perfil", Data: changeView{
+func (a *App) changeFormData(c *gin.Context, u domain.User, message string) PageData {
+	return PageData{Title: "Trocar senha", Nav: "perfil", User: a.changePageUser(c), Data: changeView{
 		State:     changeStateForm,
 		Message:   message,
 		Expired:   auth.PasswordExpired(u.PasswordChangedAt, a.Now()),
@@ -77,7 +89,7 @@ func (a *App) changeShow(c *gin.Context) {
 	if !ok {
 		return
 	}
-	a.page(c, http.StatusOK, "app/senha-trocar", a.changeFormData(u, ""))
+	a.page(c, http.StatusOK, "app/senha-trocar", a.changeFormData(c, u, ""))
 }
 
 // changeSubmit changes the password. Every post counts against the account's
@@ -97,7 +109,7 @@ func (a *App) changeSubmit(c *gin.Context) {
 		return
 	}
 	if !allowed {
-		a.page(c, http.StatusTooManyRequests, "app/senha-trocar", a.changeFormData(u, msgTooMany))
+		a.page(c, http.StatusTooManyRequests, "app/senha-trocar", a.changeFormData(c, u, msgTooMany))
 		return
 	}
 	err = accounts.ChangePassword(c.Request.Context(), a.Store, u.ID, a.sessionToken(c),
@@ -105,10 +117,10 @@ func (a *App) changeSubmit(c *gin.Context) {
 	var fieldErrs domain.FieldErrors
 	switch {
 	case err == nil:
-		a.page(c, http.StatusOK, "app/senha-trocar", PageData{Title: "Trocar senha", Nav: "perfil",
+		a.page(c, http.StatusOK, "app/senha-trocar", PageData{Title: "Trocar senha", Nav: "perfil", User: a.changePageUser(c),
 			Data: changeView{State: changeStateDone, Message: changeMsgDone}})
 	case errors.As(err, &fieldErrs):
-		a.formPage(c, "app/senha-trocar", a.changeFormData(u, ""), fieldErrs)
+		a.formPage(c, "app/senha-trocar", a.changeFormData(c, u, ""), fieldErrs)
 	default:
 		a.Log.Error("change password", "err", err)
 		c.String(http.StatusInternalServerError, "erro interno")

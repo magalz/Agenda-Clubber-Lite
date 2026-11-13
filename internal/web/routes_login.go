@@ -26,6 +26,11 @@ type loginView struct {
 	Contact bool   // the message ends with the contact address as a link
 }
 
+// loginMsgRejected is the answer to a wrong password and to a locked account
+// alike. A lock only ever happens to a registered e-mail, so a message of its
+// own would tell which addresses have an account.
+const loginMsgRejected = "e-mail ou senha incorretos. depois de 5 tentativas erradas, a conta fica bloqueada por 15 minutos."
+
 // loginFailure is what the login page says for one outcome of accounts.Login.
 // The messages never say more than the outcome: only the right password gets
 // as far as the state of the account.
@@ -37,8 +42,8 @@ type loginFailure struct {
 }
 
 var loginFailures = []loginFailure{
-	{err: accounts.ErrLoginFailed, message: "e-mail ou senha incorretos."},
-	{err: accounts.ErrLoginLocked, message: "muitas tentativas erradas. por segurança, a conta fica bloqueada por 15 minutos."},
+	{err: accounts.ErrLoginFailed, message: loginMsgRejected},
+	{err: accounts.ErrLoginLocked, message: loginMsgRejected},
 	{err: accounts.ErrLoginPendingEmail, message: "confirme seu e-mail antes de entrar.", resend: true},
 	{err: accounts.ErrLoginPendingApproval, message: "seu cadastro aguarda a aprovação do admin. você recebe um e-mail quando for aprovado."},
 	{err: accounts.ErrLoginDisabled, message: "esta conta está desativada. fale com", contact: true},
