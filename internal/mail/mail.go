@@ -4,7 +4,6 @@ package mail
 import (
 	"context"
 	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"net/mail"
 	"strings"
@@ -32,13 +31,6 @@ func parseFrom(s string) (*mail.Address, error) {
 // domainOf returns what follows the last @ of an address.
 func domainOf(addr string) string { return addr[strings.LastIndexByte(addr, '@')+1:] }
 
-// randomHex returns 2*n random hex digits.
-func randomHex(n int) string {
-	b := make([]byte, n)
-	_, _ = rand.Read(b) // never fails: crypto/rand ends the program if the system has no randomness
-	return hex.EncodeToString(b)
-}
-
 // buildMessage checks m and turns it into a multipart/alternative message from
 // from (text, and HTML when m has any), the one form both senders write. It
 // refuses a message whose recipient is not a plain address or whose subject
@@ -65,7 +57,7 @@ func buildMessage(from *mail.Address, m domain.OutboxMessage) (*gomail.Msg, erro
 	}
 	msg.Subject(m.Subject)
 	msg.SetDate()
-	msg.SetMessageIDWithValue(randomHex(16) + "@" + domainOf(from.Address))
+	msg.SetMessageIDWithValue(rand.Text() + "@" + domainOf(from.Address))
 	msg.SetBodyString(gomail.TypeTextPlain, m.Text)
 	if m.HTML != "" {
 		msg.AddAlternativeString(gomail.TypeTextHTML, m.HTML)

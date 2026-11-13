@@ -2,6 +2,7 @@ package mail
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"os"
@@ -60,7 +61,7 @@ func (d *DropSender) Send(ctx context.Context, m domain.OutboxMessage) error {
 		_ = os.Remove(tmp.Name())
 		return fmt.Errorf("mail: write message: %w", err)
 	}
-	name := time.Now().UTC().Format("20060102T150405.000Z") + "-" + randomHex(8) + ".eml"
+	name := time.Now().UTC().Format("20060102T150405.000Z") + "-" + rand.Text() + ".eml"
 	if err := os.Rename(tmp.Name(), filepath.Join(d.dir, name)); err != nil {
 		_ = os.Remove(tmp.Name())
 		return fmt.Errorf("mail: write message: %w", err)
