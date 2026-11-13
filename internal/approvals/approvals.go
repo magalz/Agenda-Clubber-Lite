@@ -123,7 +123,20 @@ func requireAdmin(actor domain.User) error {
 // sees the role as it is now. Anything else, an unknown collective included, is
 // ErrNotAllowed: the caller never learns more than "not yours".
 func requireOwner(ctx context.Context, r domain.Repos, actor domain.User, collectiveID string) (domain.Membership, error) {
-	return domain.Membership{}, nil
+	if actor.ID == "" || actor.Status != domain.UserStatusActive {
+		return domain.Membership{}, ErrNotAllowed
+	}
+	m, err := r.Memberships.Get(ctx, actor.ID, collectiveID)
+	if errors.Is(err, domain.ErrNotFound) {
+		return domain.Membership{}, ErrNotAllowed
+	}
+	if err != nil {
+		return domain.Membership{}, wrap("read the actor's membership", err)
+	}
+	if m.Role != domain.RoleOwner || m.Status != domain.MembershipStatusApproved {
+		return domain.Membership{}, ErrNotAllowed
+	}
+	return m, nil
 }
 
 // wrap names the step of a flow that failed, for example "approve collective:
