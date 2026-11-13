@@ -99,14 +99,18 @@ func TestExpiryBannerIsStyled(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, class := range []string{".expiry-banner {", ".expiry-banner__text", ".expiry-banner__link"} {
+	for _, class := range []string{".expiry-banner__text", ".expiry-banner__link"} {
 		if !strings.Contains(string(css), class) {
 			t.Errorf("components.css has no rule for %q", class)
 		}
 	}
-	if !strings.Contains(string(css), "var(--color-warn)") {
-		t.Error("components.css does not use the warning token")
+	// The token is used elsewhere in the file, so look inside the banner's own rule.
+	_, rest, found := strings.Cut(string(css), ".expiry-banner {")
+	if !found {
+		t.Fatal("components.css has no rule for .expiry-banner")
 	}
+	rule, _, _ := strings.Cut(rest, "}")
+	wantAll(t, ".expiry-banner rule", rule, "border: 1px solid var(--color-warn)", "color: var(--color-warn)")
 }
 
 // The whole path: the clock, the password's age, the session, viewUser and the
