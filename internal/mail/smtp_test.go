@@ -333,6 +333,28 @@ func TestSMTPSenderDeliversWithoutAuthOrTLS(t *testing.T) {
 	}
 }
 
+func TestSMTPSenderIsSafeForConcurrentSends(t *testing.T) {
+	// The outbox worker may send from several goroutines; run with -race.
+	srv := startFakeSMTP(t, fakeSMTPOptions{})
+	s, err := NewSMTPSender(srv.config())
+	if err != nil {
+		t.Fatalf("NewSMTPSender: %v", err)
+	}
+	const n = 4
+	errs := make(chan error, n)
+	for range n {
+		go func() { errs <- s.Send(context.Background(), sampleMessage()) }()
+	}
+	for range n {
+		if err := <-errs; err != nil {
+			t.Errorf("Send: %v", err)
+		}
+	}
+	for range n {
+		checkDelivered(t, srv.next(t))
+	}
+}
+
 func TestSMTPSenderAuthenticatesOverSTARTTLS(t *testing.T) {
 	serverTLS, clientTLS := selfSigned(t)
 	srv := startFakeSMTP(t, fakeSMTPOptions{tls: serverTLS, auth: true})

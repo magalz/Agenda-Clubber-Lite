@@ -25,7 +25,7 @@ const (
 // AUTH PLAIN and TLS is mandatory: STARTTLS (587) or, on port 465, TLS from the
 // first byte, and no credential ever crosses a plain connection. Without a
 // username it neither encrypts nor logs in, which is a local relay such as
-// Mailpit. Send is safe for concurrent use.
+// Mailpit. Send is safe for concurrent use: each call dials its own connection.
 type SMTPSender struct {
 	client   *gomail.Client
 	from     *mail.Address
@@ -73,7 +73,14 @@ func newSMTPSender(cfg config.SMTPConfig, extra ...gomail.Option) (*SMTPSender, 
 		if cfg.Port == smtpImplicitTLSPort {
 			opts = append(opts, gomail.WithSSL())
 		}
-		redactor = strings.NewReplacer(cfg.Username, "[redacted]", cfg.Password, "[redacted]")
+		// A Replacer tries its pairs in order at each position, so the longer
+		// credential goes first: otherwise one that starts the other would
+		// leave the rest of it in the text.
+		secrets := []string{cfg.Username, cfg.Password}
+		if len(cfg.Password) > len(cfg.Username) {
+			secrets[0], secrets[1] = secrets[1], secrets[0]
+		}
+		redactor = strings.NewReplacer(secrets[0], "[redacted]", secrets[1], "[redacted]")
 	}
 	client, err := gomail.NewClient(cfg.Host, append(opts, extra...)...)
 	if err != nil {
