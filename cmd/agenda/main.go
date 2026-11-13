@@ -35,20 +35,22 @@ commands:
   serve           run the web server (default)
   migrate         create or update the database schema (safe to run again)
   healthcheck     probe the running server's /healthz and exit 0 if it answers 200
+  create-admin    create an active admin: --name, --email and --phone, password on stdin
+  seed-dev        fill a dev database with sample accounts and collectives (APP_ENV=dev, SEED_PASSWORD)
 `
 )
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	code := run(ctx, os.Args[1:], os.Getenv, os.Stdout, os.Stderr)
+	code := run(ctx, os.Args[1:], os.Getenv, os.Stdin, os.Stdout, os.Stderr)
 	stop()
 	os.Exit(code)
 }
 
-// run dispatches the subcommand and returns the process exit code. Later
-// subcommands (create-admin, seed-dev) join the switch; each reads only the
-// configuration it uses.
-func run(ctx context.Context, args []string, getenv func(string) string, stdout, stderr io.Writer) int {
+// run dispatches the subcommand and returns the process exit code. Each
+// subcommand reads only the configuration it uses; only create-admin reads
+// stdin (the password).
+func run(ctx context.Context, args []string, getenv func(string) string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
 		args = []string{"serve"}
 	}
@@ -59,6 +61,10 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout,
 		return migrate(ctx, getenv, stdout, stderr)
 	case args[0] == "healthcheck" && len(args) == 1:
 		return healthcheck(ctx, getenv, stderr)
+	case args[0] == "create-admin":
+		return createAdmin(ctx, args[1:], getenv, stdin, stdout, stderr)
+	case args[0] == "seed-dev" && len(args) == 1:
+		return seedDev(ctx, getenv, stdout, stderr)
 	default:
 		fmt.Fprint(stderr, usage)
 		return 2

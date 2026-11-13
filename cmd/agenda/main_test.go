@@ -70,7 +70,7 @@ func TestRunUsageOnUnknownSubcommand(t *testing.T) {
 	} {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
 			var stdout, stderr bytes.Buffer
-			code := run(context.Background(), args, getenvOf(), &stdout, &stderr)
+			code := run(context.Background(), args, getenvOf(), nil, &stdout, &stderr)
 			if code != 2 {
 				t.Errorf("exit code = %d, want 2", code)
 			}
@@ -134,7 +134,7 @@ func collectionNames(t *testing.T, env []string) []string {
 func TestRunServeWithoutOriginFails(t *testing.T) {
 	for _, args := range [][]string{nil, {"serve"}} {
 		var stdout, stderr bytes.Buffer
-		code := run(context.Background(), args, getenvOf("MONGO_URI", testMongoURI), &stdout, &stderr)
+		code := run(context.Background(), args, getenvOf("MONGO_URI", testMongoURI), nil, &stdout, &stderr)
 		if code != 1 {
 			t.Errorf("run(%v) = %d, want 1", args, code)
 		}
@@ -149,7 +149,7 @@ func TestRunServeWithoutMongoURIFails(t *testing.T) {
 	for _, args := range [][]string{nil, {"serve"}} {
 		var stdout, stderr bytes.Buffer
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		code := run(ctx, args, getenvOf("APP_ORIGIN", "http://"+addr, "APP_ADDR", addr), &stdout, &stderr)
+		code := run(ctx, args, getenvOf("APP_ORIGIN", "http://"+addr, "APP_ADDR", addr), nil, &stdout, &stderr)
 		cancel()
 		if code != 1 {
 			t.Errorf("run(%v) = %d, want 1", args, code)
@@ -169,7 +169,7 @@ func TestRunServeRejectedMongoURIIsNotEchoed(t *testing.T) {
 	defer cancel()
 	env := getenvOf("APP_ORIGIN", "http://"+addr, "APP_ADDR", addr,
 		"MONGO_URI", "postgres://dbuser:uri-secret@db.example:5432/agenda")
-	if code := run(ctx, []string{"serve"}, env, &stdout, &stderr); code != 1 {
+	if code := run(ctx, []string{"serve"}, env, nil, &stdout, &stderr); code != 1 {
 		t.Errorf("exit code = %d, want 1", code)
 	}
 	if !strings.Contains(stderr.String(), "MONGO_URI") {
@@ -194,7 +194,7 @@ func TestRunServeListenErrorExits1(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	env := getenvOf(append(mongoEnv(t), "APP_ORIGIN", "http://localhost", "APP_ADDR", busy.Addr().String())...)
 	done := make(chan int, 1)
-	go func() { done <- run(context.Background(), []string{"serve"}, env, &stdout, &stderr) }()
+	go func() { done <- run(context.Background(), []string{"serve"}, env, nil, &stdout, &stderr) }()
 	select {
 	case code := <-done:
 		if code != 1 {
@@ -222,7 +222,7 @@ func TestRunServeWithAnUnreachableDatabaseExits1(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	start := time.Now()
-	if code := run(ctx, []string{"serve"}, env, &stdout, &stderr); code != 1 {
+	if code := run(ctx, []string{"serve"}, env, nil, &stdout, &stderr); code != 1 {
 		t.Errorf("exit code = %d, want 1", code)
 	}
 	if took := time.Since(start); took > 3*time.Second {
@@ -257,7 +257,7 @@ func TestRunServesAndShutsDownGracefully(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	done := make(chan int, 1)
-	go func() { done <- run(ctx, nil, env, &stdout, &stderr) }()
+	go func() { done <- run(ctx, nil, env, nil, &stdout, &stderr) }()
 
 	var resp *http.Response
 	var err error
@@ -325,7 +325,7 @@ func TestRunMigrateCreatesTheSchemaAndRunsTwice(t *testing.T) {
 	env := getenvOf(append(dbEnv, "SMTP_PORT", "abc", "APP_ORIGIN", "not a url", "APP_ENV", "bogus")...)
 	for i := 1; i <= 2; i++ {
 		var stdout, stderr bytes.Buffer
-		if code := run(context.Background(), []string{"migrate"}, env, &stdout, &stderr); code != 0 {
+		if code := run(context.Background(), []string{"migrate"}, env, nil, &stdout, &stderr); code != 0 {
 			t.Fatalf("run %d: exit code = %d, want 0; stderr: %s", i, code, &stderr)
 		}
 		if stdout.String() != "schema ready\n" || stderr.Len() != 0 {
@@ -350,7 +350,7 @@ func TestRunMigrateConfigErrors(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			var stdout, stderr bytes.Buffer
-			if code := run(context.Background(), []string{"migrate"}, getenvOf(tc.env...), &stdout, &stderr); code != 1 {
+			if code := run(context.Background(), []string{"migrate"}, getenvOf(tc.env...), nil, &stdout, &stderr); code != 1 {
 				t.Errorf("exit code = %d, want 1", code)
 			}
 			if !strings.Contains(stderr.String(), tc.want) {
@@ -376,7 +376,7 @@ func TestRunMigrateWithAnUnreachableDatabaseExits1(t *testing.T) {
 
 	var stdout, stderr bytes.Buffer
 	start := time.Now()
-	if code := run(context.Background(), []string{"migrate"}, getenvOf("MONGO_URI", unreachableURI), &stdout, &stderr); code != 1 {
+	if code := run(context.Background(), []string{"migrate"}, getenvOf("MONGO_URI", unreachableURI), nil, &stdout, &stderr); code != 1 {
 		t.Errorf("exit code = %d, want 1", code)
 	}
 	if took := time.Since(start); took > 3*time.Second {
@@ -447,7 +447,7 @@ func TestHealthzURL(t *testing.T) {
 func healthcheckAgainst(addr string) (code int, stdout, stderr string) {
 	var out, errb bytes.Buffer
 	env := getenvOf("APP_ADDR", addr, "APP_ENV", "bogus", "SMTP_PORT", "not-a-port", "APP_ORIGIN", "not a url", "MONGO_URI", "not a uri")
-	code = run(context.Background(), []string{"healthcheck"}, env, &out, &errb)
+	code = run(context.Background(), []string{"healthcheck"}, env, nil, &out, &errb)
 	return code, out.String(), errb.String()
 }
 
