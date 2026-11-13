@@ -295,3 +295,10 @@ func (m OutboxMessage) Validate() error {
 	}
 	return e.Err()
 }
+
+// Validate checks the fields of an audit entry. It does not check ID, which the
+// backend assigns, nor the IDs of the user and of the collective, which are
+// snapshots.
+func (e AuditEntry) Validate() error {
+	return nil // RED stub
+}

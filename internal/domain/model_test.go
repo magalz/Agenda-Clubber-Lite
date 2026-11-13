@@ -62,6 +62,20 @@ func TestTokenPurposeValid(t *testing.T) {
 		[]TokenPurpose{"", "login", "Verify_Email", "verify-email"})
 }
 
+// allAuditActions lists every defined action, in declaration order.
+var allAuditActions = []AuditAction{
+	AuditAccountApproved, AuditAccountRejected, AuditAccountBlocked, AuditAccountUnblocked,
+	AuditCollectiveRequested, AuditCollectiveApproved, AuditCollectiveRejected,
+	AuditCollectiveRenamed, AuditCollectiveBlocks,
+	AuditJoinRequested, AuditJoinAdminApproved, AuditJoinOwnerApproved, AuditJoinRejected,
+	AuditMemberPromoted, AuditMemberDemoted,
+}
+
+func TestAuditActionValid(t *testing.T) {
+	checkEnum(t, allAuditActions,
+		[]AuditAction{"", "login", "Account_Approved", "account_approved ", "collective_blocks", "join_approved"})
+}
+
 // The stored values are part of every backend's data format; changing one
 // would orphan existing rows and documents.
 func TestEnumValuesAreStable(t *testing.T) {
@@ -83,6 +97,21 @@ func TestEnumValuesAreStable(t *testing.T) {
 		{"verify_email", string(TokenPurposeVerifyEmail)},
 		{"reset_password", string(TokenPurposeResetPassword)},
 		{"change_email", string(TokenPurposeChangeEmail)},
+		{"account_approved", string(AuditAccountApproved)},
+		{"account_rejected", string(AuditAccountRejected)},
+		{"account_blocked", string(AuditAccountBlocked)},
+		{"account_unblocked", string(AuditAccountUnblocked)},
+		{"collective_requested", string(AuditCollectiveRequested)},
+		{"collective_approved", string(AuditCollectiveApproved)},
+		{"collective_rejected", string(AuditCollectiveRejected)},
+		{"collective_renamed", string(AuditCollectiveRenamed)},
+		{"collective_blocks_changed", string(AuditCollectiveBlocks)},
+		{"join_requested", string(AuditJoinRequested)},
+		{"join_admin_approved", string(AuditJoinAdminApproved)},
+		{"join_owner_approved", string(AuditJoinOwnerApproved)},
+		{"join_rejected", string(AuditJoinRejected)},
+		{"member_promoted", string(AuditMemberPromoted)},
+		{"member_demoted", string(AuditMemberDemoted)},
 	} {
 		if tc.got != tc.want {
 			t.Errorf("constant value = %q, want %q", tc.got, tc.want)
