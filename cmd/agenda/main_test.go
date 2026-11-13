@@ -327,8 +327,8 @@ func TestRunServesAndShutsDownGracefully(t *testing.T) {
 	if strings.Contains(stdout.String(), "smtp.example") || strings.Contains(stdout.String(), "9b2e") {
 		t.Errorf("stdout logs the SMTP host, username or password: %q", stdout.String())
 	}
-	if got := collectionNames(t, dbEnv); len(got) != 6 {
-		t.Errorf("collections after serve = %v, want the six of the schema", got)
+	if got := collectionNames(t, dbEnv); len(got) != 7 {
+		t.Errorf("collections after serve = %v, want the seven of the schema", got)
 	}
 }
 
@@ -347,7 +347,7 @@ func TestRunMigrateCreatesTheSchemaAndRunsTwice(t *testing.T) {
 		if stdout.String() != "schema ready\n" || stderr.Len() != 0 {
 			t.Errorf("run %d: stdout = %q, stderr = %q; want %q and nothing on stderr", i, stdout.String(), stderr.String(), "schema ready\n")
 		}
-		want := []string{"collectives", "memberships", "outbox", "sessions", "tokens", "users"}
+		want := []string{"audit_entries", "collectives", "memberships", "outbox", "sessions", "tokens", "users"}
 		if got := collectionNames(t, dbEnv); !slices.Equal(got, want) {
 			t.Errorf("run %d: collections = %v, want %v", i, got, want)
 		}
