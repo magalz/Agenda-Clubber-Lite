@@ -13,6 +13,7 @@ import (
 	"os/signal"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 	_ "time/tzdata" // IANA zones for APP_TZ in a container without /usr/share/zoneinfo
@@ -22,6 +23,7 @@ import (
 	"github.com/magalz/agenda-clubber-lite/internal/auth"
 	"github.com/magalz/agenda-clubber-lite/internal/config"
 	"github.com/magalz/agenda-clubber-lite/internal/domain"
+	"github.com/magalz/agenda-clubber-lite/internal/mail"
 	"github.com/magalz/agenda-clubber-lite/internal/store/mongostore"
 	"github.com/magalz/agenda-clubber-lite/internal/web"
 )
@@ -175,8 +177,10 @@ func migrate(ctx context.Context, getenv func(string) string, stdout, stderr io.
 	return 0
 }
 
-// serve opens the database, runs the HTTP server until ctx is canceled and shuts
-// both down. It validates the whole configuration first.
+// serve opens the database, runs the HTTP server and the background jobs (the
+// outbox worker and the cleanup of expired sessions and tokens) until ctx is
+// canceled, then stops the server, waits for the jobs and closes the database.
+// It validates the whole configuration first.
 func serve(ctx context.Context, getenv func(string) string, stdout, stderr io.Writer) int {
 	cfg, err := config.Load(getenv)
 	if err != nil {
@@ -185,13 +189,21 @@ func serve(ctx context.Context, getenv func(string) string, stdout, stderr io.Wr
 	}
 	log := newLogger(cfg, stdout)
 
+	// Before the database: a sender that cannot be built is a settings mistake
+	// and needs no connection to report.
+	sender, err := newSender(cfg, log)
+	if err != nil {
+		log.Error("mail sender failed", "err", err)
+		return 1
+	}
+
 	store, err := openStore(ctx, cfg.Mongo)
 	if err != nil {
 		log.Error("database failed", "err", err)
 		return 1
 	}
-	// Deferred, so it runs after the server has shut down, and also when the
-	// server failed to listen.
+	// Deferred first, so it runs last: after the server and the background jobs
+	// have stopped, and also when the server failed to listen.
 	defer func() {
 		if err := closeStore(store); err != nil {
 			log.Error("closing the database failed")
@@ -204,26 +216,143 @@ func serve(ctx context.Context, getenv func(string) string, stdout, stderr io.Wr
 	auth.DummyVerify("")
 
 	srv := newServer(cfg, log, store)
+	stopJobs := startJobs(ctx, log, store.Repos(), sender)
 
 	errCh := make(chan error, 1)
 	go func() { errCh <- srv.ListenAndServe() }()
 	log.Info("starting", "addr", cfg.Addr, "env", cfg.Env, "origin", cfg.Origin)
 
+	code := 0
 	select {
 	case err := <-errCh: // only a failure: nothing has called Shutdown yet
 		log.Error("listen failed", "err", err)
-		return 1
+		code = 1
 	case <-ctx.Done():
+		log.Info("shutting down")
 	}
 
-	log.Info("shutting down")
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+	// One deadline bounds the whole shutdown: the server stops, then the jobs. The
+	// database closes after both (the deferred closeStore), so no job uses it later.
+	shutdownBy := time.Now().Add(shutdownTimeout)
+	shutdownCtx, cancel := context.WithDeadline(context.Background(), shutdownBy)
 	defer cancel()
-	if err := srv.Shutdown(shutdownCtx); err != nil {
-		log.Error("shutdown failed", "err", err)
-		return 1
+	if code == 0 {
+		if err := srv.Shutdown(shutdownCtx); err != nil {
+			log.Error("shutdown failed", "err", err)
+			code = 1
+		}
 	}
-	return 0
+	if !stopJobs(time.Until(shutdownBy)) {
+		log.Error("background jobs did not stop in time")
+	}
+	return code
+}
+
+// cleanupInterval is how often serve removes expired sessions and tokens; a
+// variable so a test can shorten it.
+var cleanupInterval = time.Hour
+
+// newSender picks how outgoing mail leaves: the drop folder (dev only, which
+// config.Load enforces) when MAIL_DROP_DIR is set, else SMTP when SMTP_HOST is
+// set, else nothing: a nil sender and one warning. Each logs the kind of sender
+// (drop, smtp or none) as the "sender" attribute, and never the relay's host or the
+// login: the whole SMTP group would add the username.
+func newSender(cfg config.Config, log *slog.Logger) (mail.Sender, error) {
+	switch {
+	case cfg.MailDropDir != "":
+		d, err := mail.NewDropSender(cfg.MailDropDir)
+		if err != nil {
+			return nil, err
+		}
+		d.From = cfg.SMTP.From
+		log.Info("mail: writing messages to the drop folder", "sender", "drop", "dir", cfg.MailDropDir, "from", d.From)
+		return d, nil
+	case cfg.SMTP.Host != "":
+		s, err := mail.NewSMTPSender(cfg.SMTP)
+		if err != nil {
+			return nil, err // untyped nil: a nil *SMTPSender in a mail.Sender is not nil
+		}
+		log.Info("mail: sending through SMTP", "sender", "smtp")
+		return s, nil
+	default:
+		log.Warn("email sending disabled: no SMTP_HOST or MAIL_DROP_DIR", "sender", "none")
+		return nil, nil
+	}
+}
+
+// startJobs runs the background jobs until ctx is canceled or stop is called:
+// the outbox worker, when there is a sender, and the cleanup of expired sessions
+// and tokens. stop cancels them and waits up to timeout for both to return,
+// which includes the message the worker has in flight and the write that records
+// its result; it reports whether they did. serve calls it before it closes the
+// database, so no job touches the store after that.
+func startJobs(ctx context.Context, log *slog.Logger, repos domain.Repos, sender mail.Sender) (stop func(timeout time.Duration) bool) {
+	ctx, cancel := context.WithCancel(ctx)
+	var wg sync.WaitGroup
+	if sender != nil {
+		w := &mail.Worker{Outbox: repos.Outbox, Sender: sender, Log: log}
+		wg.Go(func() { w.Run(ctx) })
+	}
+	wg.Go(func() { purgeLoop(ctx, log, repos) })
+
+	return func(timeout time.Duration) bool {
+		cancel()
+		done := make(chan struct{})
+		go func() { wg.Wait(); close(done) }()
+		timer := time.NewTimer(timeout)
+		defer timer.Stop()
+		select {
+		case <-done:
+			return true
+		case <-timer.C:
+			// An already spent timeout (the server used the deadline up) must not
+			// hide jobs that have finished.
+			select {
+			case <-done:
+				return true
+			default:
+				return false
+			}
+		}
+	}
+}
+
+// purgeLoop removes the expired rows at once and then every cleanupInterval,
+// until ctx is canceled.
+func purgeLoop(ctx context.Context, log *slog.Logger, repos domain.Repos) {
+	ticker := time.NewTicker(cleanupInterval)
+	defer ticker.Stop()
+	for {
+		purgeExpired(ctx, log, repos)
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
+}
+
+// purgeExpired deletes the expired sessions and the used or expired tokens. The
+// two are independent: a failure of the first does not skip the second. Each logs
+// the number it removed at Info, also when it is 0, or its failure at Error; a
+// failure caused by the shutdown is not logged.
+func purgeExpired(ctx context.Context, log *slog.Logger, repos domain.Repos) {
+	now := time.Now().UTC()
+	sessions, sessionsErr := repos.Sessions.DeleteExpired(ctx, now)
+	tokens, tokensErr := repos.Tokens.DeleteExpired(ctx, now)
+	if ctx.Err() != nil {
+		return
+	}
+	if sessionsErr != nil {
+		log.Error("cleanup: removing expired sessions failed", "err", sessionsErr)
+	} else {
+		log.Info("cleanup: expired sessions removed", "count", sessions)
+	}
+	if tokensErr != nil {
+		log.Error("cleanup: removing expired tokens failed", "err", tokensErr)
+	} else {
+		log.Info("cleanup: expired tokens removed", "count", tokens)
+	}
 }
 
 // newLogger logs JSON in production and text in development.
