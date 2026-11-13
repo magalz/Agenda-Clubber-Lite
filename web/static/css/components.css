@@ -801,6 +801,97 @@
   color: var(--color-muted);
 }
 
+/* ==== Item list ====
+   Rows of a list of things a person acts on: their collectives (pages/app/coletivos.html), and the pending requests of an
+   approvals queue. Each row has a title, a muted meta line, a status badge and an optional actions area:
+     <ul class="item-list">
+       <li class="item-list__item">
+         <div class="item-list__main">
+           <p class="item-list__title">Casa Verde</p>
+           <p class="item-list__meta">Coletivo · Membro</p>
+         </div>
+         <span class="badge badge--warn item-list__status">aguardando o admin</span>
+         <div class="item-list__actions"><a href="/coletivo/1">[→] gerenciar</a></div>
+       </li>
+     </ul>
+   The status is a .badge (its variant picks the colour: badge--ok, badge--warn or badge--accent; the text says the state,
+   so colour never carries it alone). __actions is left out of a row with nothing to do, and may hold links, buttons or
+   forms (a .reason-form too). On a wide screen a row is one line: __main takes the free space and the status and the actions
+   follow on its right, the actions after the status. On a narrow one the row wraps: __main first, then the status and the
+   actions under it. A long name breaks instead of overflowing. The rows are separated by 1px lines; there are no bullets,
+   no radius and no motion. A link directly inside __actions is at least 1.5rem tall (a .btn has its own size); links and
+   buttons keep their own focus ring. */
+.item-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid var(--color-line);
+}
+.item-list__item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--color-line);
+}
+.item-list__main {
+  flex: 1 1 14rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.item-list__title {
+  font-family: var(--font-display);
+  font-weight: 700;
+}
+.item-list__meta {
+  font-size: var(--text-xs);
+  line-height: var(--leading-xs);
+  color: var(--color-muted);
+}
+.item-list__status {
+  flex: none;
+}
+.item-list__actions {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
+}
+.item-list__actions > a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.5rem;
+}
+
+/* ==== Reason form ====
+   A collapsed, optional reason for a decision (a rejection): the person opens it only if they want to say why.
+     <details class="reason-form">
+       <summary>[✕] recusar com um motivo</summary>
+       <label class="label" for="reason-1">motivo (opcional)</label>
+       <textarea class="textarea" id="reason-1" name="reason" maxlength="500"></textarea>
+       <button class="btn btn--sm" type="submit">[✕] RECUSAR</button>
+     </details>
+   The <details> goes inside the <form method="post"> that sends the decision, so the textarea and the button post with it,
+   and it works without JavaScript. The <summary> is a target of at least 1.5rem, underlined like a link, and gets the focus
+   ring of the rest of the app from base.css (:focus-visible). Once open, the label, textarea and button stack under it. No
+   radius, no motion. */
+.reason-form {
+  font-size: var(--text-xs);
+  line-height: var(--leading-xs);
+}
+.reason-form summary {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.5rem;
+  cursor: pointer;
+  text-decoration: underline;
+}
+.reason-form > :not(summary) {
+  margin-top: var(--space-2);
+}
+
 /* ==== Section heading ====
    <div class="section-heading"><h1 class="section-heading__title text-glow"><span class="section-heading__prompt" aria-hidden="true">~/ </span>Título</h1>
    <p class="section-heading__sub">...</p></div> */

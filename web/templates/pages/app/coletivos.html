@@ -1,0 +1,77 @@
+{{/* Meus Coletivos (/coletivos), for a signed-in person. Data is a collectivesPage: Items, the person's memberships (each
+     a collectiveItem: Name, Kind, Role, Status, Badge, Href), Notice, a status above the list after a request was sent, and
+     Alert, an alert for a locked collective or the rate limit. The ?msg= code of the redirect picks the Notice text on the
+     server; the URL never supplies text. Href is set only for an approved Administrador of an approved collective: it
+     links to that collective's page. With no Items the page shows the empty state.
+     Two plain forms follow the list. Both are ordinary posts (no HTMX is needed), and a 422 comes back to this page with
+     .Form refilled and .Errors set.
+       POST /coletivos/entrar  join an approved collective. Fields: collective_name (the search box), collective_id
+                               (hidden), role (owner = Administrador, member = Membro). Errors: "collective", a form-level
+                               message shown above the form (the search box points at it with aria-describedby), and "role".
+                               collective_id is filled by the collectivePicker component (web/static/js/app.js,
+                               data-mode="join"), which loads /coletivos/sugestoes into #collective-suggestions-box: a
+                               post with no pick gets the "collective" error, and never creates a collective. The join
+                               form needs the picker's JavaScript to fill collective_id; the new collective form does not.
+       POST /coletivos/novo    ask the site admin to create a collective or produtora. Fields: name, kind (coletivo or
+                               produtora). Errors: "name", "kind".
+     CSS: section-heading, stack, status, status--ok, status--error, item-list (the rows), badge, empty, field, label,
+     label--required, hint, input, radio-card, uppercase-label, btn, btn--solid, sr-only (components.css). */}}
+{{define "content"}}<div class="section-heading">
+  <h1 class="section-heading__title text-glow"><span class="section-heading__prompt" aria-hidden="true">~/ </span>meus coletivos</h1>
+</div>
+<div class="stack stack--lg">
+  {{with .Data.Notice}}<p class="status status--ok" role="status">{{.}}</p>{{end}}
+  {{with .Data.Alert}}<p class="status status--error" role="alert">{{.}}</p>{{end}}
+  {{if .Data.Items}}<ul class="item-list">
+    {{range .Data.Items}}{{$name := .Name}}<li class="item-list__item">
+      <div class="item-list__main">
+        <p class="item-list__title">{{.Name}}</p>
+        <p class="item-list__meta">{{.Kind}} · {{.Role}}</p>
+      </div>
+      <span class="badge badge--{{.Badge}} item-list__status">{{.Status}}</span>
+      {{with .Href}}<div class="item-list__actions"><a href="{{.}}">[→] gerenciar<span class="sr-only"> {{$name}}</span></a></div>{{end}}
+    </li>
+    {{end}}
+  </ul>
+  {{else}}<div class="empty">você ainda não faz parte de nenhum coletivo ou produtora</div>
+  {{end}}
+  <section class="stack" aria-labelledby="entrar-titulo">
+    <h2 class="uppercase-label" id="entrar-titulo">pedir para entrar</h2>
+    {{template "field-error" (dict "Errors" .Errors "Field" "collective")}}
+    <form method="post" action="/coletivos/entrar" class="stack">
+      <div class="stack" x-data="collectivePicker" data-mode="join">
+        <div class="field" @mousedown="onListMousedown" @click="onListClick" @click.outside="close">
+          <label class="label label--required" for="collective_name">coletivo ou produtora</label>
+          <input class="input" type="text" id="collective_name" name="collective_name" value="{{.Form.Get "collective_name"}}" autocomplete="off" required role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="collective-suggestions" :aria-expanded="expanded" :aria-activedescendant="activeDescendant" @input="onInput" @keydown="onKeydown" @blur="close" aria-describedby="collective-pick-hint{{with index .Errors "collective"}} erro-collective{{end}}"{{with index .Errors "collective"}} aria-invalid="true"{{end}}>
+          <input type="hidden" id="collective_id" name="collective_id" value="{{.Form.Get "collective_id"}}">
+          <div id="collective-suggestions-box"></div>
+          <p class="hint" id="collective-pick-hint">comece a digitar e escolha na lista um coletivo ou uma produtora já aprovados</p>
+        </div>
+        <fieldset class="stack stack--sm" role="radiogroup"{{with index .Errors "role"}} aria-invalid="true" aria-describedby="erro-role"{{end}}>
+          <legend class="label label--required">papel</legend>
+          <label class="radio-card"><input type="radio" name="role" value="member"{{if eq (.Form.Get "role") "member"}} checked{{end}} required><span class="uppercase-label">Membro</span></label>
+          <label class="radio-card"><input type="radio" name="role" value="owner"{{if eq (.Form.Get "role") "owner"}} checked{{end}} required><span class="uppercase-label">Administrador</span></label>
+          {{template "field-error" (dict "Errors" .Errors "Field" "role")}}
+        </fieldset>
+      </div>
+      <button class="btn btn--solid" type="submit">[→] PEDIR PARA ENTRAR</button>
+    </form>
+  </section>
+  <section class="stack" aria-labelledby="novo-titulo">
+    <h2 class="uppercase-label" id="novo-titulo">pedir um coletivo ou produtora novo</h2>
+    <form method="post" action="/coletivos/novo" class="stack">
+      <div class="field">
+        <label class="label label--required" for="new_name">nome</label>
+        <input class="input" type="text" id="new_name" name="name" value="{{.Form.Get "name"}}" autocomplete="off" required{{with index .Errors "name"}} aria-invalid="true" aria-describedby="erro-name"{{end}}>
+        {{template "field-error" (dict "Errors" .Errors "Field" "name")}}
+      </div>
+      <fieldset class="stack stack--sm" role="radiogroup"{{with index .Errors "kind"}} aria-invalid="true" aria-describedby="erro-kind"{{end}}>
+        <legend class="label label--required">tipo</legend>
+        <label class="radio-card"><input type="radio" name="kind" value="coletivo"{{if eq (.Form.Get "kind") "coletivo"}} checked{{end}} required><span class="uppercase-label">Coletivo</span></label>
+        <label class="radio-card"><input type="radio" name="kind" value="produtora"{{if eq (.Form.Get "kind") "produtora"}} checked{{end}} required><span class="uppercase-label">Produtora</span></label>
+        {{template "field-error" (dict "Errors" .Errors "Field" "kind")}}
+      </fieldset>
+      <button class="btn btn--solid" type="submit">[→] PEDIR CRIAÇÃO</button>
+    </form>
+  </section>
+</div>{{end}}
