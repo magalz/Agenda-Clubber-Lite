@@ -16,8 +16,8 @@ const (
 	bannerTarget = "/senha/trocar"
 )
 
-// bannerMarkers are what the banner leaves in a page, whatever the days left.
-var bannerMarkers = []string{`role="status"`, "expiry-banner", "sua senha vence", bannerLink, bannerTarget}
+// bannerMarkers are what only the banner leaves in a page, whatever the days left.
+var bannerMarkers = []string{"expiry-banner", "sua senha vence", bannerLink}
 
 func wantNoBanner(t *testing.T, body string) {
 	t.Helper()
@@ -52,7 +52,8 @@ func TestExpiryBannerInTheAppLayout(t *testing.T) {
 			if tt.days == 1 && strings.Contains(body, "1 dias") {
 				t.Error(`the singular reads "1 dias"`)
 			}
-			wantAll(t, "banner", tagAttrs(t, body, `<div ([^>]*class="expiry-banner"[^>]*)>`), `role="status"`)
+			// The banner is a warning .status box: its look comes from there.
+			wantAll(t, "banner", tagAttrs(t, body, `<div ([^>]*class="status status--warn expiry-banner"[^>]*)>`), `role="status"`)
 			link := linkAttrs(t, body, bannerLink)
 			wantAll(t, "banner link", link, `class="expiry-banner__link"`, `href="`+bannerTarget+`"`)
 
@@ -93,24 +94,30 @@ func TestExpiryBannerInTheAppLayout(t *testing.T) {
 }
 
 // The banner is only as good as its stylesheet: every class the layout gives it
-// has a rule, drawn with the warning token.
+// has a rule, and the warning colours come from the .status--warn modifier.
 func TestExpiryBannerIsStyled(t *testing.T) {
 	css, err := fs.ReadFile(webfs.Static, "static/css/components.css")
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, class := range []string{".expiry-banner__text", ".expiry-banner__link"} {
-		if !strings.Contains(string(css), class) {
-			t.Errorf("components.css has no rule for %q", class)
+	// rule is the body of the first rule that opens with selector.
+	rule := func(selector string) string {
+		t.Helper()
+		_, rest, found := strings.Cut(string(css), selector+" {")
+		if !found {
+			t.Fatalf("components.css has no rule for %s", selector)
 		}
+		body, _, _ := strings.Cut(rest, "}")
+		return body
 	}
-	// The token is used elsewhere in the file, so look inside the banner's own rule.
-	_, rest, found := strings.Cut(string(css), ".expiry-banner {")
-	if !found {
-		t.Fatal("components.css has no rule for .expiry-banner")
+	for _, selector := range []string{".expiry-banner", ".expiry-banner__link"} {
+		rule(selector)
 	}
-	rule, _, _ := strings.Cut(rest, "}")
-	wantAll(t, ".expiry-banner rule", rule, "border: 1px solid var(--color-warn)", "color: var(--color-warn)")
+	if !strings.Contains(string(css), ".expiry-banner__text::before") {
+		t.Error("components.css has no rule for .expiry-banner__text::before")
+	}
+	// The token is used elsewhere in the file, so look inside the modifier's own rule.
+	wantAll(t, ".status--warn rule", rule(".status--warn"), "border-color: var(--color-warn)", "color: var(--color-warn)")
 }
 
 // The whole path: the clock, the password's age, the session, viewUser and the
