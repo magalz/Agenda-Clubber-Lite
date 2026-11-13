@@ -758,6 +758,41 @@
   color: var(--accent-text);
 }
 
+/* ==== Expiry banner ====
+   The first child of main in layouts/app.html, shown while the password expires within 7 days:
+     <div class="expiry-banner" role="status">
+       <span class="expiry-banner__text">sua senha vence em 3 dias.</span>
+       <a class="expiry-banner__link" href="/senha/trocar">[→] trocar agora</a>
+     </div>
+   role="status" is a polite live region. The [aviso] prefix is decoration with an empty accessible text. The two children
+   sit on one row when they fit and wrap onto two at 320 px; a long word breaks instead of overflowing. The link keeps the
+   underline of base.css (links are underlined) and its focus ring, and is at least 1.5rem tall. No motion. */
+.expiry-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-4);
+  margin-bottom: var(--space-6);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-warn);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  line-height: var(--leading-sm);
+  overflow-wrap: anywhere;
+  color: var(--color-warn);
+}
+.expiry-banner__text::before {
+  content: '[aviso] ';
+  content: '[aviso] ' / '';
+}
+.expiry-banner__link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.5rem;
+  font-weight: 700;
+  color: inherit;
+}
+
 /* ==== Empty state ==== */
 .empty {
   padding: var(--space-8);

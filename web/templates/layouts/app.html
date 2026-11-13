@@ -1,6 +1,7 @@
 {{/* App layout: sidebar and mobile drawer around the page. A page in pages/app/ defines "content" and passes its
      sidebar key in PageData.Nav: calendario, criar-evento, meus-eventos, coletivos, perfil or admin. .User is nil when
-     logged out: guard it with `and .User ...`, never read a field of it directly. */}}
+     logged out: guard it with `and .User ...`, never read a field of it directly. The first thing in main is the password
+     expiry banner, shown while .User.PasswordDaysLeft is above 0 (see "Expiry banner" in components.css). */}}
 {{define "shell"}}<div class="shell" x-data="shell" @keydown.escape.window="close">
   <header class="topbar">
     {{template "wordmark"}}
@@ -34,5 +35,9 @@
     {{- end}}
   </aside>
   <div class="sidebar-backdrop" @click="close"></div>
-  <main id="conteudo" class="shell__main">{{template "content" .}}{{template "footer" .}}</main>
+  <main id="conteudo" class="shell__main">
+    {{- with .User}}{{if gt .PasswordDaysLeft 0}}<div class="expiry-banner" role="status">
+      <span class="expiry-banner__text">sua senha vence em {{if eq .PasswordDaysLeft 1}}1 dia{{else}}{{.PasswordDaysLeft}} dias{{end}}.</span>
+      <a class="expiry-banner__link" href="/senha/trocar">[→] trocar agora</a>
+    </div>{{end}}{{end}}{{template "content" .}}{{template "footer" .}}</main>
 </div>{{end}}
