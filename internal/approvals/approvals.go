@@ -10,9 +10,13 @@
 // role owner), and its Master is the creator (Collective.CreatedBy), who is
 // never demoted.
 //
-// Every decision emails the person (one email for everything decided in one
-// call) and writes one audit entry. The email is rendered and queued in the same
-// transaction as the writes, so it exists exactly when the decision does.
+// Every decision about a person's request or account emails the person and
+// writes an audit entry; one call can decide several things about one person, and
+// then it sends one email for all of them and writes one audit entry for each.
+// The one exception is an Administrador's approval of a join request that still
+// waits for the site admin: nobody is told yet. The email is rendered and queued
+// in the same transaction as the writes, so it exists exactly when the decision
+// does.
 //
 // For data access this package uses only internal/domain, never a database
 // driver or a store implementation; it also uses internal/mail to render
@@ -60,11 +64,13 @@ var (
 
 // Paths, relative to the site origin, the emails link to: the person's
 // collectives (where they see the outcome of a request), the login page (for an
-// outcome that leaves nothing to show there, such as a rejection), and the admin
+// outcome that leaves nothing to show there, such as a rejection), the sign-up
+// page (for a rejected account, whose person can sign up again), and the admin
 // area (the requests, and the collectives, the site admins act on).
 const (
 	pathCollectives      = "/coletivos"
 	pathLogin            = "/entrar"
+	pathSignup           = "/cadastro"
 	pathAdmin            = "/admin"
 	pathAdminCollectives = "/admin/coletivos"
 )
