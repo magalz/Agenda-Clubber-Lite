@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/magalz/agenda-clubber-lite/internal/domain"
 )
@@ -127,7 +128,7 @@ func msUTC(t time.Time) time.Time { return t.UTC().Truncate(time.Millisecond) }
 // cleanUserAgent returns ua as valid UTF-8 (each run of invalid bytes becomes
 // one U+FFFD) cut to domain.UserAgentMax runes, never inside a rune.
 func cleanUserAgent(ua string) string {
-	ua = strings.ToValidUTF8(ua, "�")
+	ua = strings.ToValidUTF8(ua, string(utf8.RuneError))
 	runes := 0
 	for i := range ua {
 		if runes == domain.UserAgentMax {

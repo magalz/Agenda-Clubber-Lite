@@ -312,13 +312,11 @@ func TestResolveSessionWritesAtMostEveryFiveMinutes(t *testing.T) {
 	sameSession(t, "resolved before the interval", got, s)
 	sameSession(t, "stored before the interval", stored(t, repos.Sessions, raw), s)
 
-	// At the interval: the use is recorded and the expiry slides. The clock has a
-	// sub-millisecond part; the stored times are whole milliseconds.
-	at := s.LastSeenAt.Add(SessionTouchInterval + 456*time.Microsecond)
+	// Exactly at the interval: the use is recorded and the expiry slides.
 	touched := s
-	touched.LastSeenAt = at.Truncate(time.Millisecond)
+	touched.LastSeenAt = s.LastSeenAt.Add(SessionTouchInterval)
 	touched.ExpiresAt = touched.LastSeenAt.Add(SessionIdleTimeout)
-	got, err = ResolveSession(context.Background(), repos.Sessions, raw, at)
+	got, err = ResolveSession(context.Background(), repos.Sessions, raw, touched.LastSeenAt)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -332,6 +330,17 @@ func TestResolveSessionWritesAtMostEveryFiveMinutes(t *testing.T) {
 	}
 	sameSession(t, "resolved inside the second interval", got, touched)
 	sameSession(t, "stored inside the second interval", stored(t, repos.Sessions, raw), touched)
+
+	// A clock with a sub-millisecond part: the times written are whole milliseconds.
+	at := touched.LastSeenAt.Add(SessionTouchInterval + 456*time.Microsecond)
+	touched.LastSeenAt = at.Truncate(time.Millisecond)
+	touched.ExpiresAt = touched.LastSeenAt.Add(SessionIdleTimeout)
+	got, err = ResolveSession(context.Background(), repos.Sessions, raw, at)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sameSession(t, "resolved with a sub-millisecond clock", got, touched)
+	sameSession(t, "stored with a sub-millisecond clock", stored(t, repos.Sessions, raw), touched)
 }
 
 func TestResolveSessionSlideNeverPassesThirtyDays(t *testing.T) {

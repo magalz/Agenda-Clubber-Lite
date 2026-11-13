@@ -111,6 +111,23 @@ func TestLimiterKeysAreIndependent(t *testing.T) {
 	}
 }
 
+// The rule of a key must not depend on when the sweep last ran. A clock that
+// steps back leaves a key whose window has ended but that no sweep has dropped.
+func TestLimiterWindowEndsEvenWhenNoSweepRuns(t *testing.T) {
+	l := NewLimiter(1, time.Minute)
+	l.Allow("late", limiterStart.Add(5*time.Minute)) // the sweep ran: next one at +6m
+	early := limiterStart.Add(2 * time.Minute)       // the clock stepped back
+	if !l.Allow("k", early) {
+		t.Fatal("first hit denied")
+	}
+	if l.Allow("k", early.Add(time.Minute-time.Nanosecond)) {
+		t.Error("hit before the window ends allowed")
+	}
+	if !l.Allow("k", early.Add(time.Minute)) {
+		t.Error("hit when the window ends denied")
+	}
+}
+
 func TestLimiterConcurrentHitsOnOneKey(t *testing.T) {
 	const goroutines, limit = 50, 10
 	l := NewLimiter(limit, time.Minute)
