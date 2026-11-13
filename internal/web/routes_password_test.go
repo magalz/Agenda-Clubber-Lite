@@ -491,8 +491,8 @@ func TestPasswordVerifyIsLimitedPerAccount(t *testing.T) {
 		passwordItemState(t, e.verify(signupPassword), "ok")
 	}
 	rec := e.verify(signupPassword)
-	if rec.Code != http.StatusTooManyRequests || strings.Contains(rec.Body.String(), "<li") {
-		t.Errorf("third check = %d %q, want 429 and no item (HTMX leaves the page as it is)", rec.Code, rec.Body)
+	if rec.Code != http.StatusTooManyRequests || rec.Body.Len() != 0 {
+		t.Errorf("third check = %d %q, want 429 and an empty body (HTMX leaves the page as it is)", rec.Code, rec.Body)
 	}
 
 	// The change form has a budget of its own, and another account is not affected.
