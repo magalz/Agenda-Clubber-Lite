@@ -294,7 +294,7 @@ func TestSignupCollectiveErrorsWriteNothing(t *testing.T) {
 		key     string
 		msgPart string
 	}{
-		{"typed name of a pending collective", func(in *SignupInput) { in.CollectiveName = "fila nova" }, "collective", "aprovação"},
+		{"typed name of a pending collective", func(in *SignupInput) { in.CollectiveName = "fila nova" }, "collective", "em uso"},
 		{"typed name of a rejected collective", func(in *SignupInput) { in.CollectiveName = "Rejeitado Club" }, "collective", "em uso"},
 		{"typed name of an approved collective of the other kind", func(in *SignupInput) { in.CollectiveName = "casa aurora" }, "collective", "em uso"},
 		{"picked collective that is pending", func(in *SignupInput) { in.CollectiveID = pending.ID }, "collective", "escolha um coletivo da lista"},
