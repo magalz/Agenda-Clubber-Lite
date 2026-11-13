@@ -37,6 +37,29 @@ func (e env) canCreateEvents(userID string) bool {
 	return got
 }
 
+func (e env) membership(userID, collectiveID string) domain.Membership {
+	e.t.Helper()
+	got, err := e.r.Memberships.Get(e.ctx, userID, collectiveID)
+	noErr(e.t, "Get("+userID+", "+collectiveID+")", err)
+	return got
+}
+
+// decided fills both approval sides and the decision time, and moves RequestedAt
+// away from the fixture's default, so a field that is not stored shows.
+func decided(adminBy, ownerBy string) func(*domain.Membership) {
+	return func(m *domain.Membership) {
+		m.AdminApprovedBy = adminBy
+		m.AdminApprovedAt = ptr(at(time.Minute))
+		m.OwnerApprovedBy = ownerBy
+		m.OwnerApprovedAt = ptr(at(2 * time.Minute))
+		m.RequestedAt = at(-time.Hour)
+		m.DecidedAt = ptr(at(3 * time.Minute))
+	}
+}
+
+// blockEvents makes a collective fixture have its events blocked.
+func blockEvents(c *domain.Collective) { c.EventsBlocked = true }
+
 // RunMemberships runs the contract of domain.Memberships.
 func RunMemberships(t *testing.T, newStore NewStore) {
 	t.Helper()
@@ -211,27 +234,31 @@ func RunMemberships(t *testing.T, newStore NewStore) {
 				wantStrings(t, fmt.Sprintf("OwnerEmails(%q)", id), e.ownerEmails(id))
 			}
 		}},
-		{"UserCanCreateEvents needs an active user with an approved owner membership in an approved collective", func(t *testing.T, e env) {
+		{"UserCanCreateEvents needs an active user with an approved owner membership in an approved collective whose events are not blocked", func(t *testing.T, e env) {
 			for i, tc := range []struct {
 				name       string
 				userStatus domain.UserStatus
 				role       domain.Role
 				membership domain.MembershipStatus
 				collective domain.CollectiveStatus
+				blocked    bool
 				want       bool
 			}{
-				{"all in order", uActive, roleOwner, mApproved, cApproved, true},
-				{"disabled user", uDisabled, roleOwner, mApproved, cApproved, false},
-				{"user pending approval", uPendingApproval, roleOwner, mApproved, cApproved, false},
-				{"user pending email", uPendingEmail, roleOwner, mApproved, cApproved, false},
-				{"member, not owner", uActive, roleMember, mApproved, cApproved, false},
-				{"pending membership", uActive, roleOwner, mPending, cApproved, false},
-				{"rejected membership", uActive, roleOwner, mRejected, cApproved, false},
-				{"pending collective", uActive, roleOwner, mApproved, cPending, false},
-				{"rejected collective", uActive, roleOwner, mApproved, cRejected, false},
+				// A collective made without EventsBlocked has no events_blocked
+				// field in the database: it counts as not blocked.
+				{"all in order", uActive, roleOwner, mApproved, cApproved, false, true},
+				{"disabled user", uDisabled, roleOwner, mApproved, cApproved, false, false},
+				{"user pending approval", uPendingApproval, roleOwner, mApproved, cApproved, false, false},
+				{"user pending email", uPendingEmail, roleOwner, mApproved, cApproved, false, false},
+				{"member, not owner", uActive, roleMember, mApproved, cApproved, false, false},
+				{"pending membership", uActive, roleOwner, mPending, cApproved, false, false},
+				{"rejected membership", uActive, roleOwner, mRejected, cApproved, false, false},
+				{"pending collective", uActive, roleOwner, mApproved, cPending, false, false},
+				{"rejected collective", uActive, roleOwner, mApproved, cRejected, false, false},
+				{"events blocked", uActive, roleOwner, mApproved, cApproved, true, false},
 			} {
 				u := e.user(fmt.Sprintf("user%d", i), func(u *domain.User) { u.Status = tc.userStatus })
-				c := e.collective(fmt.Sprintf("Coletivo %d", i), coletivo, tc.collective)
+				c := e.collective(fmt.Sprintf("Coletivo %d", i), coletivo, tc.collective, func(c *domain.Collective) { c.EventsBlocked = tc.blocked })
 				e.member(u, c, tc.role, tc.membership)
 				if got := e.canCreateEvents(u.ID); got != tc.want {
 					t.Errorf("%s: UserCanCreateEvents = %v, want %v", tc.name, got, tc.want)
@@ -261,10 +288,196 @@ func RunMemberships(t *testing.T, newStore NewStore) {
 				t.Error("a user without memberships can create events")
 			}
 		}},
+		{"UserCanCreateEvents is false when the only qualifying collective has its events blocked, true when another one qualifies", func(t *testing.T, e env) {
+			blocked := e.collective("Coletivo Bloqueado", coletivo, cApproved, blockEvents)
+			open := e.collective("Coletivo Aberto", coletivo, cApproved)
+
+			ana := e.user("ana")
+			e.member(ana, blocked, roleOwner, mApproved)
+			if e.canCreateEvents(ana.ID) {
+				t.Error("an owner whose only qualifying collective has its events blocked can create events")
+			}
+			e.member(ana, open, roleOwner, mApproved)
+			if !e.canCreateEvents(ana.ID) {
+				t.Error("an owner of a blocked collective who also owns an unblocked one cannot create events")
+			}
+
+			bia := e.user("bia")
+			e.member(bia, blocked, roleOwner, mApproved)
+			e.member(bia, open, roleMember, mApproved)
+			if e.canCreateEvents(bia.ID) {
+				t.Error("a user who owns only a blocked collective and is a member of an unblocked one can create events")
+			}
+		}},
 		{"UserCanCreateEvents is false for an unknown user", func(t *testing.T, e env) {
 			for _, id := range unknownIDs {
 				if e.canCreateEvents(id) {
 					t.Errorf("UserCanCreateEvents(%q) = true", id)
+				}
+			}
+		}},
+		{"Get returns the membership with every field", func(t *testing.T, e env) {
+			ana, admin, boss := e.user("ana"), e.user("admin"), e.user("boss")
+			c, other := e.collective("Casa Azul", produtora, cApproved), e.collective("Casa Verde", coletivo, cApproved)
+			m := e.member(ana, c, roleOwner, mApproved, decided(admin.ID, boss.ID))
+			e.member(ana, other, roleMember, mPending)
+			wantEqual(t, "Get", normMembership(e.membership(ana.ID, c.ID)), normMembership(m))
+		}},
+		{"Get is ErrNotFound for a pair without a membership and for IDs the store never issued", func(t *testing.T, e env) {
+			ana, bia := e.user("ana"), e.user("bia")
+			c := e.collective("Casa Azul", coletivo, cApproved)
+			e.member(bia, c, roleMember, mPending)
+			_, err := e.r.Memberships.Get(e.ctx, ana.ID, c.ID)
+			isErr(t, "Get of a user who has no membership in the collective", err, domain.ErrNotFound)
+			for _, id := range unknownIDs {
+				for name, pair := range map[string][2]string{
+					"user":       {id, c.ID},
+					"collective": {bia.ID, id},
+					"both":       {id, id},
+				} {
+					_, err := e.r.Memberships.Get(e.ctx, pair[0], pair[1])
+					isErr(t, fmt.Sprintf("Get with an unknown %s %q", name, id), err, domain.ErrNotFound)
+				}
+			}
+		}},
+		{"Update stores every mutable field", func(t *testing.T, e env) {
+			ana, admin, boss := e.user("ana"), e.user("admin"), e.user("boss")
+			c := e.collective("Casa Azul", coletivo, cApproved)
+			e.member(ana, c, roleMember, mPending)
+			want := newMembership(ana, c, roleOwner, mApproved, decided(admin.ID, boss.ID))
+			want.RequestedAt = base // Update never changes it
+			noErr(t, "Update", e.r.Memberships.Update(e.ctx, want))
+			wantEqual(t, "Get after Update", normMembership(e.membership(ana.ID, c.ID)), normMembership(want))
+		}},
+		{"Update never changes RequestedAt, whatever the membership it is given carries", func(t *testing.T, e env) {
+			ana := e.user("ana")
+			c := e.collective("Casa Azul", coletivo, cApproved)
+			e.member(ana, c, roleMember, mPending, func(m *domain.Membership) { m.RequestedAt = at(-time.Hour) })
+			m := newMembership(ana, c, roleMember, mRejected, func(m *domain.Membership) { m.RequestedAt = at(time.Hour) })
+			noErr(t, "Update", e.r.Memberships.Update(e.ctx, m))
+			got := e.membership(ana.ID, c.ID)
+			sameTime(t, "RequestedAt", got.RequestedAt, at(-time.Hour))
+			if got.Status != mRejected {
+				t.Errorf("Status = %s, want %s: the rest of the update was not stored", got.Status, mRejected)
+			}
+		}},
+		{"Update clears the approver sides and the decision time that the membership leaves empty", func(t *testing.T, e env) {
+			ana, admin, boss := e.user("ana"), e.user("admin"), e.user("boss")
+			c := e.collective("Casa Azul", coletivo, cApproved)
+			e.member(ana, c, roleOwner, mApproved, decided(admin.ID, boss.ID))
+
+			// The admin side and the decision go; the Administrador side stays.
+			m := newMembership(ana, c, roleOwner, mPending, func(m *domain.Membership) {
+				m.OwnerApprovedBy = boss.ID
+				m.OwnerApprovedAt = ptr(at(2 * time.Minute))
+				m.RequestedAt = at(-time.Hour)
+			})
+			noErr(t, "Update clearing the admin side", e.r.Memberships.Update(e.ctx, m))
+			wantEqual(t, "Get after clearing the admin side", normMembership(e.membership(ana.ID, c.ID)), normMembership(m))
+
+			// Now the other side goes too.
+			m = newMembership(ana, c, roleMember, mPending, func(m *domain.Membership) { m.RequestedAt = at(-time.Hour) })
+			noErr(t, "Update clearing the other side", e.r.Memberships.Update(e.ctx, m))
+			wantEqual(t, "Get after clearing both sides", normMembership(e.membership(ana.ID, c.ID)), normMembership(m))
+		}},
+		{"Update changes only the membership of that user in that collective", func(t *testing.T, e env) {
+			ana, bia, admin := e.user("ana"), e.user("bia"), e.user("admin")
+			c, other := e.collective("Casa Azul", coletivo, cApproved), e.collective("Casa Verde", coletivo, cApproved)
+			e.member(ana, c, roleMember, mPending)
+			sameUser := e.member(ana, other, roleMember, mPending)
+			sameCollective := e.member(bia, c, roleMember, mPending)
+			m := newMembership(ana, c, roleOwner, mApproved, func(m *domain.Membership) { m.AdminApprovedBy = admin.ID })
+			noErr(t, "Update", e.r.Memberships.Update(e.ctx, m))
+			wantEqual(t, "the same user's other membership", normMembership(e.membership(ana.ID, other.ID)), normMembership(sameUser))
+			wantEqual(t, "the other user's membership", normMembership(e.membership(bia.ID, c.ID)), normMembership(sameCollective))
+		}},
+		{"Update validates the membership and stores nothing", func(t *testing.T, e env) {
+			ana := e.user("ana")
+			c := e.collective("Casa Azul", coletivo, cApproved)
+			before := e.member(ana, c, roleMember, mPending)
+			for _, tc := range []struct {
+				field  string
+				mutate func(*domain.Membership)
+			}{
+				{"user_id", func(m *domain.Membership) { m.UserID = "" }},
+				{"collective_id", func(m *domain.Membership) { m.CollectiveID = "" }},
+				{"role", func(m *domain.Membership) { m.Role = "bogus" }},
+				{"status", func(m *domain.Membership) { m.Status = "bogus" }},
+			} {
+				m := newMembership(ana, c, roleOwner, mApproved, tc.mutate)
+				wantFieldErrors(t, "update with a bad "+tc.field, e.r.Memberships.Update(e.ctx, m), tc.field)
+			}
+			// The fields are checked before the references.
+			m := newMembership(ana, c, "bogus", mApproved, func(m *domain.Membership) { m.UserID = unknownRefs[0] })
+			wantFieldErrors(t, "update with a bad role and an unknown user", e.r.Memberships.Update(e.ctx, m), "role")
+			wantEqual(t, "Get after the failed updates", normMembership(e.membership(ana.ID, c.ID)), normMembership(before))
+		}},
+		{"Update is ErrNotFound for a membership that does not exist and creates none", func(t *testing.T, e env) {
+			ana, bia := e.user("ana"), e.user("bia")
+			c := e.collective("Casa Azul", coletivo, cApproved)
+			bias := e.member(bia, c, roleMember, mPending)
+			isErr(t, "update of a pair without a membership", e.r.Memberships.Update(e.ctx, newMembership(ana, c, roleOwner, mApproved)), domain.ErrNotFound)
+			for _, id := range unknownRefs {
+				for name, mutate := range map[string]func(*domain.Membership){
+					"user":       func(m *domain.Membership) { m.UserID = id },
+					"collective": func(m *domain.Membership) { m.CollectiveID = id },
+				} {
+					m := newMembership(bia, c, roleOwner, mApproved, mutate)
+					isErr(t, fmt.Sprintf("update with an unknown %s %q", name, id), e.r.Memberships.Update(e.ctx, m), domain.ErrNotFound)
+				}
+			}
+			if got := e.views(ana.ID); len(got) != 0 {
+				t.Errorf("ListByUser(ana) after the failed update = %v, want none", got)
+			}
+			wantEqual(t, "the existing membership", normMembership(e.membership(bia.ID, c.ID)), normMembership(bias))
+		}},
+		{"Update is ErrNotFound for an approver that does not exist and changes nothing", func(t *testing.T, e env) {
+			ana := e.user("ana")
+			c := e.collective("Casa Azul", coletivo, cApproved)
+			before := e.member(ana, c, roleMember, mPending)
+			for _, id := range unknownRefs {
+				for name, mutate := range map[string]func(*domain.Membership){
+					"admin approver": func(m *domain.Membership) { m.AdminApprovedBy = id },
+					"owner approver": func(m *domain.Membership) { m.OwnerApprovedBy = id },
+				} {
+					m := newMembership(ana, c, roleOwner, mApproved, mutate)
+					isErr(t, fmt.Sprintf("update with an unknown %s %q", name, id), e.r.Memberships.Update(e.ctx, m), domain.ErrNotFound)
+				}
+			}
+			wantEqual(t, "Get after the failed updates", normMembership(e.membership(ana.ID, c.ID)), normMembership(before))
+		}},
+		{"Delete removes the membership and leaves the user, the collective and the other memberships", func(t *testing.T, e env) {
+			ana, bia := e.user("ana"), e.user("bia")
+			c, other := e.collective("Casa Azul", coletivo, cApproved), e.collective("Casa Verde", coletivo, cApproved)
+			e.member(ana, c, roleMember, mRejected)
+			sameUser := e.member(ana, other, roleMember, mPending)
+			sameCollective := e.member(bia, c, roleOwner, mApproved)
+			noErr(t, "Delete", e.r.Memberships.Delete(e.ctx, ana.ID, c.ID))
+
+			_, err := e.r.Memberships.Get(e.ctx, ana.ID, c.ID)
+			isErr(t, "Get after Delete", err, domain.ErrNotFound)
+			e.getUser(ana.ID)
+			if _, err := e.r.Collectives.ByID(e.ctx, c.ID); err != nil {
+				t.Errorf("ByID after the membership's Delete: %v, want the collective to stay", err)
+			}
+			wantEqual(t, "the same user's other membership", normMembership(e.membership(ana.ID, other.ID)), normMembership(sameUser))
+			wantEqual(t, "the other user's membership", normMembership(e.membership(bia.ID, c.ID)), normMembership(sameCollective))
+			e.member(ana, c, roleMember, mPending) // the pair is free again
+		}},
+		{"Delete is ErrNotFound for a second delete, a pair without a membership and IDs the store never issued", func(t *testing.T, e env) {
+			ana, bia := e.user("ana"), e.user("bia")
+			c := e.collective("Casa Azul", coletivo, cApproved)
+			e.member(ana, c, roleMember, mPending)
+			noErr(t, "first Delete", e.r.Memberships.Delete(e.ctx, ana.ID, c.ID))
+			isErr(t, "second Delete", e.r.Memberships.Delete(e.ctx, ana.ID, c.ID), domain.ErrNotFound)
+			isErr(t, "Delete of a user who has no membership in the collective", e.r.Memberships.Delete(e.ctx, bia.ID, c.ID), domain.ErrNotFound)
+			for _, id := range unknownIDs {
+				for name, pair := range map[string][2]string{
+					"user":       {id, c.ID},
+					"collective": {bia.ID, id},
+					"both":       {id, id},
+				} {
+					isErr(t, fmt.Sprintf("Delete with an unknown %s %q", name, id), e.r.Memberships.Delete(e.ctx, pair[0], pair[1]), domain.ErrNotFound)
 				}
 			}
 		}},

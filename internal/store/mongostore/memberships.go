@@ -2,6 +2,7 @@ package mongostore
 
 import (
 	"context"
+	"errors"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
@@ -132,7 +133,8 @@ func (r memberships) OwnerEmails(ctx context.Context, collectiveID string) ([]st
 }
 
 // UserCanCreateEvents is true for an active user with an approved owner
-// membership in an approved collective.
+// membership in an approved collective whose events are not blocked. The
+// events_blocked field is stored only when true, so a missing one is not blocked.
 func (r memberships) UserCanCreateEvents(ctx context.Context, userID string) (bool, error) {
 	oid, err := parseID(userID)
 	if err != nil {
@@ -147,7 +149,10 @@ func (r memberships) UserCanCreateEvents(ctx context.Context, userID string) (bo
 		{{Key: "$lookup", Value: bson.M{
 			"from": colCollectives, "localField": "collective_id", "foreignField": "_id", "as": "collective",
 		}}},
-		{{Key: "$match", Value: bson.M{"collective.status": string(domain.CollectiveStatusApproved)}}},
+		{{Key: "$match", Value: bson.M{
+			"collective.status":         string(domain.CollectiveStatusApproved),
+			"collective.events_blocked": bson.M{"$ne": true},
+		}}},
 		{{Key: "$lookup", Value: bson.M{
 			"from": colUsers, "localField": "user_id", "foreignField": "_id", "as": "user",
 		}}},
@@ -165,19 +170,104 @@ func (r memberships) UserCanCreateEvents(ctx context.Context, userID string) (bo
 	return ok, nil
 }
 
-// Get is a stub until T3.4a implements it.
+// pairFilter selects the membership of a user in a collective. An ID the store
+// never issued names no membership, so it is domain.ErrNotFound.
+func pairFilter(userID, collectiveID string) (bson.M, error) {
+	uid, err := parseID(userID)
+	if err != nil {
+		return nil, err
+	}
+	cid, err := parseID(collectiveID)
+	if err != nil {
+		return nil, err
+	}
+	return bson.M{"user_id": uid, "collective_id": cid}, nil
+}
+
 func (r memberships) Get(ctx context.Context, userID, collectiveID string) (domain.Membership, error) {
-	return domain.Membership{}, errNotImplemented
+	filter, err := pairFilter(userID, collectiveID)
+	if err != nil {
+		return domain.Membership{}, err
+	}
+	var d membershipDoc
+	if err := r.coll().FindOne(ctx, filter).Decode(&d); err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			return domain.Membership{}, domain.ErrNotFound
+		}
+		return domain.Membership{}, wrap("get membership", err)
+	}
+	return d.membership(), nil
 }
 
-// Update is a stub until T3.4a implements it.
+// Update replaces the mutable fields of the membership. A nil time or an empty
+// approver is unset in the document; requested_at is never written.
 func (r memberships) Update(ctx context.Context, m domain.Membership) error {
-	return errNotImplemented
+	if err := m.Validate(); err != nil {
+		return err
+	}
+	filter, err := pairFilter(m.UserID, m.CollectiveID)
+	if err != nil {
+		return err
+	}
+	adminBy, err := refID(m.AdminApprovedBy)
+	if err != nil {
+		return err
+	}
+	ownerBy, err := refID(m.OwnerApprovedBy)
+	if err != nil {
+		return err
+	}
+	for _, id := range []*bson.ObjectID{adminBy, ownerBy} {
+		if err := r.s.mustExist(ctx, colUsers, id); err != nil {
+			return err
+		}
+	}
+	set := bson.M{"role": string(m.Role), "status": string(m.Status)}
+	unset := bson.M{}
+	for _, f := range []struct {
+		field   string
+		value   any
+		present bool
+	}{
+		{"admin_approved_by", adminBy, adminBy != nil},
+		{"admin_approved_at", m.AdminApprovedAt, m.AdminApprovedAt != nil},
+		{"owner_approved_by", ownerBy, ownerBy != nil},
+		{"owner_approved_at", m.OwnerApprovedAt, m.OwnerApprovedAt != nil},
+		{"decided_at", m.DecidedAt, m.DecidedAt != nil},
+	} {
+		if f.present {
+			set[f.field] = f.value
+		} else {
+			unset[f.field] = ""
+		}
+	}
+	update := bson.M{"$set": set}
+	if len(unset) > 0 {
+		update["$unset"] = unset
+	}
+	res, err := r.coll().UpdateOne(ctx, filter, update)
+	if err != nil {
+		return wrap("update membership", err)
+	}
+	if res.MatchedCount == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
 }
 
-// Delete is a stub until T3.4a implements it.
 func (r memberships) Delete(ctx context.Context, userID, collectiveID string) error {
-	return errNotImplemented
+	filter, err := pairFilter(userID, collectiveID)
+	if err != nil {
+		return err
+	}
+	res, err := r.coll().DeleteOne(ctx, filter)
+	if err != nil {
+		return wrap("delete membership", err)
+	}
+	if res.DeletedCount == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
 }
 
 // ListByCollective is a stub until T3.4b implements it.
