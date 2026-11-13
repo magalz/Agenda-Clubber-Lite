@@ -474,6 +474,74 @@ func TestSignupFieldValidation(t *testing.T) {
 	signupAssertNothingWritten(t, s, "ana@example.com", "Noite Verde")
 }
 
+// A name is copied into the emails the app sends, to any address, so a line
+// break in it could start a paragraph of the sender's choosing.
+func TestSignupRefusesControlCharactersInNames(t *testing.T) {
+	const msg = "não use quebras de linha nem caracteres de controle"
+	tests := []struct {
+		name   string
+		mutate func(*SignupInput)
+		key    string
+		typed  string // the collective name that must not have been created
+	}{
+		{"name with CRLF", func(in *SignupInput) { in.Name = "Ana\r\n\r\nclique em https://evil.example" }, "name", "Noite Verde"},
+		{"name with LF", func(in *SignupInput) { in.Name = "Ana\nSouza" }, "name", "Noite Verde"},
+		{"name with CR", func(in *SignupInput) { in.Name = "Ana\rSouza" }, "name", "Noite Verde"},
+		{"name with a tab", func(in *SignupInput) { in.Name = "Ana\tSouza" }, "name", "Noite Verde"},
+		{"name with NUL", func(in *SignupInput) { in.Name = "Ana\x00Souza" }, "name", "Noite Verde"},
+		{"name with a C1 control", func(in *SignupInput) { in.Name = "Ana\u0085Souza" }, "name", "Noite Verde"},
+		{"collective name with LF", func(in *SignupInput) { in.CollectiveName = "Noite\nVerde" }, "collective", "Noite\nVerde"},
+		{"collective name with a tab", func(in *SignupInput) { in.CollectiveName = "Noite\tVerde" }, "collective", "Noite\tVerde"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := newTestStore(t)
+			in := signupInput()
+			tt.mutate(&in)
+			fe := signupFieldErrors(t, Signup(t.Context(), s, signupOrigin, testNow, in))
+			signupAssertKeys(t, fe, tt.key)
+			if fe[tt.key] != msg {
+				t.Errorf("%s message %q, want %q", tt.key, fe[tt.key], msg)
+			}
+			signupAssertNothingWritten(t, s, "ana@example.com", tt.typed)
+		})
+	}
+}
+
+func TestSignupAcceptsAnAccentedName(t *testing.T) {
+	s := newTestStore(t)
+	in := signupInput()
+	in.Name = "José Ângelo D'Ávila-Çelik"
+	in.CollectiveName = "Coletivo Ação Ñandú"
+	if err := Signup(t.Context(), s, signupOrigin, testNow, in); err != nil {
+		t.Fatalf("Signup: %v", err)
+	}
+	u, err := s.Repos().Users.ByEmail(t.Context(), "ana@example.com")
+	if err != nil {
+		t.Fatalf("find the new account: %v", err)
+	}
+	if u.Name != in.Name {
+		t.Errorf("stored name %q, want %q", u.Name, in.Name)
+	}
+}
+
+func TestPhoneDigits(t *testing.T) {
+	for _, tt := range []struct{ in, want string }{
+		{"(81) 98765-4321", "81987654321"},
+		{"+55 81 9 8765-4321", "5581987654321"},
+		{"81987654321", "81987654321"},
+		{"", ""},
+		{"abc", ""},
+		{" \t\n", ""},
+		{"٣٤٥ ８１", ""}, // digits of other scripts and full-width digits are not kept
+		{"8a1b9́", "819"},
+	} {
+		if got := PhoneDigits(tt.in); got != tt.want {
+			t.Errorf("PhoneDigits(%q) = %q, want %q", tt.in, got, tt.want)
+		}
+	}
+}
+
 // A phone field of junk digits must not cost more than the input is long:
 // Signup is open to anyone and validates before it does anything else. Building
 // the digits one string concatenation at a time allocates once per digit.

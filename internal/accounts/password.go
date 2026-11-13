@@ -3,6 +3,7 @@ package accounts
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 	"unicode/utf8"
 
@@ -40,19 +41,7 @@ func ChangePassword(ctx context.Context, store domain.Store, userID, keepSession
 	if current == "" {
 		fe.Add("current_password", domain.MsgRequired)
 	}
-	switch {
-	case password == "":
-		fe.Add("password", domain.MsgRequired)
-	case !utf8.ValidString(password):
-		fe.Add("password", domain.MsgInvalid)
-	default:
-		if violated := auth.CheckPolicy(password, u.Email); len(violated) > 0 {
-			fe.Add("password", resetPolicyMessage(violated))
-		}
-	}
-	if password != confirm {
-		fe.Add("password_confirm", signupMsgPasswordMismatch)
-	}
+	passwordFieldErrors(&fe, password, confirm, u.Email)
 	if err := fe.Err(); err != nil {
 		return err
 	}
@@ -91,6 +80,38 @@ func ChangePassword(ctx context.Context, store domain.Store, userID, keepSession
 		}
 		return nil
 	})
+}
+
+// PasswordPolicyMessage is the pt-BR message for the policy rules a password
+// violates, in the order given: the labels of the live checklist after
+// "requisitos da senha: ".
+func PasswordPolicyMessage(violated []auth.Rule) string {
+	labels := make([]string, len(violated))
+	for i, rule := range violated {
+		labels[i] = auth.RuleLabels[rule]
+	}
+	return "requisitos da senha: " + strings.Join(labels, ", ")
+}
+
+// passwordFieldErrors adds to fe what is wrong with a new password and its
+// confirmation, under the keys password and password_confirm: missing, not
+// UTF-8, against the policy (email may be empty, which skips the rule that the
+// password differs from it) or not equal to the confirmation. It needs no
+// store and no hashing, so signup, reset and change run it before anything else.
+func passwordFieldErrors(fe *domain.FieldErrors, password, confirm, email string) {
+	switch {
+	case password == "":
+		fe.Add("password", domain.MsgRequired)
+	case !utf8.ValidString(password):
+		fe.Add("password", domain.MsgInvalid)
+	default:
+		if violated := auth.CheckPolicy(password, email); len(violated) > 0 {
+			fe.Add("password", PasswordPolicyMessage(violated))
+		}
+	}
+	if password != confirm {
+		fe.Add("password_confirm", signupMsgPasswordMismatch)
+	}
 }
 
 // PasswordReused reports whether password matches one of the user's last two

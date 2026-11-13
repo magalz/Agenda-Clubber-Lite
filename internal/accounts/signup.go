@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/magalz/agenda-clubber-lite/internal/auth"
@@ -25,6 +26,7 @@ const (
 	signupMsgPick             = "escolha um coletivo da lista"
 	signupMsgNameInUse        = "nome já em uso; escolha outro"
 	signupMsgNewAsOwner       = "quem cria um coletivo novo entra como dono"
+	signupMsgControl          = "não use quebras de linha nem caracteres de controle"
 )
 
 // SignupInput is the signup form as the person filled it in.
@@ -128,10 +130,15 @@ func signupValidate(in SignupInput) (signupFields, error) {
 	var f signupFields
 
 	f.name = strings.TrimSpace(in.Name)
-	if !utf8.ValidString(f.name) {
+	switch {
+	case !utf8.ValidString(f.name):
 		fe.Add("name", domain.MsgInvalid)
-	} else if msg := signupLengthProblem(f.name, domain.UserNameMin, domain.UserNameMax); msg != "" {
-		fe.Add("name", msg)
+	case strings.ContainsFunc(f.name, unicode.IsControl):
+		fe.Add("name", signupMsgControl)
+	default:
+		if msg := signupLengthProblem(f.name, domain.UserNameMin, domain.UserNameMax); msg != "" {
+			fe.Add("name", msg)
+		}
 	}
 
 	email, err := domain.NormalizeEmail(in.Email)
@@ -145,33 +152,12 @@ func signupValidate(in SignupInput) (signupFields, error) {
 	}
 	f.email = email
 
-	f.phone = strings.Map(func(r rune) rune {
-		if r < '0' || r > '9' {
-			return -1
-		}
-		return r
-	}, in.Phone)
+	f.phone = PhoneDigits(in.Phone)
 	if n := len(f.phone); n < domain.PhoneMin || n > domain.PhoneMax {
 		fe.Add("phone", fmt.Sprintf("informe de %d a %d dígitos", domain.PhoneMin, domain.PhoneMax))
 	}
 
-	switch {
-	case in.Password == "":
-		fe.Add("password", domain.MsgRequired)
-	case !utf8.ValidString(in.Password):
-		fe.Add("password", domain.MsgInvalid)
-	default:
-		if violated := auth.CheckPolicy(in.Password, email); len(violated) > 0 {
-			labels := make([]string, len(violated))
-			for i, rule := range violated {
-				labels[i] = auth.RuleLabels[rule]
-			}
-			fe.Add("password", "requisitos da senha: "+strings.Join(labels, ", "))
-		}
-	}
-	if in.Password != in.PasswordConfirm {
-		fe.Add("password_confirm", signupMsgPasswordMismatch)
-	}
+	passwordFieldErrors(&fe, in.Password, in.PasswordConfirm, email)
 
 	if !in.CollectiveKind.Valid() {
 		fe.Add("collective_kind", signupMsgKind)
@@ -187,6 +173,8 @@ func signupValidate(in SignupInput) (signupFields, error) {
 		switch {
 		case !utf8.ValidString(f.collectiveName):
 			fe.Add("collective", domain.MsgInvalid)
+		case strings.ContainsFunc(f.collectiveName, unicode.IsControl):
+			fe.Add("collective", signupMsgControl)
 		default:
 			if msg := signupLengthProblem(f.collectiveName, domain.CollectiveNameMin, domain.CollectiveNameMax); msg != "" {
 				fe.Add("collective", msg)
@@ -199,6 +187,18 @@ func signupValidate(in SignupInput) (signupFields, error) {
 		}
 	}
 	return f, fe.Err()
+}
+
+// PhoneDigits returns the ASCII digits of s, in order: the form a phone number
+// is stored in. It builds the result in one pass, so its cost stays linear in
+// the length of s.
+func PhoneDigits(s string) string {
+	return strings.Map(func(r rune) rune {
+		if r < '0' || r > '9' {
+			return -1
+		}
+		return r
+	}, s)
 }
 
 // signupLengthProblem returns the pt-BR message for s (already trimmed) when its

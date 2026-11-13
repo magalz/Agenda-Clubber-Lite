@@ -3,6 +3,7 @@ package accounts
 import (
 	"context"
 	"errors"
+	"maps"
 	"slices"
 	"strings"
 	"testing"
@@ -366,5 +367,61 @@ func TestPasswordReusedUnreadableHistoryIsAnError(t *testing.T) {
 	}
 	if used, err := PasswordReused(ctx, s, "000000000000000000000000", resetNewPassword); err == nil || used {
 		t.Errorf("unknown account: PasswordReused = %v, %v; want false and an error", used, err)
+	}
+}
+
+func TestPasswordPolicyMessage(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		violated []auth.Rule
+		want     string
+	}{
+		{"one rule", []auth.Rule{auth.RuleMinLength}, "requisitos da senha: 8 caracteres ou mais"},
+		{"the email rule", []auth.Rule{auth.RuleNotEmail}, "requisitos da senha: diferente do seu e-mail"},
+		{"several rules keep their order", []auth.Rule{auth.RuleMinLength, auth.RuleUpper, auth.RuleDigit, auth.RuleSymbol},
+			"requisitos da senha: 8 caracteres ou mais, uma letra maiúscula, um número, um símbolo"},
+		{"the rules an empty password breaks", auth.CheckPolicy("", "a@b.co"),
+			"requisitos da senha: 8 caracteres ou mais, uma letra minúscula, uma letra maiúscula, um número, um símbolo"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := PasswordPolicyMessage(tc.violated); got != tc.want {
+				t.Errorf("PasswordPolicyMessage(%v) = %q, want %q", tc.violated, got, tc.want)
+			}
+		})
+	}
+}
+
+// passwordFieldErrors is the one check signup, reset and change share before
+// they touch the store or a hash.
+func TestPasswordFieldErrors(t *testing.T) {
+	const good = "Senha#Forte1"
+	for _, tc := range []struct {
+		name                      string
+		password, confirm, email  string
+		wantPassword, wantConfirm string // "" means no error under that key
+	}{
+		{"a good password", good, good, "ana@example.com", "", ""},
+		{"empty", "", "", "ana@example.com", domain.MsgRequired, ""},
+		{"empty with a confirmation", "", good, "", domain.MsgRequired, signupMsgPasswordMismatch},
+		{"not UTF-8", good + "\xff", good + "\xff", "", domain.MsgInvalid, ""},
+		{"weak", "abc", "abc", "", PasswordPolicyMessage(auth.CheckPolicy("abc", "")), ""},
+		{"equal to the email", "Ana1@Example.com", "Ana1@Example.com", "ana1@example.com", PasswordPolicyMessage([]auth.Rule{auth.RuleNotEmail}), ""},
+		{"an empty email skips that rule", "Ana1@Example.com", "Ana1@Example.com", "", "", ""},
+		{"confirmation differs", good, good + "2", "", "", signupMsgPasswordMismatch},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := domain.FieldErrors{"current_password": "kept"} // an earlier error stays
+			passwordFieldErrors(&got, tc.password, tc.confirm, tc.email)
+			want := domain.FieldErrors{"current_password": "kept"}
+			if tc.wantPassword != "" {
+				want["password"] = tc.wantPassword
+			}
+			if tc.wantConfirm != "" {
+				want["password_confirm"] = tc.wantConfirm
+			}
+			if !maps.Equal(got, want) {
+				t.Errorf("field errors %v, want %v", got, want)
+			}
+		})
 	}
 }
