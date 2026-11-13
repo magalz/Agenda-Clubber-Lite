@@ -60,6 +60,11 @@ func signupData(form url.Values, notice string) PageData {
 	}
 }
 
+// signupEmailKey is the limiter key that counts the posts naming an e-mail.
+func signupEmailKey(email string) string {
+	return "signup-email:" + strings.ToLower(strings.TrimSpace(email))
+}
+
 // signupKept is the form without its passwords: a password is never written
 // back into a page.
 func signupKept(form url.Values) url.Values {
@@ -93,8 +98,8 @@ func (a *App) signupSubmit(c *gin.Context) {
 		c.String(http.StatusBadRequest, "requisição inválida")
 		return
 	}
-	if email := strings.ToLower(strings.TrimSpace(form.Get("email"))); allowed && email != "" {
-		allowed = a.Limits.Signup.Allow("signup-email:"+email, now)
+	if email := form.Get("email"); allowed && strings.TrimSpace(email) != "" {
+		allowed = a.Limits.Signup.Allow(signupEmailKey(email), now)
 	}
 	kept := signupKept(form)
 	if !allowed {

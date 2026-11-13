@@ -302,6 +302,9 @@ func TestSignupFormPage(t *testing.T) {
 	}
 	if tag := signupInput(t, body, "collective_id", ""); !strings.Contains(tag, `type="hidden"`) || strings.Contains(tag, `value="`) && !strings.Contains(tag, `value=""`) {
 		t.Errorf("collective_id = %s, want an empty hidden input", tag)
+	} else if !strings.Contains(tag, ` id="collective_id"`) {
+		// The suggestions partial's contract names it as #collective_id.
+		t.Errorf("collective_id = %s, want the id collective_id", tag)
 	}
 
 	// No password value, and the checklist is pending.
@@ -520,6 +523,27 @@ func TestSignupFieldErrors(t *testing.T) {
 		}
 	})
 
+	t.Run("the WhatsApp box follows what the service reads", func(t *testing.T) {
+		// Only the value 1 says the phone is a WhatsApp one, so any other value
+		// must not come back ticked: the page would show what was not saved.
+		for i, c := range []struct {
+			value string
+			want  bool
+		}{{"1", true}, {"on", false}, {"0", false}, {"", false}} {
+			rec := signupPost(r, signupValues(signupInvalid, func(v url.Values) {
+				v.Set("email", fmt.Sprintf("whatsapp%d@example.com", i))
+				v.Set("phone_whatsapp", c.value)
+			}), "198.51.100.4")
+			if rec.Code != http.StatusUnprocessableEntity {
+				t.Fatalf("phone_whatsapp=%q: status = %d, want 422", c.value, rec.Code)
+			}
+			tag := signupInput(t, rec.Body.String(), "phone_whatsapp", "1")
+			if got := strings.Contains(tag, " checked"); got != c.want {
+				t.Errorf("phone_whatsapp=%q: checked = %v, want %v (%s)", c.value, got, c.want, tag)
+			}
+		}
+	})
+
 	t.Run("choices stay chosen", func(t *testing.T) {
 		rec := signupPost(r, signupValues(func(v url.Values) {
 			v.Set("name", "")
@@ -605,6 +629,34 @@ func TestSignupRateLimitPerIP(t *testing.T) {
 	// Another client address is not affected.
 	if rec := signupPost(r, signupValues(signupInvalid, func(v url.Values) { v.Set("email", "u7@example.com") }), "198.51.100.8"); rec.Code != http.StatusUnprocessableEntity {
 		t.Errorf("other IP: status = %d, want 422", rec.Code)
+	}
+}
+
+func TestSignupEmailKey(t *testing.T) {
+	key := signupEmailKey("ana@example.com")
+	if !strings.HasPrefix(key, "signup-email:") {
+		t.Errorf("key = %q, want the signup-email: prefix that keeps it apart from the IP keys", key)
+	}
+	// One address, one key, however it is spelled.
+	for _, spelling := range []string{"ANA@example.com", " ana@example.com ", "Ana@Example.com", "\tana@EXAMPLE.COM\n"} {
+		if got := signupEmailKey(spelling); got != key {
+			t.Errorf("key of %q = %q, want %q", spelling, got, key)
+		}
+	}
+	if got := signupEmailKey("bia@example.com"); got == key {
+		t.Errorf("another address has the same key %q", got)
+	}
+
+	// The post body may hold 64 KiB in the email field, and a limiter keeps its
+	// keys for a whole window: a key must not grow with what the client sends.
+	huge := strings.Repeat("a", 60<<10) + "@example.com"
+	if got := signupEmailKey(huge); len(got) > 128 {
+		t.Errorf("the key of a %d-byte address is %d bytes, want at most 128", len(huge), len(got))
+	}
+	// Bounded does not mean cut: addresses that differ only at the far end differ.
+	prefix := strings.Repeat("a", 4096)
+	if signupEmailKey(prefix+"1@example.com") == signupEmailKey(prefix+"2@example.com") {
+		t.Error("two long addresses that differ at the end share a key")
 	}
 }
 
