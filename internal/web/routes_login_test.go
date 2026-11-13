@@ -446,7 +446,7 @@ func TestLoginLocksTheAccountAfterFiveWrongPasswords(t *testing.T) {
 func TestLoginAnswersTheSameForARegisteredAndAnUnknownEmail(t *testing.T) {
 	const unknown = "ninguem@agenda.test"
 	e := newLoginEnv(t)
-	e.user(t)
+	u := e.user(t)
 
 	for i := 1; i <= accounts.LoginMaxFailures; i++ {
 		registered := e.signIn(loginTestEmail, loginTestWrong, "/eventos/12")
@@ -459,6 +459,16 @@ func TestLoginAnswersTheSameForARegisteredAndAnUnknownEmail(t *testing.T) {
 		if gotRegistered != gotStranger {
 			t.Errorf("wrong password %d: the pages differ.\nregistered: %s\nunknown: %s", i, loginStatus(t, registered.Body.String()), loginStatus(t, stranger.Body.String()))
 		}
+	}
+
+	// The premise: the last round did lock the registered account, so the answers
+	// above were the same with and without a lock.
+	got, err := e.store.Repos().Users.ByID(context.Background(), u.ID)
+	if err != nil {
+		t.Fatalf("ByID: %v", err)
+	}
+	if got.LockedUntil == nil || !got.LockedUntil.After(e.app.Now()) {
+		t.Errorf("LockedUntil = %v after %d wrong passwords, want a lock in the future", got.LockedUntil, accounts.LoginMaxFailures)
 	}
 }
 
