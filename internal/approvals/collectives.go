@@ -16,9 +16,10 @@ import (
 // collective deletes it (and its membership), so the person can ask again.
 
 // ApproveCollective approves the pending collective for the site admin actor:
-// the collective becomes approved and so does its creator's membership, which
-// lets the creator publish events. It emails the creator, with a link under
-// origin, and writes an audit entry, in the same transaction.
+// the collective becomes approved and the admin side of its creator's membership
+// is set, which approves that membership (and lets the creator publish events)
+// when its owner side is set too, as a signup leaves it. It emails the creator,
+// with a link under origin, and writes an audit entry, in the same transaction.
 //
 // It returns ErrNotAllowed when actor is not an active site admin, or when the
 // creator's account is not active (an account that awaits approval, is disabled
