@@ -61,8 +61,9 @@ func (a *App) confirmShow(c *gin.Context) {
 	a.confirmRender(c, http.StatusOK, nil, confirmView{State: confirmStateButton, Token: token})
 }
 
-// confirmSubmit spends the link. The token is not echoed anywhere, and the logs
-// never see it. Guessing a token costs the store a lookup, so the form is
+// confirmSubmit spends the link. The token goes back into the page only in the
+// hidden field of a refused (429) post, so the person can retry later, and the
+// logs never see it. Guessing a token costs the store a lookup, so the form is
 // limited per client address, like login, before any store work.
 func (a *App) confirmSubmit(c *gin.Context) {
 	allowed := a.Limits.Login.Allow("confirm:"+c.ClientIP(), a.Now())
