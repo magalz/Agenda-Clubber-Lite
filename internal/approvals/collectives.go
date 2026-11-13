@@ -56,9 +56,10 @@ func ApproveCollective(ctx context.Context, store domain.Store, origin string, a
 
 // RejectCollective rejects the pending collective for the site admin actor: it
 // deletes the collective and its membership, emails the creator (with the
-// reason, when there is one) and writes an audit entry, in the same
-// transaction. The reason is optional and is cleaned by CheckReason. A creator
-// whose account was deleted gets no email, and the audit entry names nobody.
+// reason, when there is one, and a link to the login page under origin) and
+// writes an audit entry, in the same transaction. The reason is optional and is
+// cleaned by CheckReason. A creator whose account was deleted gets no email, and
+// the audit entry names nobody.
 //
 // It returns ErrNotAllowed when actor is not an active site admin (checked
 // before the reason), domain.FieldErrors with the key "reason" for a bad reason
@@ -89,7 +90,7 @@ func RejectCollective(ctx context.Context, store domain.Store, origin string, ac
 		if err := rejectCollectiveTx(ctx, r, actor, creator, c, reason, d, now); err != nil {
 			return err
 		}
-		return d.send(ctx, r, origin+pathCollectives, now)
+		return d.send(ctx, r, origin+pathLogin, now)
 	})
 }
 
@@ -136,11 +137,13 @@ func SetCollectiveBlocks(ctx context.Context, store domain.Store, actor domain.U
 }
 
 // approveCollectiveTx approves the pending collective c, which the caller read
-// in the transaction r, and the membership of its creator, with the audit entry
-// of the collective, and adds the collective's line to the caller's decision d
-// (the caller sends d, so the person gets one email for everything decided). The
-// caller has checked that c is pending and that creator, who asked for it, is
-// an active account.
+// in the transaction r, and the admin side of the membership of its creator,
+// with the audit entry of the collective, and adds the collective's line to the
+// caller's decision d (the caller sends d, so the person gets one email for
+// everything decided). The membership becomes approved, and decided now, only
+// when its owner side is set too; a signup that creates a collective leaves it
+// set, so the creator is approved with the collective. The caller has checked
+// that c is pending and that creator, who asked for it, is an active account.
 //
 // The membership of the creator is missing only when an invariant is broken,
 // and that is an error that is not domain.ErrNotFound, so the web layer does not
@@ -159,7 +162,10 @@ func approveCollectiveTx(ctx context.Context, r domain.Repos, actor, creator dom
 	if err != nil {
 		return wrap("approve collective: read creator membership", err)
 	}
-	m.Status, m.AdminApprovedBy, m.AdminApprovedAt, m.DecidedAt = domain.MembershipStatusApproved, actor.ID, &at, &at
+	m.AdminApprovedBy, m.AdminApprovedAt = actor.ID, &at
+	if m.OwnerApprovedAt != nil {
+		m.Status, m.DecidedAt = domain.MembershipStatusApproved, &at
+	}
 	if err := r.Memberships.Update(ctx, m); err != nil {
 		return wrap("approve collective: update creator membership", err)
 	}

@@ -59,10 +59,11 @@ var (
 )
 
 // Paths, relative to the site origin, the emails link to: the person's
-// collectives (where they see the outcome of a request) and the admin queue.
+// collectives (where they see the outcome of a request) and the login page (for
+// an outcome that leaves nothing to show there, such as a rejection).
 const (
 	pathCollectives = "/coletivos"
-	pathAdmin       = "/admin"
+	pathLogin       = "/entrar"
 )
 
 // RoleLabel returns the pt-BR name of a stored role: Administrador for owner and
