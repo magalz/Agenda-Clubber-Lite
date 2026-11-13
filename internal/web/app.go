@@ -76,8 +76,18 @@ func (a *App) Router() *gin.Engine {
 	static := a.Assets.Handler()
 	r.GET("/static/*filepath", static)
 	r.HEAD("/static/*filepath", static)
-	r.GET("/", a.home)
-	// Later tasks register their routes here.
+
+	// Each flow registers its routes from its own routes_<flow>.go file, so
+	// flows written in parallel never edit this function. public routes need no
+	// session; authed routes will require one once the session middleware lands.
+	public := r.Group("")
+	authed := r.Group("")
+	authed.GET("/", a.home)
+	a.signupRoutes(public, authed)
+	a.loginRoutes(public, authed)
+	a.confirmRoutes(public, authed)
+	a.passwordRoutes(public, authed)
+	a.resetRoutes(public, authed)
 
 	return r
 }
