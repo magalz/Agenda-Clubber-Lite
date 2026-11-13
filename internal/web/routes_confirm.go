@@ -24,8 +24,8 @@ const (
 )
 
 // confirmView is the Data of auth/confirmar. Token is the link's token, put in
-// the button's form; Message is the line the "resend" state shows as an alert
-// and the "sent" state as a status.
+// the button's form; Message is the line the "button" and "resend" states show
+// as an alert (a refused post) and the "sent" state as a status.
 type confirmView struct {
 	State   string
 	Token   string
