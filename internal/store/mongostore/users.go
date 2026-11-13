@@ -103,15 +103,7 @@ func (r users) MarkEmailVerified(ctx context.Context, id string, now time.Time) 
 	if res.MatchedCount > 0 {
 		return nil
 	}
-	// Nothing matched: either there is no such user, or it is not pending_email.
-	found, err := r.s.exists(ctx, colUsers, oid)
-	if err != nil {
-		return err
-	}
-	if !found {
-		return domain.ErrNotFound
-	}
-	return domain.ErrConflict
+	return r.notMatched(ctx, oid)
 }
 
 // ChangePassword is one update with an aggregation pipeline, so the hash that
@@ -254,12 +246,76 @@ func (s *Store) clearRef(ctx context.Context, collection, field string, id bson.
 	return nil
 }
 
-// ListByStatus is a stub until T3.2 implements it.
+// ListByStatus clamps limit itself: MongoDB reads a limit of 0 as "no limit" and
+// a negative one as its absolute value. The status_created_at index finds the
+// status in created_at order; _id breaks the ties (the hex form of an ObjectID
+// sorts as its bytes do) and is sorted in memory, over at most ListLimitMax rows.
 func (r users) ListByStatus(ctx context.Context, status domain.UserStatus, limit int) ([]domain.User, error) {
-	return nil, errNotImplemented
+	if !status.Valid() {
+		return nil, domain.FieldErrors{"status": domain.MsgInvalid}
+	}
+	limit = min(max(limit, 1), domain.ListLimitMax)
+	cur, err := r.coll().Find(ctx, bson.M{"status": string(status)},
+		options.Find().SetSort(bson.D{key("created_at"), key("_id")}).SetLimit(int64(limit)))
+	if err != nil {
+		return nil, wrap("list users by status", err)
+	}
+	var docs []userDoc
+	if err := cur.All(ctx, &docs); err != nil {
+		return nil, wrap("list users by status", err)
+	}
+	list := make([]domain.User, len(docs))
+	for i, d := range docs {
+		list[i] = d.user()
+	}
+	return list, nil
 }
 
-// Approve is a stub until T3.2 implements it.
+// Approve is one update filtered on the status, so of several calls on one user
+// exactly one matches. The approver is checked first and nothing changes when it
+// is missing; an empty by names nobody, so it is ErrNotFound like any ID the
+// store never issued. A user whose status and approver are both wrong answers
+// ErrNotFound, because the references are checked before the state. The check of
+// the approver is not isolated from a concurrent Delete of it, the same gap as a
+// Create (ACL-21).
 func (r users) Approve(ctx context.Context, id, by string, now time.Time) error {
-	return errNotImplemented
+	oid, err := parseID(id)
+	if err != nil {
+		return err
+	}
+	approver, err := parseID(by)
+	if err != nil {
+		return err
+	}
+	if err := r.s.mustExist(ctx, colUsers, &approver); err != nil {
+		return err
+	}
+	res, err := r.coll().UpdateOne(ctx,
+		bson.M{"_id": oid, "status": string(domain.UserStatusPendingApproval)},
+		bson.M{"$set": bson.M{
+			"status":      string(domain.UserStatusActive),
+			"approved_by": approver,
+			"approved_at": now,
+			"updated_at":  now,
+		}})
+	if err != nil {
+		return wrap("approve user", err)
+	}
+	if res.MatchedCount > 0 {
+		return nil
+	}
+	return r.notMatched(ctx, oid)
+}
+
+// notMatched says why a guarded update on the user matched nothing: there is no
+// such user (ErrNotFound), or it is in the wrong status (ErrConflict).
+func (r users) notMatched(ctx context.Context, oid bson.ObjectID) error {
+	found, err := r.s.exists(ctx, colUsers, oid)
+	if err != nil {
+		return err
+	}
+	if !found {
+		return domain.ErrNotFound
+	}
+	return domain.ErrConflict
 }
