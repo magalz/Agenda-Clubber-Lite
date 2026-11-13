@@ -26,6 +26,7 @@ const (
 	colNeedRole     = "escolha membro ou administrador"
 	colNameExists   = "já existe; peça para entrar"
 	colNameInUse    = "nome já em uso; escolha outro"
+	colNameRequired = "campo obrigatório"
 	colNameLength   = "use de 2 a 80 caracteres"
 	colNeedKind     = "escolha coletivo ou produtora"
 	colLocked       = "este coletivo não está aceitando pedidos agora."
@@ -485,11 +486,20 @@ func TestColetivosNewFieldErrors(t *testing.T) {
 			t.Fatalf("status = %d, want 422; body %q", rec.Code, rec.Body)
 		}
 		body := rec.Body.String()
-		colWantError(t, body, "name", colNameLength)
+		colWantError(t, body, "name", colNameRequired)
 		colWantError(t, body, "kind", colNeedKind)
 		if n := len(e.memberships(t)); n != 0 {
 			t.Errorf("%d memberships, want none", n)
 		}
+	})
+
+	t.Run("a one letter name", func(t *testing.T) {
+		e := newColEnv(t)
+		rec := e.post("/coletivos/novo", url.Values{"name": {"a"}, "kind": {"coletivo"}})
+		if rec.Code != http.StatusUnprocessableEntity {
+			t.Fatalf("status = %d, want 422; body %q", rec.Code, rec.Body)
+		}
+		colWantError(t, rec.Body.String(), "name", colNameLength)
 	})
 
 	t.Run("an approved name asks to join instead", func(t *testing.T) {

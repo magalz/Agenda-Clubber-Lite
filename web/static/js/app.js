@@ -207,6 +207,9 @@
     // /coletivos/sugestoes returns into #collective-suggestions-box (partials/signup-suggestions.html).
     // Picking an option fills the hidden #collective_id; any typing clears it. A name with no pick is a NEW
     // collective, whose creator is its owner: the script then selects Administrador and disables Membro.
+    // With data-mode="join" on the root (Meus Coletivos, pages/app/coletivos.html) the picker only joins an
+    // existing collective: there is no #role-hint, the role is never changed, and a typed name just clears
+    // #collective_id, so the form cannot post a name with no pick as a new collective.
     Alpine.data('collectivePicker', () => {
       let nameInput;
       let idInput;
@@ -214,6 +217,7 @@
       let roleHint;
       let hintDefault;
       let owner;
+      let joinOnly = false;
       let timer = 0;
       let request = null;
       let options = [];
@@ -229,9 +233,12 @@
           nameInput = root.querySelector('#collective_name');
           idInput = root.querySelector('#collective_id');
           box = root.querySelector('#collective-suggestions-box');
-          roleHint = root.querySelector('#role-hint');
-          hintDefault = roleHint.textContent;
-          owner = root.querySelector('input[name="role"][value="owner"]');
+          joinOnly = root.dataset.mode === 'join';
+          if (!joinOnly) {
+            roleHint = root.querySelector('#role-hint');
+            hintDefault = roleHint.textContent;
+            owner = root.querySelector('input[name="role"][value="owner"]');
+          }
           this.syncRole();
         },
         destroy() {
@@ -245,6 +252,7 @@
         },
         // A name typed and no collective picked: the form would create a new one.
         syncRole() {
+          if (joinOnly) return;
           const isNew = nameInput.value.trim() !== '' && idInput.value === '';
           this.membroDisabled = isNew;
           if (isNew) owner.checked = true;
