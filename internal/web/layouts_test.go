@@ -120,7 +120,7 @@ func TestAppShellLoggedOut(t *testing.T) {
 	if strings.Contains(criar, "href") {
 		t.Errorf("disabled Criar Evento has an href: %q", criar)
 	}
-	wantAll(t, "hint", body, `class="hint" id="criar-evento-dica"`, "só donos de coletivo aprovados criam eventos")
+	wantAll(t, "hint", body, `class="hint" id="criar-evento-dica"`, "só administradores de coletivos aprovados criam eventos")
 
 	// No session: no admin section, no logout.
 	for _, bad := range []string{"/admin", `action="/sair"`, "nav-item--logout"} {
@@ -186,7 +186,7 @@ func TestAppShellByUser(t *testing.T) {
 				if strings.Contains(criar, "href") {
 					t.Errorf("disabled Criar Evento has an href: %q", criar)
 				}
-				wantAll(t, "hint", body, `id="criar-evento-dica"`, "só donos de coletivo aprovados criam eventos")
+				wantAll(t, "hint", body, `id="criar-evento-dica"`, "só administradores de coletivos aprovados criam eventos")
 			}
 
 			if signedIn {
