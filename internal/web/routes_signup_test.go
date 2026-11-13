@@ -2,6 +2,8 @@ package web
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -12,6 +14,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/gin-gonic/gin"
 
 	"github.com/magalz/agenda-clubber-lite/internal/auth"
 	"github.com/magalz/agenda-clubber-lite/internal/domain"
@@ -632,31 +636,133 @@ func TestSignupRateLimitPerIP(t *testing.T) {
 	}
 }
 
-func TestSignupEmailKey(t *testing.T) {
-	key := signupEmailKey("ana@example.com")
-	if !strings.HasPrefix(key, "signup-email:") {
-		t.Errorf("key = %q, want the signup-email: prefix that keeps it apart from the IP keys", key)
+// formsHash is the hex SHA-256 of the lower-cased, trimmed address, spelled out
+// here so the tests of the e-mail keys do not lean on the code they check.
+func formsHash(email string) string {
+	sum := sha256.Sum256([]byte(strings.ToLower(strings.TrimSpace(email))))
+	return hex.EncodeToString(sum[:])
+}
+
+// formsContext is a form post from httptest's remote address.
+func formsContext(body string) *gin.Context {
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	return c
+}
+
+// The helper emailForm is what signup, resend and forgot share: it counts the client
+// address, parses the form and, for an address that was allowed and named an
+// e-mail, counts that e-mail. Its limiters hold one hit per key, so a key that
+// refuses a new hit has been spent.
+func TestEmailFormSpendsTheAddressThenTheEmail(t *testing.T) {
+	app := newTestApp(t)
+	ana := url.Values{"email": {" ANA@example.com "}}.Encode()
+	emailKey := "forms-email:" + formsHash("ana@example.com")
+
+	t.Run("a post that names an e-mail spends both budgets", func(t *testing.T) {
+		lim := auth.NewLimiter(1, time.Hour)
+		c := formsContext(ana)
+		form, allowed, err := app.emailForm(c, lim, "forms", webTestNow)
+		if err != nil || !allowed {
+			t.Fatalf("allowed = %v, err = %v, want an allowed post", allowed, err)
+		}
+		if got := form.Get("email"); got != " ANA@example.com " {
+			t.Errorf("form email = %q, want what was posted", got)
+		}
+		if lim.Allow("forms:"+c.ClientIP(), webTestNow) {
+			t.Error("the client address key was not spent")
+		}
+		if lim.Allow(emailKey, webTestNow) {
+			t.Errorf("the e-mail key %q was not spent", emailKey)
+		}
+	})
+
+	t.Run("a blank or missing e-mail spends no e-mail budget", func(t *testing.T) {
+		for _, body := range []string{url.Values{"email": {"  \t"}}.Encode(), url.Values{"name": {"x"}}.Encode()} {
+			lim := auth.NewLimiter(1, time.Hour)
+			if _, allowed, err := app.emailForm(formsContext(body), lim, "forms", webTestNow); err != nil || !allowed {
+				t.Fatalf("body %q: allowed = %v, err = %v, want an allowed post", body, allowed, err)
+			}
+			if !lim.Allow("forms-email:"+formsHash(""), webTestNow) {
+				t.Errorf("body %q: the blank e-mail has a budget of its own", body)
+			}
+		}
+	})
+
+	t.Run("a refused address spends no e-mail budget", func(t *testing.T) {
+		lim := auth.NewLimiter(1, time.Hour)
+		c := formsContext(ana)
+		lim.Allow("forms:"+c.ClientIP(), webTestNow)
+		form, allowed, err := app.emailForm(c, lim, "forms", webTestNow)
+		if err != nil || allowed {
+			t.Fatalf("allowed = %v, err = %v, want a refused post", allowed, err)
+		}
+		if got := form.Get("email"); got != " ANA@example.com " {
+			t.Errorf("form email = %q, want the form back for the 429 page", got)
+		}
+		if !lim.Allow(emailKey, webTestNow) {
+			t.Error("the e-mail key was spent by a refused client address")
+		}
+	})
+
+	t.Run("a refused e-mail refuses the post", func(t *testing.T) {
+		lim := auth.NewLimiter(1, time.Hour)
+		lim.Allow(emailKey, webTestNow)
+		if _, allowed, err := app.emailForm(formsContext(ana), lim, "forms", webTestNow); err != nil || allowed {
+			t.Errorf("allowed = %v, err = %v, want a refused post", allowed, err)
+		}
+	})
+
+	t.Run("a bad body is an error, after the address was counted", func(t *testing.T) {
+		lim := auth.NewLimiter(1, time.Hour)
+		c := formsContext("email=%ff")
+		if _, _, err := app.emailForm(c, lim, "forms", webTestNow); err == nil {
+			t.Fatal("no error for a body that is not UTF-8")
+		}
+		if lim.Allow("forms:"+c.ClientIP(), webTestNow) {
+			t.Error("the client address key was not spent")
+		}
+	})
+}
+
+func TestSignupEmailKeyIsPrefixAndHash(t *testing.T) {
+	app := signupApp(t, stubStore{})
+	for i := 0; i < 5; i++ {
+		app.Limits.Signup.Allow("signup-email:"+formsHash("ana@example.com"), webTestNow)
 	}
-	// One address, one key, however it is spelled.
+	// The form is invalid, so a post that is not refused answers 422.
+	rec := signupPost(app.Router(), signupValues(signupInvalid, func(v url.Values) { v.Set("email", " Ana@Example.com ") }), "198.51.100.9")
+	if rec.Code != http.StatusTooManyRequests {
+		t.Errorf("status = %d, want 429", rec.Code)
+	}
+}
+
+func TestEmailHash(t *testing.T) {
+	hash := emailHash("ana@example.com")
+	if len(hash) != 64 || strings.Trim(hash, "0123456789abcdef") != "" {
+		t.Errorf("hash = %q, want 64 lowercase hex digits and nothing else (the caller adds the key prefix)", hash)
+	}
+	// One address, one hash, however it is spelled.
 	for _, spelling := range []string{"ANA@example.com", " ana@example.com ", "Ana@Example.com", "\tana@EXAMPLE.COM\n"} {
-		if got := signupEmailKey(spelling); got != key {
-			t.Errorf("key of %q = %q, want %q", spelling, got, key)
+		if got := emailHash(spelling); got != hash {
+			t.Errorf("hash of %q = %q, want %q", spelling, got, hash)
 		}
 	}
-	if got := signupEmailKey("bia@example.com"); got == key {
-		t.Errorf("another address has the same key %q", got)
+	if got := emailHash("bia@example.com"); got == hash {
+		t.Errorf("another address has the same hash %q", got)
 	}
 
 	// The post body may hold 64 KiB in the email field, and a limiter keeps its
 	// keys for a whole window: a key must not grow with what the client sends.
 	huge := strings.Repeat("a", 60<<10) + "@example.com"
-	if got := signupEmailKey(huge); len(got) > 128 {
-		t.Errorf("the key of a %d-byte address is %d bytes, want at most 128", len(huge), len(got))
+	if got := emailHash(huge); len(got) > 128 {
+		t.Errorf("the hash of a %d-byte address is %d bytes, want at most 128", len(huge), len(got))
 	}
 	// Bounded does not mean cut: addresses that differ only at the far end differ.
 	prefix := strings.Repeat("a", 4096)
-	if signupEmailKey(prefix+"1@example.com") == signupEmailKey(prefix+"2@example.com") {
-		t.Error("two long addresses that differ at the end share a key")
+	if emailHash(prefix+"1@example.com") == emailHash(prefix+"2@example.com") {
+		t.Error("two long addresses that differ at the end share a hash")
 	}
 }
 
