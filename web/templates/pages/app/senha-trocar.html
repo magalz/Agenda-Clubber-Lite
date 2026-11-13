@@ -1,6 +1,6 @@
 {{/* Change password, for a signed-in person: asked for from the account, or forced once the password is 90 days old
      (the access rules send that person here and nowhere else). Data is a changeView, State one of two. "form": the
-     form; Expired says the password ran out (the intro names it), Email is the account's address (the checklist reads
+     form; Expired says the password ran out (an alert above the form names it, in place of the plain intro), Email is the account's address (the checklist reads
      it for "diferente do seu e-mail"), Checklist the password rules, history included, and Message, when set (rate
      limit), is an alert above the form. The current password is asked first; the new one and its confirmation come
      from the password-fields partial, which is given HistoryCheck so the history item is checked live (POST
@@ -11,9 +11,11 @@
 </div>
 <div class="stack">
   {{if eq .Data.State "done"}}<p class="status status--ok" role="status">{{.Data.Message}}</p>
-  <p><a href="/">ir para o calendário</a></p>
+  <p><a href="/">voltar ao calendário</a></p>
   {{else}}{{with .Data.Message}}<p class="status status--error" role="alert">{{.}}</p>
-  {{end}}<p>{{if .Data.Expired}}sua senha expirou. escolha uma nova para continuar.{{else}}escolha uma nova senha para a sua conta.{{end}}</p>
+  {{end}}{{if .Data.Expired}}<p class="status status--error" role="alert">sua senha venceu: ela vale por 90 dias. crie uma nova para continuar.</p>
+  {{else}}<p>escolha uma nova senha para a sua conta.</p>
+  {{end}}
   {{$cur := ""}}{{with .Errors}}{{$cur = index . "current_password"}}{{end -}}
   <form method="post" action="/senha/trocar" class="stack">
     <div class="field">

@@ -23,9 +23,8 @@ const changeMsgDone = "senha alterada. as outras sessões foram encerradas."
 
 // The verdicts of the history item, the State of the password-history partial.
 const (
-	historyPending = "pending" // nothing was checked
+	historyPending = "pending" // not known to be met: nothing checked, or one of the last passwords
 	historyOK      = "ok"      // not one of the last passwords
-	historyReused  = "reused"  // one of the last passwords
 )
 
 // changeView is the Data of app/senha-trocar. Expired says the password ran
@@ -146,9 +145,8 @@ func (a *App) changeCheck(c *gin.Context) {
 			c.String(http.StatusInternalServerError, "erro interno")
 			return
 		}
-		state = historyOK
-		if reused {
-			state = historyReused
+		if !reused {
+			state = historyOK
 		}
 	}
 	a.Render.Partial(c, http.StatusOK, "password-history", map[string]any{
