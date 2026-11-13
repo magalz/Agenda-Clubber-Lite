@@ -171,7 +171,7 @@ func approveCollectiveTx(ctx context.Context, r domain.Repos, actor, creator dom
 		return wrap("approve collective: update creator membership", err)
 	}
 
-	d.add(whatCollective(c.Name), mail.DecisionApproved, "")
+	d.add(whatCollective(c.Name, c.Kind), mail.DecisionApproved, "")
 	e := auditBy(domain.AuditCollectiveApproved, actor, now)
 	e.UserID, e.UserName, e.CollectiveID, e.CollectiveName = creator.ID, creator.Name, c.ID, c.Name
 	return audit(ctx, r, e)
@@ -186,7 +186,7 @@ func rejectCollectiveTx(ctx context.Context, r domain.Repos, actor, creator doma
 	if err := r.Collectives.Delete(ctx, c.ID); err != nil {
 		return wrap("reject collective: delete collective", err)
 	}
-	d.add(whatCollective(c.Name), mail.DecisionRejected, reason)
+	d.add(whatCollective(c.Name, c.Kind), mail.DecisionRejected, reason)
 	e := auditBy(domain.AuditCollectiveRejected, actor, now)
 	e.UserID, e.UserName, e.CollectiveID, e.CollectiveName, e.Reason = creator.ID, creator.Name, c.ID, c.Name, reason
 	return audit(ctx, r, e)

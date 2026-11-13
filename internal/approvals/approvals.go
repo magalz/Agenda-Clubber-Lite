@@ -59,12 +59,19 @@ var (
 )
 
 // Paths, relative to the site origin, the emails link to: the person's
-// collectives (where they see the outcome of a request) and the login page (for
-// an outcome that leaves nothing to show there, such as a rejection).
+// collectives (where they see the outcome of a request), the login page (for an
+// outcome that leaves nothing to show there, such as a rejection), and the admin
+// area (the requests, and the collectives, the site admins act on).
 const (
-	pathCollectives = "/coletivos"
-	pathLogin       = "/entrar"
+	pathCollectives      = "/coletivos"
+	pathLogin            = "/entrar"
+	pathAdmin            = "/admin"
+	pathAdminCollectives = "/admin/coletivos"
 )
+
+// collectivePath is the page of one collective, where its Administradores see
+// the requests to join it.
+func collectivePath(id string) string { return "/coletivo/" + id }
 
 // RoleLabel returns the pt-BR name of a stored role: Administrador for owner and
 // Membro for member. A role that is none of them is returned as stored, so a
@@ -249,7 +256,7 @@ func notifyOwners(ctx context.Context, r domain.Repos, collectiveID string, data
 const whatAccount = "sua conta"
 
 // whatCollective is a collective the person asked to create.
-func whatCollective(name string) string { return "o coletivo " + name }
+func whatCollective(name string, kind domain.CollectiveKind) string { return "o coletivo " + name }
 
 // whatJoin is the person's request to join a collective in a role.
 func whatJoin(collectiveName string, role domain.Role) string {
