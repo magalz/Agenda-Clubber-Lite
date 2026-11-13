@@ -241,6 +241,59 @@ func TestConfirmPostServerErrorIsLoggedWithoutTheToken(t *testing.T) {
 	}
 }
 
+// A forged token costs a transaction and nothing else stops it, so POST
+// /confirmar is limited per client address like login (10 a minute), under a
+// key of its own.
+func TestConfirmPostRateLimitPerIP(t *testing.T) {
+	// The stub store panics on a call: a malformed token is refused before the
+	// store is asked, so only the limiter can change the answer.
+	r := signupApp(t, stubStore{}).Router()
+	for i := 1; i <= 10; i++ {
+		if rec := confirmPost(r, "/confirmar", url.Values{"token": {"x"}}, "198.51.100.90"); rec.Code != http.StatusBadRequest {
+			t.Fatalf("request %d: status = %d, want 400 (invalid link)", i, rec.Code)
+		}
+	}
+	rec := confirmPost(r, "/confirmar", url.Values{"token": {"x"}}, "198.51.100.90")
+	body := confirmAssertPage(t, rec, http.StatusTooManyRequests, "Confirmar e-mail",
+		msgTooMany, `role="alert"`, `<form method="post" action="/confirmar"`, `type="hidden" name="token" value="x"`, "[→] CONFIRMAR E-MAIL")
+	inOrder(t, body, `role="alert"`, msgTooMany, `<form method="post" action="/confirmar"`)
+	if strings.Contains(body, confirmInvalidText) || strings.Contains(body, `name="email"`) {
+		t.Errorf("the 429 page says the link is invalid or offers the resend form:\n%s", body)
+	}
+
+	// Another client address is not affected.
+	if rec := confirmPost(r, "/confirmar", url.Values{"token": {"x"}}, "198.51.100.91"); rec.Code != http.StatusBadRequest {
+		t.Errorf("other IP: status = %d, want 400", rec.Code)
+	}
+}
+
+func TestConfirmPostIsRefusedBeforeTheStoreIsAsked(t *testing.T) {
+	app := signupApp(t, stubStore{})
+	logs := captureLogs(app)
+	// A well-formed token would reach the store, which panics (a 500).
+	raw, _, err := auth.NewToken()
+	if err != nil {
+		t.Fatalf("NewToken: %v", err)
+	}
+	for i := 0; i < 10; i++ {
+		app.Limits.Login.Allow("confirm:198.51.100.92", webTestNow)
+	}
+	rec := confirmPost(app.Router(), "/confirmar", url.Values{"token": {raw}}, "198.51.100.92")
+	confirmAssertPage(t, rec, http.StatusTooManyRequests, "Confirmar e-mail", msgTooMany, `role="alert"`, `name="token" value="`+raw+`"`)
+	if strings.Contains(logs.String(), raw) {
+		t.Errorf("the token reached the log: %s", logs)
+	}
+
+	// It shares the login limiter but not its budget: a spent login key does
+	// not refuse the confirmation.
+	for i := 0; i < 10; i++ {
+		app.Limits.Login.Allow("login:198.51.100.93", webTestNow)
+	}
+	if rec := confirmPost(app.Router(), "/confirmar", url.Values{"token": {"x"}}, "198.51.100.93"); rec.Code != http.StatusBadRequest {
+		t.Errorf("address with a spent login key: status = %d, want 400", rec.Code)
+	}
+}
+
 // --- POST /confirmar/reenviar ---
 
 func TestConfirmResendAnswersTheSameForEveryAddress(t *testing.T) {
@@ -320,6 +373,19 @@ func TestConfirmResendRateLimitPerEmail(t *testing.T) {
 	// Another address from a new client address is fine.
 	if rec := confirmResend(r, "bia@example.com", "198.51.100.51"); rec.Code != http.StatusOK {
 		t.Errorf("another address: status = %d, want 200", rec.Code)
+	}
+}
+
+// The e-mail budget of the resend form is the key resend-email:<hash>, with the
+// hash alone after the prefix (no other prefix nested in it).
+func TestConfirmResendEmailKeyIsPrefixAndHash(t *testing.T) {
+	app := signupApp(t, stubStore{}) // a post that is not refused would reach the store and panic
+	for i := 0; i < 5; i++ {
+		app.Limits.EmailAction.Allow("resend-email:"+formsHash("ana@example.com"), webTestNow)
+	}
+	rec := confirmResend(app.Router(), " Ana@Example.com ", "198.51.100.95")
+	if rec.Code != http.StatusTooManyRequests || !strings.Contains(rec.Body.String(), msgTooMany) {
+		t.Errorf("status = %d, body %q, want 429 with msgTooMany", rec.Code, rec.Body)
 	}
 }
 

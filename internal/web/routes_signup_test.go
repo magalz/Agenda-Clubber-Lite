@@ -2,6 +2,8 @@ package web
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -12,6 +14,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/gin-gonic/gin"
 
 	"github.com/magalz/agenda-clubber-lite/internal/auth"
 	"github.com/magalz/agenda-clubber-lite/internal/domain"
@@ -629,6 +633,108 @@ func TestSignupRateLimitPerIP(t *testing.T) {
 	// Another client address is not affected.
 	if rec := signupPost(r, signupValues(signupInvalid, func(v url.Values) { v.Set("email", "u7@example.com") }), "198.51.100.8"); rec.Code != http.StatusUnprocessableEntity {
 		t.Errorf("other IP: status = %d, want 422", rec.Code)
+	}
+}
+
+// formsHash is the hex SHA-256 of the lower-cased, trimmed address, spelled out
+// here so the tests of the e-mail keys do not lean on the code they check.
+func formsHash(email string) string {
+	sum := sha256.Sum256([]byte(strings.ToLower(strings.TrimSpace(email))))
+	return hex.EncodeToString(sum[:])
+}
+
+// formsContext is a form post from httptest's remote address.
+func formsContext(body string) *gin.Context {
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	return c
+}
+
+// The helper emailForm is what signup, resend and forgot share: it counts the client
+// address, parses the form and, for an address that was allowed and named an
+// e-mail, counts that e-mail. Its limiters hold one hit per key, so a key that
+// refuses a new hit has been spent.
+func TestEmailFormSpendsTheAddressThenTheEmail(t *testing.T) {
+	app := newTestApp(t)
+	ana := url.Values{"email": {" ANA@example.com "}}.Encode()
+	emailKey := "forms-email:" + formsHash("ana@example.com")
+
+	t.Run("a post that names an e-mail spends both budgets", func(t *testing.T) {
+		lim := auth.NewLimiter(1, time.Hour)
+		c := formsContext(ana)
+		form, allowed, err := app.emailForm(c, lim, "forms", webTestNow)
+		if err != nil || !allowed {
+			t.Fatalf("allowed = %v, err = %v, want an allowed post", allowed, err)
+		}
+		if got := form.Get("email"); got != " ANA@example.com " {
+			t.Errorf("form email = %q, want what was posted", got)
+		}
+		if lim.Allow("forms:"+c.ClientIP(), webTestNow) {
+			t.Error("the client address key was not spent")
+		}
+		if lim.Allow(emailKey, webTestNow) {
+			t.Errorf("the e-mail key %q was not spent", emailKey)
+		}
+	})
+
+	t.Run("a blank or missing e-mail spends no e-mail budget", func(t *testing.T) {
+		for _, body := range []string{url.Values{"email": {"  \t"}}.Encode(), url.Values{"name": {"x"}}.Encode()} {
+			lim := auth.NewLimiter(1, time.Hour)
+			if _, allowed, err := app.emailForm(formsContext(body), lim, "forms", webTestNow); err != nil || !allowed {
+				t.Fatalf("body %q: allowed = %v, err = %v, want an allowed post", body, allowed, err)
+			}
+			if !lim.Allow("forms-email:"+formsHash(""), webTestNow) {
+				t.Errorf("body %q: the blank e-mail has a budget of its own", body)
+			}
+		}
+	})
+
+	t.Run("a refused address spends no e-mail budget", func(t *testing.T) {
+		lim := auth.NewLimiter(1, time.Hour)
+		c := formsContext(ana)
+		lim.Allow("forms:"+c.ClientIP(), webTestNow)
+		form, allowed, err := app.emailForm(c, lim, "forms", webTestNow)
+		if err != nil || allowed {
+			t.Fatalf("allowed = %v, err = %v, want a refused post", allowed, err)
+		}
+		if got := form.Get("email"); got != " ANA@example.com " {
+			t.Errorf("form email = %q, want the form back for the 429 page", got)
+		}
+		if !lim.Allow(emailKey, webTestNow) {
+			t.Error("the e-mail key was spent by a refused client address")
+		}
+	})
+
+	t.Run("a refused e-mail refuses the post", func(t *testing.T) {
+		lim := auth.NewLimiter(1, time.Hour)
+		lim.Allow(emailKey, webTestNow)
+		if _, allowed, err := app.emailForm(formsContext(ana), lim, "forms", webTestNow); err != nil || allowed {
+			t.Errorf("allowed = %v, err = %v, want a refused post", allowed, err)
+		}
+	})
+
+	t.Run("a bad body is an error, after the address was counted", func(t *testing.T) {
+		lim := auth.NewLimiter(1, time.Hour)
+		c := formsContext("email=%ff")
+		if _, _, err := app.emailForm(c, lim, "forms", webTestNow); err == nil {
+			t.Fatal("no error for a body that is not UTF-8")
+		}
+		if lim.Allow("forms:"+c.ClientIP(), webTestNow) {
+			t.Error("the client address key was not spent")
+		}
+	})
+}
+
+func TestSignupEmailKeyIsPrefixAndHash(t *testing.T) {
+	app := signupApp(t, stubStore{})
+	for i := 0; i < 5; i++ {
+		app.Limits.Signup.Allow("signup-email:"+formsHash("ana@example.com"), webTestNow)
+	}
+	// The form is invalid, so a post that is not refused answers 422.
+	rec := signupPost(app.Router(), signupValues(signupInvalid, func(v url.Values) { v.Set("email", " Ana@Example.com ") }), "198.51.100.9")
+	if rec.Code != http.StatusTooManyRequests {
+		t.Errorf("status = %d, want 429", rec.Code)
 	}
 }
 

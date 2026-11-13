@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/gin-gonic/gin"
@@ -69,6 +70,11 @@ func signupData(form url.Values, notice string) PageData {
 func signupEmailKey(email string) string {
 	sum := sha256.Sum256([]byte(strings.ToLower(strings.TrimSpace(email))))
 	return "signup-email:" + hex.EncodeToString(sum[:])
+}
+
+// emailForm is the stub of the helper the next commit writes.
+func (a *App) emailForm(c *gin.Context, lim *auth.Limiter, prefix string, now time.Time) (url.Values, bool, error) {
+	return nil, false, nil
 }
 
 // signupKept is the form without its passwords: a password is never written
