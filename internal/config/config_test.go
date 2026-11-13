@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -27,9 +28,10 @@ func getenvOf(kv ...string) func(string) string {
 	return func(k string) string { return m[k] }
 }
 
-// withOrigin returns kv preceded by a valid APP_ORIGIN.
+// withOrigin returns kv preceded by a valid APP_ORIGIN and the SMTP host and
+// username that production requires (see TestLoadProductionSMTP).
 func withOrigin(kv ...string) []string {
-	return append([]string{"APP_ORIGIN", okOrigin}, kv...)
+	return append([]string{"APP_ORIGIN", okOrigin, "SMTP_HOST", "smtp.example", "SMTP_USERNAME", "smtp-user"}, kv...)
 }
 
 // withMongo returns kv preceded by the two required variables, a valid
@@ -64,7 +66,7 @@ func TestLoadDefaults(t *testing.T) {
 	if len(cfg.TrustedProxyCIDRs) != 0 {
 		t.Errorf("TrustedProxyCIDRs = %v, want empty", cfg.TrustedProxyCIDRs)
 	}
-	want := SMTPConfig{Port: 587, From: "IgnisDev <ignisdev@magalz.space>"}
+	want := SMTPConfig{Host: "smtp.example", Port: 587, Username: "smtp-user", From: "IgnisDev <ignisdev@magalz.space>"}
 	if cfg.SMTP != want {
 		t.Errorf("SMTP = %#v, want %#v", cfg.SMTP, want)
 	}
@@ -144,6 +146,64 @@ func TestLoadMailDropDirRefusedInProdDoesNotEchoThePath(t *testing.T) {
 	}
 }
 
+// Production sends mail only through a server that needs a login, and the SMTP
+// sender then insists on TLS: a missing host or username would leave the app
+// sending in clear text, or not at all. Development keeps its freedom (Mailpit
+// takes no login, and without a host a drop folder or no mail at all does).
+func TestLoadProductionSMTP(t *testing.T) {
+	base := []string{"APP_ORIGIN", okOrigin, "MONGO_URI", okMongo}
+	with := func(kv ...string) []string { return append(slices.Clone(base), kv...) }
+	tests := []struct {
+		name string
+		kv   []string
+		want string // variable that the error must name; empty when Load must succeed
+	}{
+		{"prod without a host", with(), "SMTP_HOST"},
+		{"prod with a username but no host", with("SMTP_USERNAME", "user"), "SMTP_HOST"},
+		{"prod with a blank host", with("SMTP_HOST", "   ", "SMTP_USERNAME", "user"), "SMTP_HOST"},
+		{"prod with a host but no username", with("SMTP_HOST", "smtp.example"), "SMTP_USERNAME"},
+		{"prod with a blank username", with("SMTP_HOST", "smtp.example", "SMTP_USERNAME", "  "), "SMTP_USERNAME"},
+		{"explicit prod without a host", with("APP_ENV", "prod"), "SMTP_HOST"},
+		{"prod with a host and a username", with("SMTP_HOST", "smtp.example", "SMTP_USERNAME", "user"), ""},
+		{"dev without SMTP", with("APP_ENV", "dev"), ""},
+		{"dev with a host and no username (Mailpit)", with("APP_ENV", "dev", "SMTP_HOST", "localhost", "SMTP_PORT", "1025"), ""},
+		{"dev with a drop folder", with("APP_ENV", "dev", "MAIL_DROP_DIR", "tmp/mail"), ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := Load(getenvOf(tt.kv...))
+			switch {
+			case tt.want == "" && err != nil:
+				t.Errorf("Load: %v, want no error", err)
+			case tt.want != "" && (err == nil || !strings.Contains(err.Error(), tt.want+":")):
+				t.Errorf("Load error = %v, want one naming %s", err, tt.want)
+			}
+		})
+	}
+}
+
+// The error of a missing SMTP setting never echoes a value: neither the
+// password set in the same environment nor the host or username next to the
+// missing one.
+func TestLoadProductionSMTPErrorsDoNotLeakSecrets(t *testing.T) {
+	for name, kv := range map[string][]string{
+		"no host":     {"SMTP_USERNAME", "user-secret", "SMTP_PASSWORD", "smtp-secret"},
+		"no username": {"SMTP_HOST", "smtp.private-relay.example", "SMTP_PASSWORD", "smtp-secret"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := Load(getenvOf(append([]string{"APP_ORIGIN", okOrigin, "MONGO_URI", secretMongo}, kv...)...))
+			if err == nil {
+				t.Fatal("Load returned no error")
+			}
+			for _, leak := range []string{"smtp-secret", "user-secret", "private-relay", "mongo-secret", "dbuser"} {
+				if strings.Contains(err.Error(), leak) {
+					t.Errorf("error %q leaks %q", err, leak)
+				}
+			}
+		})
+	}
+}
+
 func TestLoadOriginNormalization(t *testing.T) {
 	tests := []struct{ in, want string }{
 		{"https://agenda.example", "https://agenda.example"},
@@ -160,7 +220,7 @@ func TestLoadOriginNormalization(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.in, func(t *testing.T) {
-			cfg, err := Load(getenvOf("APP_ORIGIN", tt.in, "MONGO_URI", okMongo))
+			cfg, err := Load(getenvOf("APP_ORIGIN", tt.in, "MONGO_URI", okMongo, "SMTP_HOST", "smtp.example", "SMTP_USERNAME", "smtp-user"))
 			if err != nil {
 				t.Fatalf("Load: %v", err)
 			}

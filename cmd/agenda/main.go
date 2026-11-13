@@ -22,6 +22,7 @@ import (
 	"github.com/magalz/agenda-clubber-lite/internal/auth"
 	"github.com/magalz/agenda-clubber-lite/internal/config"
 	"github.com/magalz/agenda-clubber-lite/internal/domain"
+	"github.com/magalz/agenda-clubber-lite/internal/mail"
 	"github.com/magalz/agenda-clubber-lite/internal/store/mongostore"
 	"github.com/magalz/agenda-clubber-lite/internal/web"
 )
@@ -224,6 +225,18 @@ func serve(ctx context.Context, getenv func(string) string, stdout, stderr io.Wr
 		return 1
 	}
 	return 0
+}
+
+// cleanupInterval is how often serve removes expired sessions and tokens; a
+// variable so a test can shorten it.
+var cleanupInterval = time.Hour
+
+// newSender is a stub until the green commit.
+func newSender(cfg config.Config, log *slog.Logger) (mail.Sender, error) { return nil, nil }
+
+// startJobs is a stub until the green commit.
+func startJobs(ctx context.Context, log *slog.Logger, repos domain.Repos, sender mail.Sender) (stop func(timeout time.Duration) bool) {
+	return func(time.Duration) bool { return true }
 }
 
 // newLogger logs JSON in production and text in development.
