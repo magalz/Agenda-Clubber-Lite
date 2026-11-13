@@ -1,8 +1,10 @@
 package approvals
 
 import (
+	"cmp"
 	"context"
 	"errors"
+	"slices"
 	"time"
 
 	"github.com/magalz/agenda-clubber-lite/internal/domain"
@@ -25,7 +27,8 @@ import (
 
 // PersonCard is one person in the site admin's queue: the account and the
 // requests of the person that wait for the admin (a collective the person asked
-// to create, or a request to join one), the oldest request first.
+// to create, or a request to join one), the oldest request first (Items follow
+// the order of Memberships.ListAwaitingAdmin).
 type PersonCard struct {
 	User  domain.User
 	Items []domain.MembershipView
@@ -42,11 +45,14 @@ func (p PersonCard) AccountPending() bool { return p.User.Status == domain.UserS
 // person that they have not decided get the request notice, as the request
 // becomes visible to them now.
 //
-// It returns ErrNotAllowed when actor is not an active site admin or the account
-// has not confirmed its email or is disabled; domain.ErrNotFound when it does
-// not exist; and ErrDecided when it is already active. An approval that races
-// with another decision on the same account gets ErrDecided (it lost to an
-// approval) or domain.ErrNotFound (it lost to a rejection).
+// The email links to the sign-in page under origin: the person can sign in now.
+//
+// It returns ErrNotAllowed when actor is not an active site admin;
+// domain.ErrNotFound when the account does not exist; and ErrDecided when it is
+// not awaiting approval (it is active already, has not confirmed its email, or
+// is disabled). An approval that races with another decision on the same account
+// gets ErrDecided (it lost to an approval) or domain.ErrNotFound (it lost to a
+// rejection).
 func ApproveAccount(ctx context.Context, store domain.Store, origin string, actor domain.User, userID string, now time.Time) error {
 	if err := requireAdmin(actor); err != nil {
 		return err
@@ -65,78 +71,88 @@ func ApproveAccount(ctx context.Context, store domain.Store, origin string, acto
 		if err := approveAccountTx(ctx, r, origin, actor, person, views, d, now); err != nil {
 			return err
 		}
-		return d.send(ctx, r, origin+pathCollectives, now)
+		return d.send(ctx, r, origin+pathLogin, now)
 	})
 }
 
-// ApprovePerson is "Aprovar tudo": it approves the account of userID, every
-// collective the person created that still awaits the admin and the admin side
-// of every join request of the person that awaits it, for the site admin actor.
-// The person gets one email for all of it and each decision writes its own audit
-// entry, all in the same transaction. A join request becomes approved only when
-// the Administradores of the collective have decided it too; otherwise the email
-// says it waits for them. The Administradores of each approved collective with a
-// request that they have not decided get the request notice (never the person's
-// own new collectives: the person is their Master).
+// ApprovePerson is "Aprovar tudo": it decides everything about userID that waits
+// for the site admin actor in one call. For an account that awaits approval that
+// is the account itself, then every collective the person created that still
+// awaits the admin and the admin side of every join request of the person that
+// awaits it. For an active account there is no account step: it decides the open
+// items only. The person gets one email for all of it and each decision writes
+// its own audit entry, all in the same transaction. A join request becomes
+// approved only when the Administradores of the collective have decided it too;
+// otherwise the email says it waits for them. The Administradores of each approved
+// collective with a request that they have not decided get the request notice
+// (never the person's own new collectives: the person is their Master). A pending
+// collective the person did not create is not theirs to decide: it is skipped, and
+// so is a request that is not open.
 //
-// It returns the errors of ApproveAccount, and an error that is none of the
-// errors of this package when a request of the person points at a collective
-// that cannot be decided (a broken invariant: the transaction is rolled back). An
-// active account is ErrDecided: what waits for an active person is decided one
-// item at a time.
+// It returns ErrNotAllowed when actor is not an active site admin;
+// domain.ErrNotFound when the account does not exist; and ErrDecided when the
+// account is neither awaiting approval nor active (has not confirmed its email, or
+// is disabled), or when there was nothing to decide: the account was active and no
+// item of the person awaited the admin. It returns an error that is none of the
+// errors of this package when a request of the person points at a collective that
+// does not exist (a broken invariant: the transaction is rolled back).
 func ApprovePerson(ctx context.Context, store domain.Store, origin string, actor domain.User, userID string, now time.Time) error {
 	if err := requireAdmin(actor); err != nil {
 		return err
 	}
 	return store.WithTx(ctx, func(ctx context.Context, r domain.Repos) error {
 		const step = "approve person"
-		person, err := accountPending(ctx, r, userID, step)
+		person, err := r.Users.ByID(ctx, userID)
 		if err != nil {
-			return err
+			return wrap(step+": read user", err)
+		}
+		if person.Status != domain.UserStatusPendingApproval && person.Status != domain.UserStatusActive {
+			return ErrDecided
 		}
 		views, err := r.Memberships.ListByUser(ctx, person.ID)
 		if err != nil {
 			return wrap(step+": list memberships", err)
 		}
 		d := newDecision(person.Email, person.Name)
-		if err := approveAccountTx(ctx, r, origin, actor, person, views, d, now); err != nil {
-			return err
+		if person.Status == domain.UserStatusPendingApproval {
+			if err := approveAccountTx(ctx, r, origin, actor, person, views, d, now); err != nil {
+				return err
+			}
 		}
 		for _, v := range views {
 			if v.Status != domain.MembershipStatusPending || v.AdminApprovedAt != nil {
 				continue
 			}
-			c, err := r.Collectives.ByID(ctx, v.CollectiveID)
-			if errors.Is(err, domain.ErrNotFound) {
-				return errors.New("approvals: " + step + ": the collective of a membership does not exist")
-			}
+			c, err := accountsCollective(ctx, r, v, step)
 			if err != nil {
-				return wrap(step+": read collective", err)
+				return err
 			}
-			switch c.Status {
-			case domain.CollectiveStatusPending:
-				if c.CreatedBy != person.ID {
-					return errors.New("approvals: " + step + ": the person has a request to join a collective that is not approved")
-				}
+			switch {
+			case c.Status == domain.CollectiveStatusPending && c.CreatedBy == person.ID:
 				err = approveCollectiveTx(ctx, r, actor, person, c, d, now)
-			case domain.CollectiveStatusApproved:
+			case c.Status == domain.CollectiveStatusApproved:
 				err = adminApproveJoinTx(ctx, r, actor, person, c, v.Membership, d, now)
 			}
 			if err != nil {
 				return err
 			}
 		}
+		if len(d.items) == 0 {
+			return ErrDecided
+		}
 		return d.send(ctx, r, origin+pathCollectives, now)
 	})
 }
 
 // RejectAccount rejects the account of userID for the site admin actor: it
-// deletes the account, the collectives the person created that still await the
-// admin and the person's join requests, emails the person (with the reason, when
-// there is one, on each line, and a link to the sign-up page under origin, so
-// they can sign up again) and writes an audit entry for the account and one for
-// each collective and request that went with it, in the same transaction. The
-// reason is optional and is cleaned by CheckReason.
+// deletes the account (with its sessions, tokens and memberships) and the
+// collectives the person created that still await the admin, emails the person
+// (with the reason, when there is one, on each line, and a link to the sign-up
+// page under origin, so they can sign up again) and writes an audit entry for the
+// account and one for each collective that went with it, in the same transaction.
+// The person's requests to join other collectives go with the account without a
+// line or an audit entry of their own, and a pending collective somebody else
+// created is left as it is. The reason is optional and is cleaned by CheckReason.
 //
 // It returns domain.FieldErrors with the key "reason" for a bad reason (checked
 // after the actor), and otherwise the errors of ApproveAccount. A rejection that
@@ -164,27 +180,18 @@ func RejectAccount(ctx context.Context, store domain.Store, origin string, actor
 		d.add(whatAccount, mail.DecisionRejected, reason)
 		for _, v := range views {
 			if v.Status != domain.MembershipStatusPending {
-				// An approved membership goes with the account and is no
-				// request: it has nothing to tell the person.
 				continue
 			}
-			c, err := r.Collectives.ByID(ctx, v.CollectiveID)
-			if errors.Is(err, domain.ErrNotFound) {
-				return errors.New("approvals: " + step + ": the collective of a membership does not exist")
-			}
+			c, err := accountsCollective(ctx, r, v, step)
 			if err != nil {
-				return wrap(step+": read collective", err)
+				return err
 			}
-			switch c.Status {
-			case domain.CollectiveStatusPending:
-				if c.CreatedBy != person.ID {
-					return errors.New("approvals: " + step + ": the person has a request to join a collective that is not approved")
-				}
-				err = rejectCollectiveTx(ctx, r, actor, person, c, reason, d, now)
-			case domain.CollectiveStatusApproved:
-				err = rejectJoinTx(ctx, r, actor, person, c, v.Membership, reason, d, now)
+			if c.Status != domain.CollectiveStatusPending || c.CreatedBy != person.ID {
+				// Not the person's own new collective: the membership goes with
+				// the account (Users.Delete) and the collective is not theirs.
+				continue
 			}
-			if err != nil {
+			if err := rejectCollectiveTx(ctx, r, actor, person, c, reason, d, now); err != nil {
 				return err
 			}
 		}
@@ -203,14 +210,16 @@ func RejectAccount(ctx context.Context, store domain.Store, origin string, actor
 // BlockAccount disables the active account of userID for the site admin actor:
 // it ends every session of the person, so the block takes effect on their next
 // request, and writes an audit entry with the optional reason (cleaned by
-// CheckReason), in the same transaction. It queues no email. The person's
-// collectives and requests stay as they are.
+// CheckReason), in the same transaction. It queues no email: the person is shut
+// out, not told a decision about a request. The person's collectives and requests
+// stay as they are.
 //
-// It returns ErrNotAllowed when actor is not an active site admin or the account
-// is still pending (a pending account is approved or rejected, not blocked);
-// ErrSelf when actor is userID (checked right after the actor); domain.FieldErrors
-// with the key "reason" for a bad reason; domain.ErrNotFound when the account
-// does not exist; and ErrDecided when it is already disabled.
+// It returns ErrNotAllowed when actor is not an active site admin; ErrSelf when
+// actor is userID (checked right after the actor); domain.FieldErrors with the key
+// "reason" for a bad reason; domain.ErrNotFound when the account does not exist;
+// and ErrDecided when it is not active (it is disabled already, or still awaits
+// approval or confirmation: a pending account is approved or rejected, not
+// blocked).
 func BlockAccount(ctx context.Context, store domain.Store, actor domain.User, userID, reason string, now time.Time) error {
 	if err := requireAdmin(actor); err != nil {
 		return err
@@ -228,12 +237,8 @@ func BlockAccount(ctx context.Context, store domain.Store, actor domain.User, us
 		if err != nil {
 			return wrap(step+": read user", err)
 		}
-		switch person.Status {
-		case domain.UserStatusActive:
-		case domain.UserStatusDisabled:
+		if person.Status != domain.UserStatusActive {
 			return ErrDecided
-		default:
-			return ErrNotAllowed
 		}
 		if err := r.Users.SetStatus(ctx, person.ID, domain.UserStatusDisabled, now); err != nil {
 			return wrap(step+": set status", err)
@@ -252,9 +257,9 @@ func BlockAccount(ctx context.Context, store domain.Store, actor domain.User, us
 // signs in again; nothing else about them changed while they were blocked. It
 // queues no email.
 //
-// It returns ErrNotAllowed when actor is not an active site admin or the account
-// is pending; domain.ErrNotFound when it does not exist; and ErrDecided when it
-// is already active.
+// It returns ErrNotAllowed when actor is not an active site admin;
+// domain.ErrNotFound when the account does not exist; and ErrDecided when it is
+// not disabled.
 func UnblockAccount(ctx context.Context, store domain.Store, actor domain.User, userID string, now time.Time) error {
 	if err := requireAdmin(actor); err != nil {
 		return err
@@ -265,12 +270,8 @@ func UnblockAccount(ctx context.Context, store domain.Store, actor domain.User, 
 		if err != nil {
 			return wrap(step+": read user", err)
 		}
-		switch person.Status {
-		case domain.UserStatusDisabled:
-		case domain.UserStatusActive:
+		if person.Status != domain.UserStatusDisabled {
 			return ErrDecided
-		default:
-			return ErrNotAllowed
 		}
 		if err := r.Users.SetStatus(ctx, person.ID, domain.UserStatusActive, now); err != nil {
 			return wrap(step+": set status", err)
@@ -282,13 +283,14 @@ func UnblockAccount(ctx context.Context, store domain.Store, actor domain.User, 
 }
 
 // AdminQueue returns the people the site admin has something to decide about:
-// first the accounts that await approval, the oldest first, each with the
-// requests of the person that await the admin; then the active accounts that
-// have such requests, the one with the oldest request first. Every card has the
-// account or at least one request to decide. Only the first domain.ListLimitMax
-// accounts and the first domain.ListLimitMax requests are read. It runs no
-// transaction: the queue is a read, and a decision that lands between its
-// queries shows up on the next one.
+// the accounts that await approval and the active accounts with requests that
+// await the admin. Every card has the account or at least one request to decide.
+// The cards are in one order: by the time of the oldest request of the card (the
+// card's first item), a card without requests by the creation of its account, the
+// oldest first, and the items of a card by the time of the request. Only the first
+// domain.ListLimitMax accounts and the first domain.ListLimitMax requests are
+// read. It runs no transaction: the queue is a read, and a decision that lands
+// between its queries shows up on the next one.
 //
 // It returns ErrNotAllowed when actor is not an active site admin.
 func AdminQueue(ctx context.Context, store domain.Store, actor domain.User) ([]PersonCard, error) {
@@ -296,63 +298,89 @@ func AdminQueue(ctx context.Context, store domain.Store, actor domain.User) ([]P
 		return nil, err
 	}
 	r := store.Repos()
-	pending, err := r.Users.ListByStatus(ctx, domain.UserStatusPendingApproval, domain.ListLimitMax)
-	if err != nil {
-		return nil, wrap("admin queue: list pending accounts", err)
-	}
 	awaiting, err := r.Memberships.ListAwaitingAdmin(ctx, domain.ListLimitMax)
 	if err != nil {
 		return nil, wrap("admin queue: list requests", err)
 	}
-	byUser := make(map[string][]domain.MembershipView)
-	var order []string // the users with requests, the oldest request first
-	for _, v := range awaiting {
-		if _, ok := byUser[v.UserID]; !ok {
-			order = append(order, v.UserID)
-		}
-		byUser[v.UserID] = append(byUser[v.UserID], v)
+	pending, err := r.Users.ListByStatus(ctx, domain.UserStatusPendingApproval, domain.ListLimitMax)
+	if err != nil {
+		return nil, wrap("admin queue: list pending accounts", err)
 	}
 	var cards []PersonCard
+	at := make(map[string]int) // user ID -> index in cards, or -1 for a user left out
+	for _, v := range awaiting {
+		i, seen := at[v.UserID]
+		if !seen {
+			u, err := r.Users.ByID(ctx, v.UserID)
+			switch {
+			case errors.Is(err, domain.ErrNotFound):
+				i = -1
+			case err != nil:
+				return nil, wrap("admin queue: read user", err)
+			case u.Status == domain.UserStatusActive || u.Status == domain.UserStatusPendingApproval:
+				i = len(cards)
+				cards = append(cards, PersonCard{User: u})
+			default:
+				i = -1
+			}
+			at[v.UserID] = i
+		}
+		if i >= 0 {
+			cards[i].Items = append(cards[i].Items, v)
+		}
+	}
 	for _, u := range pending {
-		cards = append(cards, PersonCard{User: u, Items: byUser[u.ID]})
-		delete(byUser, u.ID)
+		if _, seen := at[u.ID]; !seen {
+			at[u.ID] = len(cards)
+			cards = append(cards, PersonCard{User: u})
+		}
 	}
-	for _, id := range order {
-		items, ok := byUser[id]
-		if !ok {
-			continue
+	queuedAt := func(p PersonCard) time.Time {
+		if len(p.Items) > 0 {
+			return p.Items[0].RequestedAt
 		}
-		u, err := r.Users.ByID(ctx, id)
-		if errors.Is(err, domain.ErrNotFound) {
-			continue
-		}
-		if err != nil {
-			return nil, wrap("admin queue: read user", err)
-		}
-		if u.Status != domain.UserStatusActive {
-			continue
-		}
-		cards = append(cards, PersonCard{User: u, Items: items})
+		return p.User.CreatedAt
 	}
+	slices.SortStableFunc(cards, func(a, b PersonCard) int {
+		if c := queuedAt(a).Compare(queuedAt(b)); c != 0 {
+			return c
+		}
+		return cmp.Compare(a.User.ID, b.User.ID)
+	})
 	return cards, nil
 }
 
 // accountPending reads the person a decision is about, in the caller's
-// transaction, and returns it only when the account awaits approval. An active
-// account is ErrDecided (the decision was made); one that has not confirmed its
-// email or is disabled is ErrNotAllowed; an unknown one is domain.ErrNotFound.
+// transaction, and returns it only when the account awaits approval. Any other
+// status is ErrDecided (the account is not awaiting the admin: it was approved
+// already, or has not confirmed its email, or is disabled); an unknown account is
+// domain.ErrNotFound.
 func accountPending(ctx context.Context, r domain.Repos, userID, step string) (domain.User, error) {
 	u, err := r.Users.ByID(ctx, userID)
 	if err != nil {
 		return domain.User{}, wrap(step+": read user", err)
 	}
-	switch u.Status {
-	case domain.UserStatusPendingApproval:
-		return u, nil
-	case domain.UserStatusActive:
+	if u.Status != domain.UserStatusPendingApproval {
 		return domain.User{}, ErrDecided
 	}
-	return domain.User{}, ErrNotAllowed
+	return u, nil
+}
+
+// accountsCollective reads, in the caller's transaction, the collective of the
+// membership view v, right before the caller decides it (see the conventions at
+// the top of internal/domain/repo.go). A membership always has its collective, so
+// a missing one is a broken invariant: the error matches none of the errors of
+// this package and not domain.ErrNotFound, and the caller rolls the transaction
+// back.
+func accountsCollective(ctx context.Context, r domain.Repos, v domain.MembershipView, step string) (domain.Collective, error) {
+	c, err := r.Collectives.ByID(ctx, v.CollectiveID)
+	if errors.Is(err, domain.ErrNotFound) {
+		return domain.Collective{}, errors.New("approvals: " + step + ": the collective of a membership does not exist")
+	}
+	if err != nil {
+		return domain.Collective{}, wrap(step+": read collective", err)
+	}
+	return c, nil
 }
 
 // approveAccountTx approves the pending account of person, whom the caller read

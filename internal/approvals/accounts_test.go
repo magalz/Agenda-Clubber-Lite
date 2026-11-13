@@ -1108,3 +1108,32 @@ func TestAdminQueueRefused(t *testing.T) {
 		})
 	}
 }
+
+// failingCollectives is a domain.Collectives whose ByID fails with err. It
+// embeds the interface only to satisfy it: the tests call nothing else.
+type failingCollectives struct {
+	domain.Collectives
+	err error
+}
+
+func (f failingCollectives) ByID(context.Context, string) (domain.Collective, error) {
+	return domain.Collective{}, f.err
+}
+
+// A membership always has its collective, so a missing one is a broken
+// invariant: it is none of the outcomes a caller shows the person as a normal
+// refusal (ErrNotAllowed, ErrDecided) or a missing target (domain.ErrNotFound).
+// Any other failure of the read keeps its cause.
+func TestAccountsCollectiveReadFailures(t *testing.T) {
+	ctx := context.Background()
+	v := domain.MembershipView{Membership: domain.Membership{CollectiveID: "c1"}}
+
+	_, err := accountsCollective(ctx, domain.Repos{Collectives: failingCollectives{err: domain.ErrNotFound}}, v, "step")
+	if err == nil || !isNoneOf(err, ErrNotAllowed, ErrDecided, domain.ErrNotFound) {
+		t.Fatalf("a missing collective: err = %v, want an error that is none of the errors of the package", err)
+	}
+
+	boom := errors.New("boom")
+	_, err = accountsCollective(ctx, domain.Repos{Collectives: failingCollectives{err: boom}}, v, "step")
+	requireErrorIs(t, err, boom)
+}

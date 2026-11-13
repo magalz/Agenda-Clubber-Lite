@@ -13,10 +13,11 @@
 // Every decision about a person's request or account emails the person and
 // writes an audit entry; one call can decide several things about one person, and
 // then it sends one email for all of them and writes one audit entry for each.
-// The one exception is an Administrador's approval of a join request that still
-// waits for the site admin: nobody is told yet. The email is rendered and queued
-// in the same transaction as the writes, so it exists exactly when the decision
-// does.
+// The exceptions: an Administrador's approval of a join request that still waits
+// for the site admin tells nobody yet, and neither does the site admin's block or
+// unblock of an account (BlockAccount, UnblockAccount), which only writes an audit
+// entry. The email is rendered and queued in the same transaction as the writes,
+// so it exists exactly when the decision does.
 //
 // For data access this package uses only internal/domain, never a database
 // driver or a store implementation; it also uses internal/mail to render
