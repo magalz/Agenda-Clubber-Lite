@@ -2,11 +2,29 @@ package storetest
 
 import (
 	"fmt"
+	"math"
+	"slices"
 	"testing"
 	"time"
 
 	"github.com/magalz/agenda-clubber-lite/internal/domain"
 )
+
+func userIDs(users []domain.User) []string {
+	ids := make([]string, len(users))
+	for i, u := range users {
+		ids[i] = u.ID
+	}
+	return ids
+}
+
+func normUsers(users []domain.User) []domain.User {
+	out := make([]domain.User, len(users))
+	for i, u := range users {
+		out[i] = normUser(u)
+	}
+	return out
+}
 
 // RunUsers runs the contract of domain.Users.
 func RunUsers(t *testing.T, newStore NewStore) {
@@ -335,6 +353,139 @@ func RunUsers(t *testing.T, newStore NewStore) {
 			for _, id := range unknownIDs {
 				isErr(t, fmt.Sprintf("ResetLoginFailures(%q)", id), e.r.Users.ResetLoginFailures(e.ctx, id), domain.ErrNotFound)
 			}
+		}},
+		{"ListByStatus returns only the users with that status", func(t *testing.T, e env) {
+			byStatus := func(status domain.UserStatus, created time.Duration) func(*domain.User) {
+				return func(u *domain.User) { u.Status, u.CreatedAt = status, at(created) }
+			}
+			pendingEmail := e.user("pe", byStatus(uPendingEmail, 0))
+			pendingA := e.user("pa", byStatus(uPendingApproval, 0))
+			pendingB := e.user("pb", byStatus(uPendingApproval, time.Minute))
+			active := e.user("ac", byStatus(uActive, 0))
+			disabled := e.user("di", byStatus(uDisabled, 0))
+			for _, c := range []struct {
+				status domain.UserStatus
+				want   []domain.User
+			}{
+				{uPendingEmail, []domain.User{pendingEmail}},
+				{uPendingApproval, []domain.User{pendingA, pendingB}},
+				{uActive, []domain.User{active}},
+				{uDisabled, []domain.User{disabled}},
+			} {
+				got, err := e.r.Users.ListByStatus(e.ctx, c.status, 10)
+				noErr(t, "ListByStatus "+string(c.status), err)
+				wantEqual(t, "users in status "+string(c.status), normUsers(got), normUsers(c.want))
+			}
+		}},
+		{"ListByStatus orders by CreatedAt, then by ID", func(t *testing.T, e env) {
+			pending := func(created time.Duration) func(*domain.User) {
+				return func(u *domain.User) { u.Status, u.CreatedAt = uPendingApproval, at(created) }
+			}
+			// Stored out of order on purpose: the order is the contract, not the
+			// order of insertion.
+			late := e.user("late", pending(3*time.Minute))
+			tieA := e.user("tiea", pending(time.Minute))
+			tieB := e.user("tieb", pending(time.Minute))
+			tieC := e.user("tiec", pending(time.Minute))
+			early := e.user("early", pending(-time.Minute))
+			// Another status and earlier than all of them: it must not show up.
+			e.user("other", func(u *domain.User) { u.CreatedAt = at(-time.Hour) })
+
+			ties := []string{tieA.ID, tieB.ID, tieC.ID}
+			slices.Sort(ties)
+			want := append(append([]string{early.ID}, ties...), late.ID)
+
+			got, err := e.r.Users.ListByStatus(e.ctx, uPendingApproval, 10)
+			noErr(t, "ListByStatus", err)
+			wantStrings(t, "IDs", userIDs(got), want...)
+		}},
+		{"ListByStatus clamps the limit to the range 1 to ListLimitMax", func(t *testing.T, e env) {
+			var ids []string
+			for i, name := range []string{"ana", "bia", "cris"} {
+				u := e.user(name, func(u *domain.User) {
+					u.Status, u.CreatedAt = uPendingApproval, at(time.Duration(i)*time.Minute)
+				})
+				ids = append(ids, u.ID)
+			}
+			for _, c := range []struct{ limit, want int }{
+				{math.MinInt, 1}, {-100, 1}, {-2, 1}, {0, 1}, {1, 1}, {2, 2}, {3, 3}, {4, 3},
+				{domain.ListLimitMax, 3}, {domain.ListLimitMax + 1, 3}, {domain.ListLimitMax * 1000, 3}, {math.MaxInt, 3},
+			} {
+				got, err := e.r.Users.ListByStatus(e.ctx, uPendingApproval, c.limit)
+				noErr(t, fmt.Sprintf("ListByStatus(limit %d)", c.limit), err)
+				wantStrings(t, fmt.Sprintf("IDs with limit %d", c.limit), userIDs(got), ids[:c.want]...)
+			}
+		}},
+		{"ListByStatus refuses a status that is not defined", func(t *testing.T, e env) {
+			e.user("ana")
+			for _, status := range []domain.UserStatus{"", "bogus", "Active", "pending"} {
+				got, err := e.r.Users.ListByStatus(e.ctx, status, 10)
+				wantFieldErrors(t, fmt.Sprintf("ListByStatus(%q)", status), err, "status")
+				if len(got) != 0 {
+					t.Errorf("ListByStatus(%q) returned %d users with its error", status, len(got))
+				}
+			}
+		}},
+		{"ListByStatus is empty when no user has the status", func(t *testing.T, e env) {
+			e.user("ana")
+			got, err := e.r.Users.ListByStatus(e.ctx, uDisabled, 10)
+			noErr(t, "ListByStatus", err)
+			if len(got) != 0 {
+				t.Errorf("ListByStatus returned %d users, want none", len(got))
+			}
+		}},
+		{"Approve moves pending_approval to active and records who and when", func(t *testing.T, e env) {
+			admin := e.user("root", func(u *domain.User) { u.IsAdmin = true })
+			u := e.user("ana", func(u *domain.User) { u.Status = uPendingApproval })
+			noErr(t, "Approve", e.r.Users.Approve(e.ctx, u.ID, admin.ID, at(time.Hour)))
+			want := u
+			want.Status = uActive
+			want.ApprovedBy = admin.ID
+			want.ApprovedAt = ptr(at(time.Hour))
+			want.UpdatedAt = at(time.Hour)
+			wantEqual(t, "user", normUser(e.getUser(u.ID)), normUser(want))
+			wantEqual(t, "approver", normUser(e.getUser(admin.ID)), normUser(admin))
+		}},
+		{"Approve is ErrConflict in any other status and changes nothing", func(t *testing.T, e env) {
+			admin, earlier := e.user("root"), e.user("earlier")
+			for i, status := range []domain.UserStatus{uPendingEmail, uActive, uDisabled} {
+				u := e.user(fmt.Sprintf("user%d", i), func(u *domain.User) {
+					u.Status = status
+					u.ApprovedBy = earlier.ID
+					u.ApprovedAt = ptr(at(time.Minute))
+				})
+				isErr(t, "Approve in status "+string(status), e.r.Users.Approve(e.ctx, u.ID, admin.ID, at(time.Hour)), domain.ErrConflict)
+				wantEqual(t, "user in status "+string(status), normUser(e.getUser(u.ID)), normUser(u))
+			}
+		}},
+		{"Approve returns ErrNotFound for a missing user", func(t *testing.T, e env) {
+			admin := e.user("root")
+			for _, id := range unknownIDs {
+				isErr(t, fmt.Sprintf("Approve(%q)", id), e.r.Users.Approve(e.ctx, id, admin.ID, at(time.Hour)), domain.ErrNotFound)
+			}
+		}},
+		{"Approve returns ErrNotFound for an approver that does not exist and changes nothing", func(t *testing.T, e env) {
+			u := e.user("ana", func(u *domain.User) { u.Status = uPendingApproval })
+			gone := e.user("gone")
+			noErr(t, "Delete", e.r.Users.Delete(e.ctx, gone.ID))
+			for _, by := range append([]string{gone.ID}, unknownIDs...) {
+				isErr(t, fmt.Sprintf("Approve by %q", by), e.r.Users.Approve(e.ctx, u.ID, by, at(time.Hour)), domain.ErrNotFound)
+				wantEqual(t, fmt.Sprintf("user after Approve by %q", by), normUser(e.getUser(u.ID)), normUser(u))
+			}
+		}},
+		{"concurrent Approve calls on one user: one wins and the others get ErrConflict", func(t *testing.T, e env) {
+			admin := e.user("root", func(u *domain.User) { u.IsAdmin = true })
+			u := e.user("ana", func(u *domain.User) { u.Status = uPendingApproval })
+			errs := parallelErr(10, func(int) error {
+				return e.r.Users.Approve(e.ctx, u.ID, admin.ID, at(time.Hour))
+			})
+			wantOneWinner(t, "Approve", errs, domain.ErrConflict)
+			want := u
+			want.Status = uActive
+			want.ApprovedBy = admin.ID
+			want.ApprovedAt = ptr(at(time.Hour))
+			want.UpdatedAt = at(time.Hour)
+			wantEqual(t, "user", normUser(e.getUser(u.ID)), normUser(want))
 		}},
 		{"ListAdminEmails returns the active admins in ascending order", func(t *testing.T, e env) {
 			admin := func(u *domain.User) { u.IsAdmin = true }
