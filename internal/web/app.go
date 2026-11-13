@@ -11,7 +11,9 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/magalz/agenda-clubber-lite/internal/auth"
 	"github.com/magalz/agenda-clubber-lite/internal/config"
+	"github.com/magalz/agenda-clubber-lite/internal/domain"
 	webfs "github.com/magalz/agenda-clubber-lite/web"
 )
 
@@ -19,8 +21,21 @@ import (
 type App struct {
 	Cfg    config.Config
 	Log    *slog.Logger
+	Store  domain.Store
+	Now    func() time.Time // UTC; tests set a fixed clock
 	Assets *Assets
 	Render *Renderer
+	Limits Limits
+}
+
+// Limits are the per-flow rate limiters. They live in memory, so each process
+// has its own count.
+type Limits struct {
+	Login         *auth.Limiter // per IP
+	Signup        *auth.Limiter // per IP
+	EmailAction   *auth.Limiter // per IP: resend confirmation, forgot password
+	Suggestions   *auth.Limiter // per IP
+	PasswordCheck *auth.Limiter // per user
 }
 
 // NewApp builds an App from a validated configuration. It panics if the
@@ -28,7 +43,7 @@ type App struct {
 // into the binary, so a failure is a programming error, not a runtime
 // condition. It also panics for a Config without a Location: config.Load
 // always sets one, so a hand-built Config must too.
-func NewApp(cfg config.Config, log *slog.Logger) *App {
+func NewApp(cfg config.Config, log *slog.Logger, store domain.Store) *App {
 	if cfg.Location == nil {
 		panic("web: Config.Location is nil; config.Load always sets it, so a hand-built Config must set it too")
 	}
@@ -49,7 +64,7 @@ func NewApp(cfg config.Config, log *slog.Logger) *App {
 	if err != nil {
 		panic(fmt.Sprintf("web: embedded templates: %v", err))
 	}
-	return &App{Cfg: cfg, Log: log, Assets: assets, Render: render}
+	return &App{Cfg: cfg, Log: log, Store: store, Now: func() time.Time { return time.Now().UTC() }, Assets: assets, Render: render}
 }
 
 // Router builds the Gin engine: middleware first, then the routes.

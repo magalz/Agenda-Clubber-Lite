@@ -59,9 +59,12 @@ func wantAll(t *testing.T, what, got string, wants ...string) {
 	}
 }
 
-func TestGetHomeRendersTheAppShell(t *testing.T) {
-	r, _ := newRouter(t)
-	rec := serve(r, http.MethodGet, "/")
+// The home page needs a session, so the shell of a logged-out visitor is
+// checked on the renderer; TestHomeServesTheShellToASignedInUser checks the
+// route.
+func TestAppShellLoggedOut(t *testing.T) {
+	app := newTestApp(t)
+	rec := renderPage(t, app.Render, "app/home", PageData{Title: "Calendário", Nav: "calendario"})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", rec.Code)
 	}
@@ -141,10 +144,10 @@ func TestAppShellByUser(t *testing.T) {
 		user *ViewUser
 	}{
 		{"logged out", nil},
-		{"member who cannot create events", &ViewUser{ID: 1, Name: name}},
-		{"owner", &ViewUser{ID: 2, Name: name, CanCreateEvents: true}},
-		{"admin who cannot create events", &ViewUser{ID: 3, Name: name, IsAdmin: true}},
-		{"admin and owner", &ViewUser{ID: 4, Name: name, IsAdmin: true, CanCreateEvents: true}},
+		{"member who cannot create events", &ViewUser{ID: "u1", Name: name}},
+		{"owner", &ViewUser{ID: "u2", Name: name, CanCreateEvents: true}},
+		{"admin who cannot create events", &ViewUser{ID: "u3", Name: name, IsAdmin: true}},
+		{"admin and owner", &ViewUser{ID: "u4", Name: name, IsAdmin: true, CanCreateEvents: true}},
 	}
 	app := newTestApp(t)
 	for _, tt := range tests {
@@ -211,7 +214,7 @@ func TestAppShellByUser(t *testing.T) {
 
 func TestAppShellMarksTheActiveItem(t *testing.T) {
 	app := newTestApp(t)
-	user := &ViewUser{ID: 1, Name: "Ana", IsAdmin: true, CanCreateEvents: true}
+	user := &ViewUser{ID: "u1", Name: "Ana", IsAdmin: true, CanCreateEvents: true}
 
 	for _, active := range navItems {
 		t.Run(active.key, func(t *testing.T) {
@@ -241,7 +244,7 @@ func TestAlpineAttributesNameRegisteredMembers(t *testing.T) {
 		t.Fatal(err)
 	}
 	app := newTestApp(t)
-	body := renderHome(t, app, "calendario", &ViewUser{ID: 1, Name: "Ana", IsAdmin: true, CanCreateEvents: true})
+	body := renderHome(t, app, "calendario", &ViewUser{ID: "u1", Name: "Ana", IsAdmin: true, CanCreateEvents: true})
 
 	attr := regexp.MustCompile(`\s(x-[a-z-]+|@[a-z.]+|:[a-z-]+)="([^"]*)"`)
 	ident := regexp.MustCompile(`^[A-Za-z_$][A-Za-z0-9_$]*$`)
@@ -324,6 +327,14 @@ func TestWordmarkContract(t *testing.T) {
 // error that must not fall back to a silent default.
 func TestNewAppRefusesANilLocation(t *testing.T) {
 	mustPanic(t, "Location", func() {
-		NewApp(config.Config{Env: "prod"}, slog.New(slog.NewJSONHandler(&bytes.Buffer{}, nil)))
+		NewApp(config.Config{Env: "prod"}, slog.New(slog.NewJSONHandler(&bytes.Buffer{}, nil)), stubStore{})
+	})
+}
+
+// A nil store would panic on the first request that loads a session, so it is
+// refused at startup instead.
+func TestNewAppRefusesANilStore(t *testing.T) {
+	mustPanic(t, "Store", func() {
+		NewApp(testConfig(t), slog.New(slog.NewJSONHandler(&bytes.Buffer{}, nil)), nil)
 	})
 }

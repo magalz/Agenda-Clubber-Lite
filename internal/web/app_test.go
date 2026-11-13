@@ -10,10 +10,9 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
-
-	"github.com/magalz/agenda-clubber-lite/internal/config"
 )
 
 func TestMain(m *testing.M) {
@@ -25,8 +24,9 @@ func TestMain(m *testing.M) {
 func newRouter(t *testing.T, cidrs ...string) (*gin.Engine, *bytes.Buffer) {
 	t.Helper()
 	logs := &bytes.Buffer{}
-	cfg := config.Config{Env: "prod", Location: fortaleza(t), TrustedProxyCIDRs: cidrs}
-	return NewApp(cfg, slog.New(slog.NewJSONHandler(logs, nil))).Router(), logs
+	app := NewApp(testConfig(t, cidrs...), slog.New(slog.NewJSONHandler(logs, nil)), stubStore{})
+	app.Now = func() time.Time { return webTestNow }
+	return app.Router(), logs
 }
 
 // logLines decodes the JSON log lines written so far.
@@ -82,8 +82,7 @@ func TestHealthz(t *testing.T) {
 }
 
 func TestNewAppParsesTheEmbeddedTemplates(t *testing.T) {
-	cfg := config.Config{Env: "prod", Location: fortaleza(t)}
-	a := NewApp(cfg, slog.New(slog.NewJSONHandler(&bytes.Buffer{}, nil)))
+	a := newTestApp(t)
 	if a.Render == nil {
 		t.Fatal("App.Render is nil")
 	}

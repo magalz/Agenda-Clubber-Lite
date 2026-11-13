@@ -20,6 +20,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/magalz/agenda-clubber-lite/internal/config"
+	"github.com/magalz/agenda-clubber-lite/internal/domain"
 	"github.com/magalz/agenda-clubber-lite/internal/store/mongostore"
 	"github.com/magalz/agenda-clubber-lite/internal/web"
 )
@@ -168,8 +169,7 @@ func migrate(ctx context.Context, getenv func(string) string, stdout, stderr io.
 }
 
 // serve opens the database, runs the HTTP server until ctx is canceled and shuts
-// both down. It validates the whole configuration first. The database is not
-// handed to the web app yet.
+// both down. It validates the whole configuration first.
 func serve(ctx context.Context, getenv func(string) string, stdout, stderr io.Writer) int {
 	cfg, err := config.Load(getenv)
 	if err != nil {
@@ -192,7 +192,7 @@ func serve(ctx context.Context, getenv func(string) string, stdout, stderr io.Wr
 	}()
 	log.Info("database ready", "db", cfg.Mongo.DB)
 
-	srv := newServer(cfg, log)
+	srv := newServer(cfg, log, store)
 
 	errCh := make(chan error, 1)
 	go func() { errCh <- srv.ListenAndServe() }()
@@ -223,8 +223,9 @@ func newLogger(cfg config.Config, w io.Writer) *slog.Logger {
 	return slog.New(slog.NewJSONHandler(w, nil))
 }
 
-// newServer sets the Gin mode and builds the http.Server with its timeouts.
-func newServer(cfg config.Config, log *slog.Logger) *http.Server {
+// newServer sets the Gin mode and builds the http.Server with its timeouts. The
+// web app reads and writes through store.
+func newServer(cfg config.Config, log *slog.Logger, store domain.Store) *http.Server {
 	if cfg.IsDev() {
 		gin.SetMode(gin.DebugMode)
 	} else {
@@ -232,7 +233,7 @@ func newServer(cfg config.Config, log *slog.Logger) *http.Server {
 	}
 	return &http.Server{
 		Addr:              cfg.Addr,
-		Handler:           web.NewApp(cfg, log).Router(),
+		Handler:           web.NewApp(cfg, log, store).Router(),
 		ErrorLog:          slog.NewLogLogger(log.Handler(), slog.LevelError),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,

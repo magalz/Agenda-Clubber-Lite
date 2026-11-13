@@ -8,29 +8,37 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"path"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
+
+	"github.com/magalz/agenda-clubber-lite/internal/domain"
 )
 
 const htmlContentType = "text/html; charset=utf-8"
 
 // ViewUser is the signed-in user as the templates see it.
 type ViewUser struct {
-	ID              int64
+	ID              string
 	Name            string
 	IsAdmin         bool
 	CanCreateEvents bool
+	// PasswordDaysLeft is the days until the password expires while the 7-day
+	// warning applies, else 0.
+	PasswordDaysLeft int
 }
 
 // PageData is the data every page template receives.
 type PageData struct {
-	Title string    // page title; the layout appends " · AGENDA CLUBBER"
-	Nav   string    // key of the active sidebar entry
-	User  *ViewUser // nil when logged out
-	Data  any       // page-specific data
+	Title  string             // page title; the layout appends " · AGENDA CLUBBER"
+	Nav    string             // key of the active sidebar entry
+	User   *ViewUser          // nil when logged out
+	Form   url.Values         // what the person typed, to refill a form; may be nil
+	Errors domain.FieldErrors // validation messages by field; may be nil
+	Data   any                // page-specific data
 }
 
 // Renderer renders full pages and HTMX fragments from the template tree:

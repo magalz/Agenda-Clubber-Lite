@@ -86,7 +86,7 @@ func TestSecurityHeadersOnEveryResponse(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			rec := do(r, tt.method, tt.target, tt.body)
+			rec := do(r, tt.method, tt.target, tt.body, withOrigin)
 			if rec.Code != tt.want {
 				t.Errorf("status = %d, want %d", rec.Code, tt.want)
 			}
@@ -124,7 +124,7 @@ func TestLimitBody(t *testing.T) {
 		called := false
 		r.POST("/probe", func(*gin.Context) { called = true })
 
-		rec := do(r, http.MethodPost, "/probe", strings.NewReader(strings.Repeat("x", maxBodyBytes+1)))
+		rec := do(r, http.MethodPost, "/probe", strings.NewReader(strings.Repeat("x", maxBodyBytes+1)), withOrigin)
 		if rec.Code != http.StatusRequestEntityTooLarge {
 			t.Fatalf("status = %d, want 413", rec.Code)
 		}
@@ -140,21 +140,21 @@ func TestLimitBody(t *testing.T) {
 	})
 
 	t.Run("body of exactly the cap is read in full", func(t *testing.T) {
-		rec := do(newBodyRouter(t), http.MethodPost, "/probe", strings.NewReader(strings.Repeat("x", maxBodyBytes)))
+		rec := do(newBodyRouter(t), http.MethodPost, "/probe", strings.NewReader(strings.Repeat("x", maxBodyBytes)), withOrigin)
 		if want := fmt.Sprintf("read=%d", maxBodyBytes); rec.Code != http.StatusOK || rec.Body.String() != want {
 			t.Errorf("got %d %q, want 200 %q", rec.Code, rec.Body.String(), want)
 		}
 	})
 
 	t.Run("chunked body over the cap fails the read", func(t *testing.T) {
-		rec := do(newBodyRouter(t), http.MethodPost, "/probe", strings.NewReader(strings.Repeat("x", 2*maxBodyBytes)), chunked)
+		rec := do(newBodyRouter(t), http.MethodPost, "/probe", strings.NewReader(strings.Repeat("x", 2*maxBodyBytes)), withOrigin, chunked)
 		if want := fmt.Sprintf("max-bytes-error limit=%d", maxBodyBytes); rec.Code != http.StatusOK || rec.Body.String() != want {
 			t.Errorf("got %d %q, want 200 %q", rec.Code, rec.Body.String(), want)
 		}
 	})
 
 	t.Run("chunked body within the cap is read in full", func(t *testing.T) {
-		rec := do(newBodyRouter(t), http.MethodPut, "/probe", strings.NewReader(strings.Repeat("x", 100)), chunked)
+		rec := do(newBodyRouter(t), http.MethodPut, "/probe", strings.NewReader(strings.Repeat("x", 100)), withOrigin, chunked)
 		if rec.Code != http.StatusOK || rec.Body.String() != "read=100" {
 			t.Errorf("got %d %q, want 200 read=100", rec.Code, rec.Body.String())
 		}
