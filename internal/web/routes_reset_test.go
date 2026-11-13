@@ -317,6 +317,34 @@ func TestResetGetDoesNotConsumeTheToken(t *testing.T) {
 
 // --- POST /senha/redefinir ---
 
+// The reset form spends argon2 work on every POST with a working link (the
+// history check), and a refused password leaves the link usable, so the form
+// is limited per client address like login (10 a minute).
+func TestResetPostRateLimitPerIP(t *testing.T) {
+	app, _ := signupStoreApp(t)
+	r := app.Router()
+	forged, _, err := auth.NewToken()
+	if err != nil {
+		t.Fatalf("NewToken: %v", err)
+	}
+	from := func(ip string) func(*http.Request) { return header("CF-Connecting-IP", ip) }
+	for i := 1; i <= 10; i++ {
+		if rec := resetSubmit(r, forged, resetNewPassword, resetNewPassword, from("198.51.100.70")); rec.Code != http.StatusBadRequest {
+			t.Fatalf("request %d: status = %d, want 400 (invalid link)", i, rec.Code)
+		}
+	}
+	rec := resetSubmit(r, forged, resetNewPassword, resetNewPassword, from("198.51.100.70"))
+	body := confirmAssertPage(t, rec, http.StatusTooManyRequests, "Nova senha", msgTooMany, `role="alert"`, `name="token" value="`+forged+`"`)
+	if strings.Contains(body, resetMsgInvalid) {
+		t.Error("the 429 page says the link is invalid")
+	}
+
+	// Another client address is not affected.
+	if rec := resetSubmit(r, forged, resetNewPassword, resetNewPassword, from("198.51.100.71")); rec.Code != http.StatusBadRequest {
+		t.Errorf("other IP: status = %d, want 400", rec.Code)
+	}
+}
+
 func TestResetPostChangesThePasswordAndEndsEverySession(t *testing.T) {
 	app, store := signupStoreApp(t)
 	r := app.Router()

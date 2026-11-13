@@ -449,12 +449,12 @@ func TestResetPasswordHashesOnlyForAWorkingLink(t *testing.T) {
 	ctx := t.Context()
 	u := insertLoginUser(t, s)
 	var calls int
-	real := resetHashPassword
+	orig := resetHashPassword
 	resetHashPassword = func(password string) (string, error) {
 		calls++
-		return real(password)
+		return orig(password)
 	}
-	t.Cleanup(func() { resetHashPassword = real })
+	t.Cleanup(func() { resetHashPassword = orig })
 
 	forged, _, err := auth.NewToken()
 	if err != nil {
