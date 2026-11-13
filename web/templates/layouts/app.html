@@ -16,7 +16,7 @@
       <a class="nav-item" href="/eventos/novo"{{if eq .Nav "criar-evento"}} aria-current="page"{{end}}>Criar Evento</a>
       {{- else -}}
       <a class="nav-item" role="link" aria-disabled="true" aria-describedby="criar-evento-dica">Criar Evento</a>
-      <p class="hint" id="criar-evento-dica">só donos de coletivo aprovados criam eventos</p>
+      <p class="hint" id="criar-evento-dica">só administradores de coletivos aprovados criam eventos</p>
       {{- end}}
       <a class="nav-item" href="/meus-eventos"{{if eq .Nav "meus-eventos"}} aria-current="page"{{end}}>Meus Eventos</a>
       <p class="sidebar__section-label">/conta</p>

@@ -79,7 +79,7 @@ The sample accounts, all `@agenda.test`:
 | Email | What it is |
 |---|---|
 | `admin@agenda.test` | the admin |
-| `dono@agenda.test` | an approved owner of the sample collective and producer |
+| `dono@agenda.test` | the approved Administrador (Master) of the sample collective and producer |
 | `membro@agenda.test` | an approved member of the sample collective |
 | `pendente-email@agenda.test` | has not confirmed its email (the first run prints its confirmation link) |
 | `pendente-aprovacao@agenda.test` | confirmed, waiting for the admin's approval |
