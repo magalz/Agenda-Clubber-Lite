@@ -59,6 +59,10 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout,
 	}
 }
 
+// openTimeout bounds opening the database and creating its schema; a variable
+// so a test can shorten it.
+var openTimeout = 30 * time.Second
+
 // healthcheckTimeout bounds one probe; a variable so a test can shorten it.
 var healthcheckTimeout = 3 * time.Second
 

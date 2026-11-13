@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -10,13 +12,18 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
 
 	"github.com/magalz/agenda-clubber-lite/internal/config"
+	"github.com/magalz/agenda-clubber-lite/internal/store/mongotest"
 )
 
 func TestMain(m *testing.M) {
@@ -45,8 +52,8 @@ func freeAddr(t *testing.T) string {
 
 func TestRunUsageOnUnknownSubcommand(t *testing.T) {
 	for _, args := range [][]string{
-		{"bogus"}, {"-h"}, {"serve", "extra"}, {"healthcheck", "extra"},
-		{"migrate"}, {"backup", "a.db"}, // SQLite-era commands, gone with the SQLite store
+		{"bogus"}, {"-h"}, {"serve", "extra"}, {"healthcheck", "extra"}, {"migrate", "extra"},
+		{"backup", "a.db"}, // a SQLite-era command, gone with the SQLite store
 	} {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
 			var stdout, stderr bytes.Buffer
@@ -54,15 +61,13 @@ func TestRunUsageOnUnknownSubcommand(t *testing.T) {
 			if code != 2 {
 				t.Errorf("exit code = %d, want 2", code)
 			}
-			for _, want := range []string{"usage", "serve", "healthcheck"} {
+			for _, want := range []string{"usage", "serve", "migrate", "healthcheck"} {
 				if !strings.Contains(stderr.String(), want) {
 					t.Errorf("stderr = %q, want a usage text mentioning %q", stderr.String(), want)
 				}
 			}
-			for _, gone := range []string{"migrate", "backup"} {
-				if strings.Contains(stderr.String(), gone) {
-					t.Errorf("stderr = %q, want a usage text without %q", stderr.String(), gone)
-				}
+			if strings.Contains(stderr.String(), "backup") {
+				t.Errorf("stderr = %q, want a usage text without backup", stderr.String())
 			}
 			if stdout.Len() != 0 {
 				t.Errorf("stdout = %q, want empty", stdout.String())
@@ -71,7 +76,47 @@ func TestRunUsageOnUnknownSubcommand(t *testing.T) {
 	}
 }
 
+// testMongoURI is a well-formed URI for tests that stop at the configuration:
+// nothing connects to it.
 const testMongoURI = "mongodb://localhost:27017/?directConnection=true"
+
+// unreachableURI is a well-formed URI of a server nobody runs, with a password
+// that must never reach any output.
+const unreachableURI = "mongodb://dbuser:" + uriSecret + "@127.0.0.1:1/?directConnection=true"
+
+const uriSecret = "uri-secret-7f3a"
+
+// mongoEnv returns MONGO_URI and MONGO_DB for a run on a database of its own,
+// which is dropped when the test ends. Without MONGO_TEST_URI the test is
+// skipped, and fails in CI (see mongotest.URI).
+func mongoEnv(t *testing.T) []string {
+	t.Helper()
+	uri := mongotest.URI(t)
+	var suffix [13]byte
+	_, _ = rand.Read(suffix[:])                          // never fails: see crypto/rand.Read
+	db := "acltest_cmd_" + hex.EncodeToString(suffix[:]) // 12 + 26 = 38 characters, the most MONGO_DB takes
+	mongotest.DropOnCleanup(t, uri, db)
+	return []string{"MONGO_URI", uri, "MONGO_DB", db}
+}
+
+// collectionNames lists the collections of the database that mongoEnv named.
+func collectionNames(t *testing.T, env []string) []string {
+	t.Helper()
+	get := getenvOf(env...)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	client, err := mongo.Connect(options.Client().ApplyURI(get("MONGO_URI")))
+	if err != nil {
+		t.Fatal("connect to the test database") // the error may echo the URI
+	}
+	defer func() { _ = client.Disconnect(ctx) }()
+	names, err := client.Database(get("MONGO_DB")).ListCollectionNames(ctx, bson.M{})
+	if err != nil {
+		t.Fatalf("list the collections: %v", err)
+	}
+	slices.Sort(names)
+	return names
+}
 
 func TestRunServeWithoutOriginFails(t *testing.T) {
 	for _, args := range [][]string{nil, {"serve"}} {
@@ -134,7 +179,7 @@ func TestRunServeListenErrorExits1(t *testing.T) {
 	defer busy.Close()
 
 	var stdout, stderr bytes.Buffer
-	env := getenvOf("APP_ORIGIN", "http://localhost", "APP_ADDR", busy.Addr().String(), "MONGO_URI", testMongoURI)
+	env := getenvOf(append(mongoEnv(t), "APP_ORIGIN", "http://localhost", "APP_ADDR", busy.Addr().String())...)
 	done := make(chan int, 1)
 	go func() { done <- run(context.Background(), []string{"serve"}, env, &stdout, &stderr) }()
 	select {
@@ -142,15 +187,57 @@ func TestRunServeListenErrorExits1(t *testing.T) {
 		if code != 1 {
 			t.Errorf("exit code = %d, want 1", code)
 		}
-	case <-time.After(5 * time.Second):
+	case <-time.After(30 * time.Second):
 		t.Fatal("run did not return after a listen error")
+	}
+	if !strings.Contains(stdout.String(), "listen failed") {
+		t.Errorf("stdout = %q, want the listen failure logged", stdout.String())
+	}
+}
+
+// serve opens the database before it listens: a database that cannot be reached
+// is a failed start, not a server that answers /healthz and fails on its first
+// request. Neither the URI nor its password may reach the output.
+func TestRunServeWithAnUnreachableDatabaseExits1(t *testing.T) {
+	old := openTimeout
+	openTimeout = 500 * time.Millisecond
+	t.Cleanup(func() { openTimeout = old })
+
+	addr := freeAddr(t)
+	var stdout, stderr bytes.Buffer
+	env := getenvOf("APP_ORIGIN", "http://"+addr, "APP_ADDR", addr, "MONGO_URI", unreachableURI)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	start := time.Now()
+	if code := run(ctx, []string{"serve"}, env, &stdout, &stderr); code != 1 {
+		t.Errorf("exit code = %d, want 1", code)
+	}
+	if took := time.Since(start); took > 3*time.Second {
+		t.Errorf("serve took %v to give up, want it bounded by openTimeout", took)
+	}
+	wantNoSecrets(t, stdout.String(), stderr.String())
+	if _, err := http.Get("http://" + addr + "/healthz"); err == nil {
+		t.Error("the server answers although the database never opened")
+	}
+}
+
+// wantNoSecrets fails when an output carries any part of unreachableURI.
+func wantNoSecrets(t *testing.T, outputs ...string) {
+	t.Helper()
+	for _, out := range outputs {
+		for _, leak := range []string{uriSecret, "dbuser", "127.0.0.1:1", "directConnection"} {
+			if strings.Contains(out, leak) {
+				t.Errorf("output %q leaks %q", out, leak)
+			}
+		}
 	}
 }
 
 func TestRunServesAndShutsDownGracefully(t *testing.T) {
 	addr := freeAddr(t)
 	var stdout, stderr bytes.Buffer
-	env := getenvOf("APP_ORIGIN", "http://"+addr, "APP_ADDR", addr, "MONGO_URI", testMongoURI)
+	dbEnv := mongoEnv(t)
+	env := getenvOf(append(dbEnv, "APP_ORIGIN", "http://"+addr, "APP_ADDR", addr)...)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	done := make(chan int, 1)
@@ -158,7 +245,8 @@ func TestRunServesAndShutsDownGracefully(t *testing.T) {
 
 	var resp *http.Response
 	var err error
-	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+	// The server listens after the database is open and its schema is in place.
+	for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
 		if resp, err = http.Get("http://" + addr + "/healthz"); err == nil {
 			break
 		}
@@ -187,6 +275,89 @@ func TestRunServesAndShutsDownGracefully(t *testing.T) {
 	if _, err := http.Get("http://" + addr + "/healthz"); err == nil {
 		t.Error("server still answers after shutdown")
 	}
+
+	// The database is logged by name only.
+	if !strings.Contains(stdout.String(), "database ready") || !strings.Contains(stdout.String(), dbEnv[3]) {
+		t.Errorf("stdout = %q, want %q with the database name", stdout.String(), "database ready")
+	}
+	if strings.Contains(stdout.String(), dbEnv[1]) {
+		t.Errorf("stdout logs the MongoDB URI: %q", stdout.String())
+	}
+	if got := collectionNames(t, dbEnv); len(got) != 6 {
+		t.Errorf("collections after serve = %v, want the six of the schema", got)
+	}
+}
+
+// migrate creates the schema and is safe to run again. It reads the MongoDB
+// settings and nothing else, so a variable that serve would refuse (here a bad
+// SMTP port, an origin that is no URL and an unknown environment) does not stop
+// it.
+func TestRunMigrateCreatesTheSchemaAndRunsTwice(t *testing.T) {
+	dbEnv := mongoEnv(t)
+	env := getenvOf(append(dbEnv, "SMTP_PORT", "abc", "APP_ORIGIN", "not a url", "APP_ENV", "bogus")...)
+	for i := 1; i <= 2; i++ {
+		var stdout, stderr bytes.Buffer
+		if code := run(context.Background(), []string{"migrate"}, env, &stdout, &stderr); code != 0 {
+			t.Fatalf("run %d: exit code = %d, want 0; stderr: %s", i, code, &stderr)
+		}
+		if stdout.String() != "schema ready\n" || stderr.Len() != 0 {
+			t.Errorf("run %d: stdout = %q, stderr = %q; want %q and nothing on stderr", i, stdout.String(), stderr.String(), "schema ready\n")
+		}
+		want := []string{"collectives", "memberships", "outbox", "sessions", "tokens", "users"}
+		if got := collectionNames(t, dbEnv); !slices.Equal(got, want) {
+			t.Errorf("run %d: collections = %v, want %v", i, got, want)
+		}
+	}
+}
+
+func TestRunMigrateConfigErrors(t *testing.T) {
+	for name, tc := range map[string]struct {
+		env  []string
+		want string
+	}{
+		"no MONGO_URI":        {[]string{}, "MONGO_URI"},
+		"not a mongodb URI":   {[]string{"MONGO_URI", "postgres://dbuser:" + uriSecret + "@db.example:5432/agenda"}, "MONGO_URI"},
+		"no directConnection": {[]string{"MONGO_URI", "mongodb://dbuser:" + uriSecret + "@db.example:27017/agenda"}, "MONGO_URI"},
+		"bad MONGO_DB":        {[]string{"MONGO_URI", testMongoURI, "MONGO_DB", "not a name!"}, "MONGO_DB"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			if code := run(context.Background(), []string{"migrate"}, getenvOf(tc.env...), &stdout, &stderr); code != 1 {
+				t.Errorf("exit code = %d, want 1", code)
+			}
+			if !strings.Contains(stderr.String(), tc.want) {
+				t.Errorf("stderr = %q, want the config error naming %s", stderr.String(), tc.want)
+			}
+			if stdout.Len() != 0 {
+				t.Errorf("stdout = %q, want empty", stdout.String())
+			}
+			wantNoSecrets(t, stdout.String(), stderr.String())
+			for _, leak := range []string{"db.example", "not a name!"} {
+				if strings.Contains(stderr.String(), leak) {
+					t.Errorf("stderr = %q leaks %q", stderr.String(), leak)
+				}
+			}
+		})
+	}
+}
+
+func TestRunMigrateWithAnUnreachableDatabaseExits1(t *testing.T) {
+	old := openTimeout
+	openTimeout = 500 * time.Millisecond
+	t.Cleanup(func() { openTimeout = old })
+
+	var stdout, stderr bytes.Buffer
+	start := time.Now()
+	if code := run(context.Background(), []string{"migrate"}, getenvOf("MONGO_URI", unreachableURI), &stdout, &stderr); code != 1 {
+		t.Errorf("exit code = %d, want 1", code)
+	}
+	if took := time.Since(start); took > 3*time.Second {
+		t.Errorf("migrate took %v to give up, want it bounded by openTimeout", took)
+	}
+	if stdout.Len() != 0 || !strings.Contains(stderr.String(), "agenda:") {
+		t.Errorf("stdout = %q, stderr = %q; want nothing on stdout and a reason on stderr", stdout.String(), stderr.String())
+	}
+	wantNoSecrets(t, stdout.String(), stderr.String())
 }
 
 func TestHealthzURL(t *testing.T) {
