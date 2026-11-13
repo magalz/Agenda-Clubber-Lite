@@ -193,12 +193,10 @@ func rejectCollectiveTx(ctx context.Context, r domain.Repos, actor, creator doma
 }
 
 // collectiveCreator returns the user who asked for the collective, or the zero
-// User when nobody is left: the collective has no creator, or the account was
-// deleted. Any other error is returned as it is.
+// User when nobody is left: the account was deleted (Users.Delete clears
+// CreatedBy, and an empty ID is domain.ErrNotFound). Any other error is returned
+// as it is.
 func collectiveCreator(ctx context.Context, r domain.Repos, c domain.Collective) (domain.User, error) {
-	if c.CreatedBy == "" {
-		return domain.User{}, nil
-	}
 	u, err := r.Users.ByID(ctx, c.CreatedBy)
 	if errors.Is(err, domain.ErrNotFound) {
 		return domain.User{}, nil
@@ -207,8 +205,8 @@ func collectiveCreator(ctx context.Context, r domain.Repos, c domain.Collective)
 }
 
 // blocksDetail describes, for the audit log, what changes when c takes the
-// given blocks, for example "eventos bloqueados; coletivo travado". It is empty
-// when nothing changes.
+// given blocks, for example "eventos bloqueados; membros e nome congelados". It
+// is empty when nothing changes.
 func blocksDetail(c domain.Collective, eventsBlocked, locked bool) string {
 	var parts []string
 	if eventsBlocked != c.EventsBlocked {
@@ -220,9 +218,9 @@ func blocksDetail(c domain.Collective, eventsBlocked, locked bool) string {
 	}
 	if locked != c.Locked {
 		if locked {
-			parts = append(parts, "coletivo travado")
+			parts = append(parts, "membros e nome congelados")
 		} else {
-			parts = append(parts, "coletivo destravado")
+			parts = append(parts, "membros e nome liberados")
 		}
 	}
 	return strings.Join(parts, "; ")
