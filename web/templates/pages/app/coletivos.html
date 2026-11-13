@@ -3,14 +3,14 @@
      Alert, an alert for a locked collective or the rate limit. The ?msg= code of the redirect picks the Notice text on the
      server; the URL never supplies text. Href is set only for an approved Administrador of an approved collective: it
      links to that collective's page. With no Items the page shows the empty state.
-     Two plain forms follow the list. Both post without JavaScript, and a 422 comes back to this page with .Form refilled
-     and .Errors set.
+     Two plain forms follow the list. Both are ordinary posts (no HTMX is needed), and a 422 comes back to this page with
+     .Form refilled and .Errors set.
        POST /coletivos/entrar  join an approved collective. Fields: collective_name (the search box), collective_id
                                (hidden), role (owner = Administrador, member = Membro). Errors: "collective", "role".
                                collective_id is filled by the collectivePicker component (web/static/js/app.js,
                                data-mode="join"), which loads /coletivos/sugestoes into #collective-suggestions-box: a
-                               post with no pick gets the "collective" error, and never creates a collective. Without
-                               JavaScript the list is not there, so the form cannot name a collective.
+                               post with no pick gets the "collective" error, and never creates a collective. The join
+                               form needs the picker's JavaScript to fill collective_id; the new collective form does not.
        POST /coletivos/novo    ask the site admin to create a collective or produtora. Fields: name, kind (coletivo or
                                produtora). Errors: "name", "kind".
      CSS: section-heading, stack, status, status--ok, status--error, item-list (the rows), badge, empty, field, label,

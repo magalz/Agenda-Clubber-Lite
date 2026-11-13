@@ -819,7 +819,8 @@
    forms (a .reason-form too). On a wide screen a row is one line: __main takes the free space and the status and the actions
    follow on its right, the actions after the status. On a narrow one the row wraps: __main first, then the status and the
    actions under it. A long name breaks instead of overflowing. The rows are separated by 1px lines; there are no bullets,
-   no radius and no motion. Links and buttons inside keep their own focus ring and are at least 1.5rem tall. */
+   no radius and no motion. A link directly inside __actions is at least 1.5rem tall (a .btn has its own size); links and
+   buttons keep their own focus ring. */
 .item-list {
   margin: 0;
   padding: 0;
@@ -857,6 +858,11 @@
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-2) var(--space-4);
+}
+.item-list__actions > a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.5rem;
 }
 
 /* ==== Reason form ====
