@@ -9,8 +9,10 @@ import (
 	"io"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
+	"github.com/magalz/agenda-clubber-lite/internal/accounts"
 	"github.com/magalz/agenda-clubber-lite/internal/auth"
 	"github.com/magalz/agenda-clubber-lite/internal/config"
 	"github.com/magalz/agenda-clubber-lite/internal/domain"
@@ -23,14 +25,9 @@ const createAdminUsage = "usage: agenda create-admin --name <name> --email <emai
 // characters, and cutting it here cannot make it pass.
 const maxPasswordLine = 4096
 
-// ruleLabels joins the pt-BR labels of the rules a password breaks.
-func ruleLabels(violated []auth.Rule) string {
-	labels := make([]string, len(violated))
-	for i, rule := range violated {
-		labels[i] = auth.RuleLabels[rule]
-	}
-	return strings.Join(labels, ", ")
-}
+// nameControlMessage is the sign-up form's message for a name with a control
+// character (accounts keeps it private).
+const nameControlMessage = "não use quebras de linha nem caracteres de controle"
 
 // readPassword returns the first line of r without its line ending: only the
 // final LF and the CR before it are removed, so spaces stay part of the password.
@@ -119,13 +116,15 @@ func createAdmin(ctx context.Context, args []string, getenv func(string) string,
 
 // newAdmin checks the input and returns the admin account it describes, active
 // and with its e-mail confirmed, as of now. The name and the e-mail are trimmed
-// and the phone keeps only its digits, as at sign-up. An error is safe to print:
-// it names fields and rules, never the password.
+// and the phone keeps only its digits, as at sign-up; a name with a control
+// character is refused as typed, even one at its ends that sign-up would trim.
+// An error is safe to print: it names fields and rules, never the password.
 func newAdmin(name, email, phone, password string, now time.Time) (domain.User, error) {
-	name = strings.TrimSpace(name)
 	switch {
 	case !utf8.ValidString(name):
 		return domain.User{}, domain.FieldErrors{"name": domain.MsgInvalid}
+	case strings.ContainsFunc(name, unicode.IsControl):
+		return domain.User{}, domain.FieldErrors{"name": nameControlMessage}
 	case !utf8.ValidString(password):
 		return domain.User{}, domain.FieldErrors{"password": domain.MsgInvalid}
 	}
@@ -133,23 +132,17 @@ func newAdmin(name, email, phone, password string, now time.Time) (domain.User, 
 	if err != nil {
 		return domain.User{}, err
 	}
-	phone = strings.Map(func(r rune) rune {
-		if r < '0' || r > '9' {
-			return -1
-		}
-		return r
-	}, phone)
 	if violated := auth.CheckPolicy(password, email); len(violated) > 0 {
-		return domain.User{}, fmt.Errorf("password does not meet the rules: %s", ruleLabels(violated))
+		return domain.User{}, errors.New(accounts.PasswordPolicyMessage(violated))
 	}
 	hash, err := auth.HashPassword(password)
 	if err != nil {
 		return domain.User{}, errors.New("cannot hash the password")
 	}
 	return domain.User{
-		Name:              name,
+		Name:              strings.TrimSpace(name),
 		Email:             email,
-		Phone:             phone,
+		Phone:             accounts.PhoneDigits(phone),
 		PasswordHash:      hash,
 		PasswordChangedAt: now,
 		Status:            domain.UserStatusActive,

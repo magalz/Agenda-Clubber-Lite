@@ -149,6 +149,9 @@ func TestCreateAdminRejectsAPasswordThatBreaksThePolicy(t *testing.T) {
 			if code != 1 || stdout != "" {
 				t.Errorf("exit code = %d, stdout = %q; want 1 and nothing on stdout", code, stdout)
 			}
+			if !strings.HasPrefix(stderr, "agenda: create-admin: requisitos da senha: ") {
+				t.Errorf("stderr = %q, want it to start with the sign-up wording of the policy message", stderr)
+			}
 			for _, rule := range auth.Rules() {
 				missing := false
 				for _, w := range tc.want {
@@ -163,6 +166,41 @@ func TestCreateAdminRejectsAPasswordThatBreaksThePolicy(t *testing.T) {
 	}
 	if got := collectionNames(t, env); len(got) != 0 {
 		t.Errorf("collections = %v, want none: the policy is checked before the database is opened", got)
+	}
+}
+
+// A name with a line break or any other control character is refused as at
+// sign-up (names end up in emails), before the database settings are read: with
+// no MONGO_URI, or one nobody answers, the only message is the name's. The
+// password is never printed.
+func TestCreateAdminRefusesControlCharactersInTheName(t *testing.T) {
+	old := openTimeout
+	openTimeout = 500 * time.Millisecond
+	t.Cleanup(func() { openTimeout = old })
+
+	const want = "agenda: create-admin: name: não use quebras de linha nem caracteres de controle\n"
+	for _, tc := range []struct{ name, fullName string }{
+		{"line feed", "Ana\nAdmin"},
+		{"carriage return and line feed", "Ana\r\nAdmin"},
+		{"tab", "Ana\tAdmin"},
+		{"nul", "Ana\x00Admin"},
+		{"a line feed at the end", "Ana Admin\n"},
+	} {
+		for _, db := range []struct {
+			name string
+			env  []string
+		}{
+			{"no MONGO_URI", nil},
+			{"an unreachable server", []string{"MONGO_URI", unreachableURI}},
+		} {
+			t.Run(tc.name+", "+db.name, func(t *testing.T) {
+				code, stdout, stderr := runCmd(t, db.env, adminPassword+"\n", "create-admin", "--name", tc.fullName, "--email", "ana@example.com", "--phone", "85999990001")
+				if code != 1 || stdout != "" || stderr != want {
+					t.Errorf("exit code = %d, stdout = %q, stderr = %q; want 1, nothing and %q", code, stdout, stderr, want)
+				}
+				wantNone(t, map[string]string{"the password": adminPassword}, stdout, stderr)
+			})
+		}
 	}
 }
 
