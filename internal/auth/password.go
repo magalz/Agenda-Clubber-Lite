@@ -268,7 +268,11 @@ func DaysUntilExpiry(changedAt, now time.Time) int {
 	if left <= 0 {
 		return 0
 	}
-	return int((left + day - 1) / day)
+	days := left / day
+	if left%day != 0 { // round up without adding to left: Time.Sub saturates at the largest Duration
+		days++
+	}
+	return int(days)
 }
 
 // ExpiryWarning returns DaysUntilExpiry and whether to warn: the password has

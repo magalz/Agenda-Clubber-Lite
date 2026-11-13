@@ -408,6 +408,22 @@ func TestDaysUntilExpiry(t *testing.T) {
 	}
 }
 
+// Time.Sub saturates at the largest Duration, so a far-future changedAt must
+// not overflow the rounding.
+func TestDaysUntilExpiryFarFuture(t *testing.T) {
+	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	farFuture := time.Date(9999, 1, 1, 0, 0, 0, 0, time.UTC)
+	if got := DaysUntilExpiry(farFuture, now); got <= 0 {
+		t.Fatalf("DaysUntilExpiry(year 9999) = %d, want a positive number", got)
+	}
+	if got := DaysUntilExpiry(now, farFuture); got != 0 {
+		t.Fatalf("DaysUntilExpiry(now in year 9999) = %d, want 0", got)
+	}
+	if days, warn := ExpiryWarning(farFuture, now); days <= 0 || warn {
+		t.Fatalf("ExpiryWarning(year 9999) = %d, %v; want a positive number, false", days, warn)
+	}
+}
+
 func TestExpiryWarning(t *testing.T) {
 	changed := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
 	deadline := changed.Add(MaxAge)
