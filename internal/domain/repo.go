@@ -34,6 +34,16 @@ import (
 //     collective must exist) is not isolated from a concurrent Users.Delete or
 //     Collectives.Delete, so a document created while the cascade runs can be
 //     left pointing at a deleted user or collective.
+//   - Serialization of collectives: an operation that depends on the state of a
+//     collective (a join decision, a role change, a rename, a join request, a
+//     change of the blocks) runs in Store.WithTx, reads the collective there and
+//     calls Collectives.Update on it in the same transaction. Update always
+//     writes, so two such transactions on one collective conflict, the backend
+//     retries one of them and that one reads the result of the other.
+//   - The generic Update methods (Collectives.Update, Memberships.Update) replace
+//     the mutable fields with the values given. Callers call them only inside
+//     WithTx, after reading the document in that same transaction, so they never
+//     write back a stale read.
 
 // Users stores accounts.
 type Users interface {
@@ -66,6 +76,18 @@ type Users interface {
 	// clears LockedUntil. An empty newHash is a FieldErrors with the key
 	// "password_hash". A missing user is ErrNotFound.
 	ChangePassword(ctx context.Context, id, newHash string, now time.Time) error
+
+	// ListByStatus returns the users with this status, the oldest CreatedAt first
+	// (ties by ID), at most limit of them, with limit clamped to the range 1 to
+	// ListLimitMax. A status that is not defined is a FieldErrors with the key
+	// "status".
+	ListByStatus(ctx context.Context, status UserStatus, limit int) ([]User, error)
+
+	// Approve moves the user from pending_approval to active and sets ApprovedBy
+	// (to by), ApprovedAt and UpdatedAt (to now). A user in any other status is
+	// ErrConflict and is left unchanged. A missing user, or a by that names no
+	// user, is ErrNotFound and nothing changes.
+	Approve(ctx context.Context, id, by string, now time.Time) error
 
 	// RecentPasswordHashes returns the current hash first, then the previous one
 	// if there is one: one or two entries. A missing user is ErrNotFound.
@@ -174,6 +196,22 @@ type Collectives interface {
 	// with limit clamped to the range SearchLimitMin to SearchLimitMax.
 	SearchApproved(ctx context.Context, query string, kind CollectiveKind, limit int) ([]Collective, error)
 
+	// ListByStatus returns the collectives with this status in ascending NameKey
+	// order (byte order), at most limit of them, with limit clamped to the range 1
+	// to ListLimitMax. A status that is not defined is a FieldErrors with the key
+	// "status".
+	ListByStatus(ctx context.Context, status CollectiveStatus, limit int) ([]Collective, error)
+
+	// Update validates c and returns its FieldErrors, then stores Name, NameKey,
+	// Status, ApprovedBy, ApprovedAt, EventsBlocked, Locked and UpdatedAt on the
+	// collective c.ID. Kind, CreatedBy and CreatedAt never change. It returns
+	// ErrNotFound when the collective does not exist or when c.ApprovedBy is not
+	// empty and names no user, and ErrNameTaken when another collective has
+	// c.NameKey. It always writes the document, even when no field differs, which
+	// is what serializes concurrent transactions on one collective (see the
+	// conventions above).
+	Update(ctx context.Context, c Collective) error
+
 	// Delete removes the collective and its memberships; the users stay. A
 	// missing collective is ErrNotFound.
 	Delete(ctx context.Context, id string) error
@@ -188,6 +226,14 @@ type MembershipView struct {
 	CollectiveStatus CollectiveStatus
 }
 
+// MemberView is a membership with the fields of its user that the member list
+// of a collective shows.
+type MemberView struct {
+	Membership
+	UserName   string
+	UserStatus UserStatus
+}
+
 // Memberships stores the links between users and collectives.
 type Memberships interface {
 	// Create validates m and returns its FieldErrors, then stores it. The user
@@ -196,6 +242,32 @@ type Memberships interface {
 	// ErrNotFound. A second membership for the same user and collective, whatever
 	// its role or status, is ErrAlreadyMember.
 	Create(ctx context.Context, m Membership) error
+
+	// Get returns the membership of the user in the collective, or ErrNotFound.
+	Get(ctx context.Context, userID, collectiveID string) (Membership, error)
+
+	// Update validates m and returns its FieldErrors, then stores Role, Status,
+	// AdminApprovedBy, AdminApprovedAt, OwnerApprovedBy, OwnerApprovedAt and
+	// DecidedAt on the membership of m.UserID in m.CollectiveID. RequestedAt never
+	// changes. It returns ErrNotFound when the membership does not exist or when
+	// m.AdminApprovedBy or m.OwnerApprovedBy is not empty and names no user.
+	Update(ctx context.Context, m Membership) error
+
+	// Delete removes the membership of the user in the collective. A missing
+	// membership is ErrNotFound.
+	Delete(ctx context.Context, userID, collectiveID string) error
+
+	// ListByCollective returns every membership of the collective, whatever its
+	// status, with the Name and the Status of its user: the owners first, then by
+	// UserName ascending (ties by UserID). An unknown collective has none.
+	ListByCollective(ctx context.Context, collectiveID string) ([]MemberView, error)
+
+	// ListAwaitingAdmin returns the memberships with status pending and
+	// AdminApprovedAt unset whose user has status active or pending_approval (never
+	// pending_email or disabled), the oldest RequestedAt first (ties by user ID,
+	// then collective ID), at most limit of them, with limit clamped to the range 1
+	// to ListLimitMax.
+	ListAwaitingAdmin(ctx context.Context, limit int) ([]MembershipView, error)
 
 	// ListByUser returns every membership of the user, whatever its status, in
 	// ascending order of the collective's NameKey. An unknown user has none.
@@ -209,8 +281,21 @@ type Memberships interface {
 
 	// UserCanCreateEvents reports whether the user has status active and holds a
 	// membership with role owner and status approved in a collective with status
-	// approved. An unknown user cannot.
+	// approved and EventsBlocked false. An unknown user cannot.
 	UserCanCreateEvents(ctx context.Context, userID string) (bool, error)
+}
+
+// AuditEntries stores the audit log: one entry for each decision or request.
+type AuditEntries interface {
+	// Create validates e and returns its FieldErrors, assigns e.ID (an ID the
+	// caller set is ignored) and stores every other field as given. The IDs in e
+	// are snapshots: they are not checked, and deleting a user or a collective
+	// never changes an entry.
+	Create(ctx context.Context, e *AuditEntry) error
+
+	// List returns the newest entries first (At descending, then ID descending),
+	// at most limit of them, with limit clamped to the range 1 to ListLimitMax.
+	List(ctx context.Context, limit int) ([]AuditEntry, error)
 }
 
 // Outbox stores the emails waiting to be sent. A worker claims messages, sends
@@ -244,12 +329,13 @@ type Outbox interface {
 
 // Repos bundles the repositories of one store, or of one transaction.
 type Repos struct {
-	Users       Users
-	Tokens      Tokens
-	Sessions    Sessions
-	Collectives Collectives
-	Memberships Memberships
-	Outbox      Outbox
+	Users        Users
+	Tokens       Tokens
+	Sessions     Sessions
+	Collectives  Collectives
+	Memberships  Memberships
+	Outbox       Outbox
+	AuditEntries AuditEntries
 }
 
 // Store is a database backend.

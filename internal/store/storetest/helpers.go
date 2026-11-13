@@ -177,6 +177,21 @@ func due(d time.Duration) func(*domain.OutboxMessage) {
 	return func(m *domain.OutboxMessage) { m.NextAttemptAt = at(d) }
 }
 
+// newAuditEntry is a valid entry made at base by an admin about nobody: the
+// tests that need a user or a collective set their fields.
+func newAuditEntry(mutate ...func(*domain.AuditEntry)) domain.AuditEntry {
+	a := domain.AuditEntry{
+		At:        base,
+		Action:    domain.AuditAccountApproved,
+		ActorID:   "admin-1",
+		ActorName: "Admin",
+	}
+	for _, f := range mutate {
+		f(&a)
+	}
+	return a
+}
+
 // --- fixtures stored through the repositories; a failure ends the subtest ---
 
 func (e env) user(name string, mutate ...func(*domain.User)) domain.User {
@@ -226,6 +241,13 @@ func (e env) message(to string, mutate ...func(*domain.OutboxMessage)) domain.Ou
 	m := newMessage(to, mutate...)
 	noErr(e.t, "enqueue message to "+to, e.r.Outbox.Enqueue(e.ctx, &m))
 	return m
+}
+
+func (e env) auditEntry(mutate ...func(*domain.AuditEntry)) domain.AuditEntry {
+	e.t.Helper()
+	a := newAuditEntry(mutate...)
+	noErr(e.t, "create audit entry "+string(a.Action), e.r.AuditEntries.Create(e.ctx, &a))
+	return a
 }
 
 // --- assertions ---
@@ -403,6 +425,11 @@ func normMessage(m domain.OutboxMessage) domain.OutboxMessage {
 	m.SentAt = msPtr(m.SentAt)
 	m.CreatedAt = ms(m.CreatedAt)
 	return m
+}
+
+func normAuditEntry(a domain.AuditEntry) domain.AuditEntry {
+	a.At = ms(a.At)
+	return a
 }
 
 // --- concurrency: the goroutines only call the store and return what they got;

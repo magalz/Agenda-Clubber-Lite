@@ -164,3 +164,28 @@ func (r memberships) UserCanCreateEvents(ctx context.Context, userID string) (bo
 	}
 	return ok, nil
 }
+
+// Get is a stub until T3.4a implements it.
+func (r memberships) Get(ctx context.Context, userID, collectiveID string) (domain.Membership, error) {
+	return domain.Membership{}, errNotImplemented
+}
+
+// Update is a stub until T3.4a implements it.
+func (r memberships) Update(ctx context.Context, m domain.Membership) error {
+	return errNotImplemented
+}
+
+// Delete is a stub until T3.4a implements it.
+func (r memberships) Delete(ctx context.Context, userID, collectiveID string) error {
+	return errNotImplemented
+}
+
+// ListByCollective is a stub until T3.4b implements it.
+func (r memberships) ListByCollective(ctx context.Context, collectiveID string) ([]domain.MemberView, error) {
+	return nil, errNotImplemented
+}
+
+// ListAwaitingAdmin is a stub until T3.4b implements it.
+func (r memberships) ListAwaitingAdmin(ctx context.Context, limit int) ([]domain.MembershipView, error) {
+	return nil, errNotImplemented
+}

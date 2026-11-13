@@ -121,3 +121,13 @@ func (r collectives) Delete(ctx context.Context, id string) error {
 		return nil
 	})
 }
+
+// ListByStatus is a stub until T3.3 implements it.
+func (r collectives) ListByStatus(ctx context.Context, status domain.CollectiveStatus, limit int) ([]domain.Collective, error) {
+	return nil, errNotImplemented
+}
+
+// Update is a stub until T3.3 implements it.
+func (r collectives) Update(ctx context.Context, c domain.Collective) error {
+	return errNotImplemented
+}

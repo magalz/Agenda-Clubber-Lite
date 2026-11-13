@@ -120,6 +120,41 @@ func (p TokenPurpose) Valid() bool {
 	return false
 }
 
+// AuditAction is what a decision or request in the audit log did. The values
+// are part of every backend's data format.
+type AuditAction string
+
+const (
+	AuditAccountApproved     AuditAction = "account_approved"
+	AuditAccountRejected     AuditAction = "account_rejected"
+	AuditAccountBlocked      AuditAction = "account_blocked"
+	AuditAccountUnblocked    AuditAction = "account_unblocked"
+	AuditCollectiveRequested AuditAction = "collective_requested"
+	AuditCollectiveApproved  AuditAction = "collective_approved"
+	AuditCollectiveRejected  AuditAction = "collective_rejected"
+	AuditCollectiveRenamed   AuditAction = "collective_renamed"
+	AuditCollectiveBlocks    AuditAction = "collective_blocks_changed"
+	AuditJoinRequested       AuditAction = "join_requested"
+	AuditJoinAdminApproved   AuditAction = "join_admin_approved"
+	AuditJoinOwnerApproved   AuditAction = "join_owner_approved"
+	AuditJoinRejected        AuditAction = "join_rejected"
+	AuditMemberPromoted      AuditAction = "member_promoted"
+	AuditMemberDemoted       AuditAction = "member_demoted"
+)
+
+// Valid reports whether a is one of the defined actions.
+func (a AuditAction) Valid() bool {
+	switch a {
+	case AuditAccountApproved, AuditAccountRejected, AuditAccountBlocked, AuditAccountUnblocked,
+		AuditCollectiveRequested, AuditCollectiveApproved, AuditCollectiveRejected,
+		AuditCollectiveRenamed, AuditCollectiveBlocks,
+		AuditJoinRequested, AuditJoinAdminApproved, AuditJoinOwnerApproved, AuditJoinRejected,
+		AuditMemberPromoted, AuditMemberDemoted:
+		return true
+	}
+	return false
+}
+
 // Field limits shared by the rules and by the backends. Lengths count runes.
 const (
 	UserNameMin  = 1
@@ -147,6 +182,15 @@ const (
 	// limit outside the range is clamped to it.
 	SearchLimitMin = 1
 	SearchLimitMax = 50
+
+	// ListLimitMax is the upper clamp of the limit of the list methods that take
+	// one (SearchApproved has the range above): a limit below 1 is raised to 1
+	// and one above ListLimitMax is lowered to it.
+	ListLimitMax = 500
+
+	// AuditTextMax is how many runes AuditEntry.Detail and AuditEntry.Reason
+	// hold.
+	AuditTextMax = 500
 )
 
 // Errors a backend returns and callers match with errors.Is.
@@ -188,8 +232,15 @@ type Collective struct {
 	CreatedBy  string
 	ApprovedBy string
 	ApprovedAt *time.Time
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
+	// EventsBlocked means the collective's Administradores may not create or
+	// edit events. The zero value is not blocked.
+	EventsBlocked bool
+	// Locked freezes the members and the name: the collective takes no join
+	// decision, promotion, demotion or rename, and refuses new join requests.
+	// The zero value is not locked.
+	Locked    bool
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 // Membership links a user to a collective. The pair (UserID, CollectiveID) is
@@ -245,4 +296,25 @@ type OutboxMessage struct {
 	GaveUp        bool
 	LastError     string
 	CreatedAt     time.Time
+}
+
+// AuditEntry records one decision or request. It keeps IDs plus snapshots of the
+// names at the time, so it stays readable after the user or the collective is
+// deleted; it never holds an email address. ActorID is who acted, UserID the
+// person the action is about and CollectiveID the collective, the last two
+// empty when the action has none. Detail is a short description the code builds
+// (for example "old -> new" for a rename, the blocks that changed, the role) and
+// Reason is the optional free text of whoever decided.
+type AuditEntry struct {
+	ID             string
+	At             time.Time
+	Action         AuditAction
+	ActorID        string
+	ActorName      string
+	UserID         string
+	UserName       string
+	CollectiveID   string
+	CollectiveName string
+	Detail         string
+	Reason         string
 }

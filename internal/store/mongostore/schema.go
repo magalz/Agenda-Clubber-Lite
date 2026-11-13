@@ -73,6 +73,8 @@ func index(name string, unique bool, keys bson.D) mongo.IndexModel {
 
 func key(field string) bson.E { return bson.E{Key: field, Value: 1} }
 
+func keyDesc(field string) bson.E { return bson.E{Key: field, Value: -1} }
+
 func specs() []collectionSpec {
 	return []collectionSpec{
 		{
@@ -101,6 +103,7 @@ func specs() []collectionSpec {
 				}),
 			indexes: []mongo.IndexModel{
 				index("email_unique", true, bson.D{key("email")}),
+				index("status_created_at", false, bson.D{key("status"), key("created_at")}),
 			},
 		},
 		{
@@ -142,15 +145,18 @@ func specs() []collectionSpec {
 			validator: validator(tObjectID,
 				[]string{"name", "name_key", "kind", "status", "created_at", "updated_at"},
 				bson.M{
-					"name":        tString,
-					"name_key":    tString,
-					"kind":        tEnum(domain.CollectiveKindColetivo, domain.CollectiveKindProdutora),
-					"status":      tEnum(domain.CollectiveStatusPending, domain.CollectiveStatusApproved, domain.CollectiveStatusRejected),
-					"created_by":  tObjectID,
-					"approved_by": tObjectID,
-					"approved_at": tDate,
-					"created_at":  tDate,
-					"updated_at":  tDate,
+					"name":           tString,
+					"name_key":       tString,
+					"kind":           tEnum(domain.CollectiveKindColetivo, domain.CollectiveKindProdutora),
+					"status":         tEnum(domain.CollectiveStatusPending, domain.CollectiveStatusApproved, domain.CollectiveStatusRejected),
+					"created_by":     tObjectID,
+					"approved_by":    tObjectID,
+					"approved_at":    tDate,
+					"events_blocked": tBool,
+					"locked":         tBool,
+					"rev":            tInt,
+					"created_at":     tDate,
+					"updated_at":     tDate,
 				}),
 			indexes: []mongo.IndexModel{
 				index("name_key_unique", true, bson.D{key("name_key")}),
@@ -176,6 +182,7 @@ func specs() []collectionSpec {
 			indexes: []mongo.IndexModel{
 				index("user_id_collective_id_unique", true, bson.D{key("user_id"), key("collective_id")}),
 				index("collective_id_status", false, bson.D{key("collective_id"), key("status")}),
+				index("status_requested_at", false, bson.D{key("status"), key("requested_at")}),
 			},
 		},
 		{
@@ -197,6 +204,32 @@ func specs() []collectionSpec {
 				}),
 			indexes: []mongo.IndexModel{
 				index("sent_at_gave_up_next_attempt_at", false, bson.D{key("sent_at"), key("gave_up"), key("next_attempt_at")}),
+			},
+		},
+		{
+			name: colAuditEntries,
+			validator: validator(tString,
+				[]string{"at", "action", "actor_id"},
+				bson.M{
+					"at": tDate,
+					"action": tEnum(domain.AuditAccountApproved, domain.AuditAccountRejected,
+						domain.AuditAccountBlocked, domain.AuditAccountUnblocked,
+						domain.AuditCollectiveRequested, domain.AuditCollectiveApproved,
+						domain.AuditCollectiveRejected, domain.AuditCollectiveRenamed, domain.AuditCollectiveBlocks,
+						domain.AuditJoinRequested, domain.AuditJoinAdminApproved,
+						domain.AuditJoinOwnerApproved, domain.AuditJoinRejected,
+						domain.AuditMemberPromoted, domain.AuditMemberDemoted),
+					"actor_id":        tString,
+					"actor_name":      tString,
+					"user_id":         tString,
+					"user_name":       tString,
+					"collective_id":   tString,
+					"collective_name": tString,
+					"detail":          tString,
+					"reason":          tString,
+				}),
+			indexes: []mongo.IndexModel{
+				index("at_desc_id_desc", false, bson.D{keyDesc("at"), keyDesc("_id")}),
 			},
 		},
 	}

@@ -289,6 +289,60 @@ func TestOutboxMessageValidate(t *testing.T) {
 	})
 }
 
+func baseAuditEntry() AuditEntry {
+	return AuditEntry{
+		At: t0, Action: AuditCollectiveRenamed, ActorID: "u1", ActorName: "Ana",
+		UserID: "u2", UserName: "Bia", CollectiveID: "c1", CollectiveName: "Produtora Dois",
+		Detail: "Produtora Um -> Produtora Dois", Reason: "nome oficial",
+	}
+}
+
+func TestAuditEntryValidate(t *testing.T) {
+	cases := []check[AuditEntry]{
+		c[AuditEntry]("valid entry", nil),
+		c("entity ID is assigned by the backend", func(e *AuditEntry) { e.ID = "" }),
+		c("only the required fields", func(e *AuditEntry) {
+			*e = AuditEntry{At: t0, Action: AuditAccountApproved, ActorID: "u1"}
+		}),
+		c("an action about nobody and no collective", func(e *AuditEntry) {
+			e.UserID, e.UserName, e.CollectiveID, e.CollectiveName = "", "", "", ""
+		}),
+		c("snapshot IDs of deleted rows are not checked", func(e *AuditEntry) {
+			e.ActorID, e.UserID, e.CollectiveID = "gone-1", "gone-2", "gone-3"
+		}),
+
+		c("audit action unknown", func(e *AuditEntry) { e.Action = "login" }, "action"),
+		c("empty action", func(e *AuditEntry) { e.Action = "" }, "action"),
+		c("action in the wrong case", func(e *AuditEntry) { e.Action = "Account_Approved" }, "action"),
+
+		c("zero time", func(e *AuditEntry) { e.At = time.Time{} }, "at"),
+		c("missing actor", func(e *AuditEntry) { e.ActorID = "" }, "actor_id"),
+
+		c("actor name of 120 runes", func(e *AuditEntry) { e.ActorName = rep("ç", 120) }),
+		c("actor name of 121 runes", func(e *AuditEntry) { e.ActorName = rep("ç", 121) }, "actor_name"),
+		c("user name of 120 runes", func(e *AuditEntry) { e.UserName = rep("ç", 120) }),
+		c("user name of 121 runes", func(e *AuditEntry) { e.UserName = rep("ç", 121) }, "user_name"),
+		c("collective name of 80 runes", func(e *AuditEntry) { e.CollectiveName = rep("ç", 80) }),
+		c("collective name of 81 runes", func(e *AuditEntry) { e.CollectiveName = rep("ç", 81) }, "collective_name"),
+		c("detail of 500 runes", func(e *AuditEntry) { e.Detail = rep("ç", 500) }),
+		c("detail of 501 runes", func(e *AuditEntry) { e.Detail = rep("ç", 501) }, "detail"),
+		c("reason of 500 runes", func(e *AuditEntry) { e.Reason = rep("ç", 500) }),
+		c("reason of 501 runes", func(e *AuditEntry) { e.Reason = rep("ç", 501) }, "reason"),
+		c("detail of 500 characters", func(e *AuditEntry) { e.Detail = rep("x", 500) }),
+		c("reason of 501 characters", func(e *AuditEntry) { e.Reason = rep("x", 501) }, "reason"),
+
+		c("every failing field is reported", func(e *AuditEntry) {
+			e.Action, e.At, e.ActorID = "?", time.Time{}, ""
+			e.ActorName, e.UserName, e.CollectiveName = rep("x", 121), rep("x", 121), rep("x", 81)
+			e.Detail, e.Reason = rep("x", 501), rep("x", 501)
+		}, "action", "at", "actor_id", "actor_name", "user_name", "collective_name", "detail", "reason"),
+	}
+	for _, a := range allAuditActions {
+		cases = append(cases, c("action "+string(a), func(e *AuditEntry) { e.Action = a }))
+	}
+	runChecks(t, baseAuditEntry, AuditEntry.Validate, cases)
+}
+
 func TestFieldErrors(t *testing.T) {
 	var _ error = FieldErrors(nil)
 
