@@ -16,7 +16,7 @@ import (
 
 // dropName is a file name written by a DropSender: a UTC timestamp, so a
 // listing sorts by arrival, then a random suffix.
-var dropName = regexp.MustCompile(`^(\d{8}T\d{6}\.\d{3}Z)-[0-9a-f]{16}\.eml$`)
+var dropName = regexp.MustCompile(`^(\d{8}T\d{6}\.\d{3}Z)-[A-Z2-7]{26,}\.eml$`) // crypto/rand.Text: base32, at least 128 bits
 
 // dirNames lists the entries of dir, sorted.
 func dirNames(t *testing.T, dir string) []string {
