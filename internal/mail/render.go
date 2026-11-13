@@ -29,10 +29,13 @@ type VerifyEmailData struct {
 
 // ExistingAccountData is the data of TemplateExistingAccount: the notice a
 // person gets when they sign up with an address that already has an account.
+// ForgotPasswordLink is the forgot-password page ({APP_ORIGIN}/senha/esqueci),
+// never a reset-token link: signup does not issue reset tokens, so the email
+// states no expiry.
 type ExistingAccountData struct {
-	Name      string
-	LoginLink string
-	ResetLink string
+	Name               string
+	LoginLink          string
+	ForgotPasswordLink string
 }
 
 // SignupCollective is one collective or producer in an admin notice. Kind and

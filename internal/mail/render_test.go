@@ -10,6 +10,7 @@ const (
 	linkConfirm = "https://agenda.example/confirmar/abc123_-xyz"
 	linkLogin   = "https://agenda.example/entrar"
 	linkReset   = "https://agenda.example/redefinir-senha/def456_-uvw"
+	linkForgot  = "https://agenda.example/senha/esqueci"
 	linkAdmin   = "https://agenda.example/admin/aprovacoes"
 	xssName     = `<script>alert(1)</script>`
 )
@@ -22,6 +23,7 @@ type renderCase struct {
 	subject string
 	links   []string // each must be a plain-text link and a clickable one
 	phrases []string // each must appear in the text and in the HTML
+	absent  []string // none may appear in the text or in the HTML
 }
 
 func renderCases() []renderCase {
@@ -37,10 +39,11 @@ func renderCases() []renderCase {
 		{
 			name:    "existing account",
 			tmpl:    TemplateExistingAccount,
-			data:    ExistingAccountData{Name: "Ana Souza", LoginLink: linkLogin, ResetLink: linkReset},
+			data:    ExistingAccountData{Name: "Ana Souza", LoginLink: linkLogin, ForgotPasswordLink: linkForgot},
 			subject: "Você já tem uma conta · Agenda Clubber",
-			links:   []string{linkLogin, linkReset},
-			phrases: []string{"Ana Souza", "1 hora"}, // the reset link here is the same token link as in the reset email
+			links:   []string{linkLogin, linkForgot},
+			phrases: []string{"Ana Souza"},
+			absent:  []string{"vale por"}, // the forgot-password page does not expire
 		},
 		{
 			name: "admin new signup",
@@ -102,6 +105,11 @@ func TestRender(t *testing.T) {
 					t.Errorf("html lacks %q", phrase)
 				}
 			}
+			for _, phrase := range tc.absent {
+				if strings.Contains(text, phrase) || strings.Contains(shown, phrase) {
+					t.Errorf("email carries %q", phrase)
+				}
+			}
 			for _, want := range []string{"IgnisDev", "ignisdev@magalz.space"} {
 				if !strings.Contains(text, want) || !strings.Contains(htmlBody, want) {
 					t.Errorf("footer lacks %q", want)
@@ -126,7 +134,7 @@ func TestRenderEscapesUserText(t *testing.T) {
 		data any
 	}{
 		{"verify email", TemplateVerifyEmail, VerifyEmailData{Name: xssName, Link: linkConfirm}},
-		{"existing account", TemplateExistingAccount, ExistingAccountData{Name: xssName, LoginLink: linkLogin, ResetLink: linkReset}},
+		{"existing account", TemplateExistingAccount, ExistingAccountData{Name: xssName, LoginLink: linkLogin, ForgotPasswordLink: linkForgot}},
 		{"password reset", TemplatePasswordReset, PasswordResetData{Name: xssName, Link: linkReset}},
 		{"admin new signup", TemplateAdminNewSignup, AdminNewSignupData{
 			UserName:    xssName,
