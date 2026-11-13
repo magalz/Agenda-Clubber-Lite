@@ -76,12 +76,18 @@ func (r memberships) ListByUser(ctx context.Context, userID string) ([]domain.Me
 	if err != nil {
 		return nil, wrap("list memberships", err)
 	}
+	return membershipViews(ctx, cur, "list memberships")
+}
+
+// membershipViews reads the cursor of a pipeline that joined each membership with
+// its collective, as "collective".
+func membershipViews(ctx context.Context, cur *mongo.Cursor, what string) ([]domain.MembershipView, error) {
 	var docs []struct {
 		Membership membershipDoc `bson:",inline"`
 		Collective collectiveDoc `bson:"collective"`
 	}
 	if err := cur.All(ctx, &docs); err != nil {
-		return nil, wrap("list memberships", err)
+		return nil, wrap(what, err)
 	}
 	views := make([]domain.MembershipView, len(docs))
 	for i, d := range docs {
@@ -270,12 +276,80 @@ func (r memberships) Delete(ctx context.Context, userID, collectiveID string) er
 	return nil
 }
 
-// ListByCollective is a stub until T3.4b implements it.
+// ListByCollective joins each membership of the collective with its user. MongoDB
+// sorts strings as their bytes sort, and "owner" sorts after "member", so the
+// owners first come from an explicit rank. The user is cut down to its name and
+// status before the documents leave the server, so no password hash travels.
 func (r memberships) ListByCollective(ctx context.Context, collectiveID string) ([]domain.MemberView, error) {
-	return nil, errNotImplemented
+	oid, err := parseID(collectiveID)
+	if err != nil {
+		return nil, nil // an unknown collective has no memberships
+	}
+	cur, err := r.coll().Aggregate(ctx, mongo.Pipeline{
+		{{Key: "$match", Value: bson.M{"collective_id": oid}}},
+		{{Key: "$lookup", Value: bson.M{
+			"from": colUsers, "localField": "user_id", "foreignField": "_id", "as": "user",
+		}}},
+		{{Key: "$unwind", Value: "$user"}},
+		{{Key: "$addFields", Value: bson.M{
+			"owner_rank": bson.M{"$cond": bson.A{bson.M{"$eq": bson.A{"$role", string(domain.RoleOwner)}}, 0, 1}},
+			"user_name":  "$user.name", "user_status": "$user.status",
+		}}},
+		{{Key: "$sort", Value: bson.D{key("owner_rank"), key("user_name"), key("user_id")}}},
+		{{Key: "$project", Value: bson.M{"user": 0, "owner_rank": 0}}},
+	})
+	if err != nil {
+		return nil, wrap("list members", err)
+	}
+	var docs []struct {
+		Membership membershipDoc `bson:",inline"`
+		UserName   string        `bson:"user_name"`
+		UserStatus string        `bson:"user_status"`
+	}
+	if err := cur.All(ctx, &docs); err != nil {
+		return nil, wrap("list members", err)
+	}
+	views := make([]domain.MemberView, len(docs))
+	for i, d := range docs {
+		views[i] = domain.MemberView{
+			Membership: d.Membership.membership(),
+			UserName:   d.UserName,
+			UserStatus: domain.UserStatus(d.UserStatus),
+		}
+	}
+	return views, nil
 }
 
-// ListAwaitingAdmin is a stub until T3.4b implements it.
+// ListAwaitingAdmin finds the pending memberships whose admin side is open and
+// keeps those of an active or pending_approval user. The sort runs after that
+// join, in memory, over the memberships with the user already dropped; the
+// collective is joined only for the rows that survive the limit. It clamps limit
+// itself: MongoDB reads a limit of 0 as "no limit" and a negative one as its
+// absolute value.
 func (r memberships) ListAwaitingAdmin(ctx context.Context, limit int) ([]domain.MembershipView, error) {
-	return nil, errNotImplemented
+	limit = min(max(limit, 1), domain.ListLimitMax)
+	cur, err := r.coll().Aggregate(ctx, mongo.Pipeline{
+		{{Key: "$match", Value: bson.M{
+			"status":            string(domain.MembershipStatusPending),
+			"admin_approved_at": bson.M{"$exists": false},
+		}}},
+		{{Key: "$lookup", Value: bson.M{
+			"from": colUsers, "localField": "user_id", "foreignField": "_id", "as": "user",
+		}}},
+		{{Key: "$unwind", Value: "$user"}},
+		{{Key: "$match", Value: bson.M{"user.status": bson.M{"$in": bson.A{
+			string(domain.UserStatusActive), string(domain.UserStatusPendingApproval),
+		}}}}},
+		{{Key: "$project", Value: bson.M{"user": 0}}},
+		{{Key: "$sort", Value: bson.D{key("requested_at"), key("user_id"), key("collective_id")}}},
+		{{Key: "$limit", Value: int64(limit)}},
+		{{Key: "$lookup", Value: bson.M{
+			"from": colCollectives, "localField": "collective_id", "foreignField": "_id", "as": "collective",
+		}}},
+		{{Key: "$unwind", Value: "$collective"}},
+	})
+	if err != nil {
+		return nil, wrap("list memberships awaiting the admin", err)
+	}
+	return membershipViews(ctx, cur, "list memberships awaiting the admin")
 }
