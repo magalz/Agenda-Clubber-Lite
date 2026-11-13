@@ -31,13 +31,22 @@ func TestStore(t *testing.T) { storetest.Run(t, newStore) }
 // an error.
 const passwordMarker = "PWMARKER-7f3a"
 
+// wantSafeError requires an error from Open that carries nothing of uri: not its
+// password, user, host, port or options, neither in its text nor in a wrapped
+// error that a caller could unwrap and print.
 func wantSafeError(t *testing.T, err error, uri string) {
 	t.Helper()
 	if err == nil {
 		t.Fatal("Open succeeded, want an error")
 	}
+	if inner := errors.Unwrap(err); inner != nil {
+		t.Errorf("the error wraps another one, which may carry the URI: %v", inner)
+	}
+	if joined, ok := err.(interface{ Unwrap() []error }); ok && len(joined.Unwrap()) > 0 {
+		t.Errorf("the error wraps other errors, which may carry the URI: %v", joined.Unwrap())
+	}
 	msg := err.Error()
-	for _, leak := range []string{passwordMarker, "user:", uri} {
+	for _, leak := range []string{passwordMarker, "user", "127.0.0.1", "notaport", ":1/", "directConnection", "mongodb://", uri} {
 		if strings.Contains(msg, leak) {
 			t.Errorf("the error leaks %q from the URI: %v", leak, err)
 		}
