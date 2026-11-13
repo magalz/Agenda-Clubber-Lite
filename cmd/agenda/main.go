@@ -215,36 +215,37 @@ func serve(ctx context.Context, getenv func(string) string, stdout, stderr io.Wr
 	// does not take longer than the ones after it.
 	auth.DummyVerify("")
 
-	// Deferred after closeStore, so the worker's last write and the cleanup are
-	// done before the database closes.
-	stopJobs := startJobs(ctx, log, store.Repos(), sender)
-	defer func() {
-		if !stopJobs(shutdownTimeout) {
-			log.Error("background jobs did not stop in time")
-		}
-	}()
-
 	srv := newServer(cfg, log, store)
+	stopJobs := startJobs(ctx, log, store.Repos(), sender)
 
 	errCh := make(chan error, 1)
 	go func() { errCh <- srv.ListenAndServe() }()
 	log.Info("starting", "addr", cfg.Addr, "env", cfg.Env, "origin", cfg.Origin)
 
+	code := 0
 	select {
 	case err := <-errCh: // only a failure: nothing has called Shutdown yet
 		log.Error("listen failed", "err", err)
-		return 1
+		code = 1
 	case <-ctx.Done():
+		log.Info("shutting down")
 	}
 
-	log.Info("shutting down")
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+	// One deadline bounds the whole shutdown: the server stops, then the jobs. The
+	// database closes after both (the deferred closeStore), so no job uses it later.
+	shutdownBy := time.Now().Add(shutdownTimeout)
+	shutdownCtx, cancel := context.WithDeadline(context.Background(), shutdownBy)
 	defer cancel()
-	if err := srv.Shutdown(shutdownCtx); err != nil {
-		log.Error("shutdown failed", "err", err)
-		return 1
+	if code == 0 {
+		if err := srv.Shutdown(shutdownCtx); err != nil {
+			log.Error("shutdown failed", "err", err)
+			code = 1
+		}
 	}
-	return 0
+	if !stopJobs(time.Until(shutdownBy)) {
+		log.Error("background jobs did not stop in time")
+	}
+	return code
 }
 
 // cleanupInterval is how often serve removes expired sessions and tokens; a
@@ -253,8 +254,9 @@ var cleanupInterval = time.Hour
 
 // newSender picks how outgoing mail leaves: the drop folder (dev only, which
 // config.Load enforces) when MAIL_DROP_DIR is set, else SMTP when SMTP_HOST is
-// set, else nothing: a nil sender and one warning. The logs name the relay's host
-// and port, never the login: the whole SMTP group would add the username.
+// set, else nothing: a nil sender and one warning. Each logs the kind of sender
+// (drop, smtp or none) as the "sender" attribute, and never the relay's host or the
+// login: the whole SMTP group would add the username.
 func newSender(cfg config.Config, log *slog.Logger) (mail.Sender, error) {
 	switch {
 	case cfg.MailDropDir != "":
@@ -263,17 +265,17 @@ func newSender(cfg config.Config, log *slog.Logger) (mail.Sender, error) {
 			return nil, err
 		}
 		d.From = cfg.SMTP.From
-		log.Info("mail: writing messages to the drop folder", "dir", cfg.MailDropDir, "from", d.From)
+		log.Info("mail: writing messages to the drop folder", "sender", "drop", "dir", cfg.MailDropDir, "from", d.From)
 		return d, nil
 	case cfg.SMTP.Host != "":
 		s, err := mail.NewSMTPSender(cfg.SMTP)
 		if err != nil {
 			return nil, err // untyped nil: a nil *SMTPSender in a mail.Sender is not nil
 		}
-		log.Info("mail: sending through SMTP", "host", cfg.SMTP.Host, "port", cfg.SMTP.Port)
+		log.Info("mail: sending through SMTP", "sender", "smtp")
 		return s, nil
 	default:
-		log.Warn("mail: no SMTP_HOST (or MAIL_DROP_DIR in dev): queued emails are not sent")
+		log.Warn("email sending disabled: no SMTP_HOST or MAIL_DROP_DIR", "sender", "none")
 		return nil, nil
 	}
 }
@@ -303,7 +305,14 @@ func startJobs(ctx context.Context, log *slog.Logger, repos domain.Repos, sender
 		case <-done:
 			return true
 		case <-timer.C:
-			return false
+			// An already spent timeout (the server used the deadline up) must not
+			// hide jobs that have finished.
+			select {
+			case <-done:
+				return true
+			default:
+				return false
+			}
 		}
 	}
 }
@@ -324,8 +333,9 @@ func purgeLoop(ctx context.Context, log *slog.Logger, repos domain.Repos) {
 }
 
 // purgeExpired deletes the expired sessions and the used or expired tokens. The
-// two are independent: a failure of the first does not skip the second. A failure
-// caused by the shutdown is not logged, and a run that removed nothing logs nothing.
+// two are independent: a failure of the first does not skip the second. Each logs
+// the number it removed at Info, also when it is 0, or its failure at Error; a
+// failure caused by the shutdown is not logged.
 func purgeExpired(ctx context.Context, log *slog.Logger, repos domain.Repos) {
 	now := time.Now().UTC()
 	sessions, sessionsErr := repos.Sessions.DeleteExpired(ctx, now)
@@ -335,12 +345,13 @@ func purgeExpired(ctx context.Context, log *slog.Logger, repos domain.Repos) {
 	}
 	if sessionsErr != nil {
 		log.Error("cleanup: removing expired sessions failed", "err", sessionsErr)
+	} else {
+		log.Info("cleanup: expired sessions removed", "count", sessions)
 	}
 	if tokensErr != nil {
 		log.Error("cleanup: removing expired tokens failed", "err", tokensErr)
-	}
-	if sessions+tokens > 0 {
-		log.Info("cleanup: removed expired rows", "sessions", sessions, "tokens", tokens)
+	} else {
+		log.Info("cleanup: expired tokens removed", "count", tokens)
 	}
 }
 
