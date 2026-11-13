@@ -28,3 +28,6 @@ Thumbs.db
 
 # Local tool state (Memtrace query audit)
 .memdb/
+
+# Stray file created by "> NUL" redirects under Git Bash on Windows
+/NUL
