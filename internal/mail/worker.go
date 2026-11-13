@@ -35,7 +35,8 @@ const (
 // sending a message that is still in flight; the defaults do.
 //
 // The logs name a message by its ID only: its recipient, subject and bodies
-// carry personal data and the links in them carry tokens.
+// carry personal data and the links in them carry tokens. The error of a Sender
+// is logged and stored as it is, so a Sender keeps all of that out of it.
 type Worker struct {
 	Outbox domain.Outbox
 	Sender Sender
