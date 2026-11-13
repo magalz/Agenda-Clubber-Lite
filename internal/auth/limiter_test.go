@@ -112,9 +112,10 @@ func TestLimiterKeysAreIndependent(t *testing.T) {
 }
 
 // The rule of a key must not depend on when the sweep last ran. With a clock
-// that only moves forward a key created after a sweep can still end before the
-// next one, so the map holds a key whose window has ended and that no sweep has
-// dropped yet; the window check in Allow alone gives that key a new window.
+// that only moves forward a key created before a sweep can survive it and end
+// before the next one, so the map holds a key whose window has ended and that no
+// sweep has dropped yet; the window check in Allow alone gives that key a new
+// window.
 func TestLimiterWindowEndsEvenWhenNoSweepRuns(t *testing.T) {
 	l := NewLimiter(1, time.Minute)
 	if !l.Allow("a", limiterStart) { // the first sweep: the next one may run at +1m
