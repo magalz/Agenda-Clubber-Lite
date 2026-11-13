@@ -474,6 +474,22 @@ func TestSignupFieldValidation(t *testing.T) {
 	signupAssertNothingWritten(t, s, "ana@example.com", "Noite Verde")
 }
 
+// A phone field of junk digits must not cost more than the input is long:
+// Signup is open to anyone and validates before it does anything else. Building
+// the digits one string concatenation at a time allocates once per digit.
+func TestSignupValidateDoesNotAllocatePerPhoneDigit(t *testing.T) {
+	in := signupInput()
+	in.Phone = strings.Repeat("1-", 32<<10) // 64 KiB: 32768 digits, each followed by a dash
+	var err error
+	allocs := testing.AllocsPerRun(3, func() { _, err = signupValidate(in) })
+	if fe := signupFieldErrors(t, err); fe["phone"] == "" {
+		t.Errorf("a phone with %d digits has no phone error: %v", len(in.Phone)/2, fe)
+	}
+	if allocs > 1000 {
+		t.Errorf("signupValidate made %.0f allocations for a 64 KiB phone, want a handful", allocs)
+	}
+}
+
 // signupHookStore wraps a Store and lets a test replace the repositories each
 // WithTx call hands to fn. run counts the WithTx calls from 1.
 type signupHookStore struct {
