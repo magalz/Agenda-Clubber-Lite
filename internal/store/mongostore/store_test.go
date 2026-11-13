@@ -275,6 +275,59 @@ func TestDollarValuesAreStoredAsText(t *testing.T) {
 	}
 }
 
+// --- times ---
+
+// The converters in docs.go copy times as they are: the driver decodes a BSON
+// datetime to UTC, which is what the contract wants. The suite compares instants
+// only, so this pins the zone, for a document read by a query and one returned
+// by an update.
+func TestTimesAreReadBackInUTC(t *testing.T) {
+	s := mongotest.New(t)
+	r := s.Repos()
+	ctx := t.Context()
+
+	local := now.In(time.FixedZone("UTC-3", -3*60*60))
+	u := newUser("ana")
+	u.PasswordChangedAt, u.CreatedAt, u.UpdatedAt = local, local, local
+	u.LockedUntil, u.EmailVerifiedAt, u.ApprovedAt = &local, &local, &local
+	if err := r.Users.Create(ctx, &u); err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	tok := newToken(u.ID, "t1")
+	tok.CreatedAt, tok.ExpiresAt = local, local.Add(time.Hour)
+	if err := r.Tokens.Create(ctx, &tok); err != nil {
+		t.Fatalf("create token: %v", err)
+	}
+
+	got, err := r.Users.ByID(ctx, u.ID)
+	if err != nil {
+		t.Fatalf("ByID: %v", err)
+	}
+	used, err := r.Tokens.Consume(ctx, tok.Purpose, tok.Hash, local.Add(time.Minute))
+	if err != nil {
+		t.Fatalf("Consume: %v", err)
+	}
+
+	for name, tm := range map[string]*time.Time{
+		"user.PasswordChangedAt": &got.PasswordChangedAt,
+		"user.CreatedAt":         &got.CreatedAt,
+		"user.UpdatedAt":         &got.UpdatedAt,
+		"user.LockedUntil":       got.LockedUntil,
+		"user.EmailVerifiedAt":   got.EmailVerifiedAt,
+		"user.ApprovedAt":        got.ApprovedAt,
+		"token.CreatedAt":        &used.CreatedAt,
+		"token.ExpiresAt":        &used.ExpiresAt,
+		"token.UsedAt":           used.UsedAt,
+	} {
+		switch {
+		case tm == nil:
+			t.Errorf("%s: not stored", name)
+		case tm.Location() != time.UTC:
+			t.Errorf("%s is in %v, want UTC", name, tm.Location())
+		}
+	}
+}
+
 // --- WithTx ---
 
 var (

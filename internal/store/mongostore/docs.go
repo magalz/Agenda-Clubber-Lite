@@ -13,6 +13,9 @@ import (
 // holds nobody (an empty reference) or no time is left out of the document, never
 // stored as null or as a zero value. schema.go holds the validators that match
 // these structs: change them together.
+//
+// The driver decodes a BSON datetime to UTC (it is never asked to use the local
+// time zone), so the converters back to the domain copy times as they are.
 
 const (
 	colUsers       = "users"
@@ -53,18 +56,6 @@ func hexOrEmpty(oid *bson.ObjectID) string {
 		return ""
 	}
 	return oid.Hex()
-}
-
-// utc normalizes a time read back from the database. The driver returns the
-// instant; the contract wants it in UTC.
-func utc(t time.Time) time.Time { return t.UTC() }
-
-func utcPtr(t *time.Time) *time.Time {
-	if t == nil {
-		return nil
-	}
-	u := t.UTC()
-	return &u
 }
 
 // --- users ---
@@ -119,16 +110,16 @@ func (d userDoc) user() domain.User {
 		Phone:             d.Phone,
 		PhoneIsWhatsApp:   d.PhoneIsWhatsApp,
 		PasswordHash:      d.PasswordHash,
-		PasswordChangedAt: utc(d.PasswordChangedAt),
+		PasswordChangedAt: d.PasswordChangedAt,
 		Status:            domain.UserStatus(d.Status),
 		IsAdmin:           d.IsAdmin,
 		FailedLogins:      d.FailedLogins,
-		LockedUntil:       utcPtr(d.LockedUntil),
-		EmailVerifiedAt:   utcPtr(d.EmailVerifiedAt),
-		ApprovedAt:        utcPtr(d.ApprovedAt),
+		LockedUntil:       d.LockedUntil,
+		EmailVerifiedAt:   d.EmailVerifiedAt,
+		ApprovedAt:        d.ApprovedAt,
 		ApprovedBy:        hexOrEmpty(d.ApprovedBy),
-		CreatedAt:         utc(d.CreatedAt),
-		UpdatedAt:         utc(d.UpdatedAt),
+		CreatedAt:         d.CreatedAt,
+		UpdatedAt:         d.UpdatedAt,
 	}
 }
 
@@ -165,9 +156,9 @@ func (d tokenDoc) token() domain.Token {
 		Purpose:   domain.TokenPurpose(d.Purpose),
 		Hash:      d.Hash,
 		NewEmail:  d.NewEmail,
-		ExpiresAt: utc(d.ExpiresAt),
-		UsedAt:    utcPtr(d.UsedAt),
-		CreatedAt: utc(d.CreatedAt),
+		ExpiresAt: d.ExpiresAt,
+		UsedAt:    d.UsedAt,
+		CreatedAt: d.CreatedAt,
 	}
 }
 
@@ -198,9 +189,9 @@ func (d sessionDoc) session() domain.Session {
 	return domain.Session{
 		Hash:       d.Hash,
 		UserID:     d.UserID.Hex(),
-		CreatedAt:  utc(d.CreatedAt),
-		LastSeenAt: utc(d.LastSeenAt),
-		ExpiresAt:  utc(d.ExpiresAt),
+		CreatedAt:  d.CreatedAt,
+		LastSeenAt: d.LastSeenAt,
+		ExpiresAt:  d.ExpiresAt,
 		UserAgent:  d.UserAgent,
 	}
 }
@@ -244,9 +235,9 @@ func (d collectiveDoc) collective() domain.Collective {
 		Status:     domain.CollectiveStatus(d.Status),
 		CreatedBy:  hexOrEmpty(d.CreatedBy),
 		ApprovedBy: hexOrEmpty(d.ApprovedBy),
-		ApprovedAt: utcPtr(d.ApprovedAt),
-		CreatedAt:  utc(d.CreatedAt),
-		UpdatedAt:  utc(d.UpdatedAt),
+		ApprovedAt: d.ApprovedAt,
+		CreatedAt:  d.CreatedAt,
+		UpdatedAt:  d.UpdatedAt,
 	}
 }
 
@@ -289,11 +280,11 @@ func (d membershipDoc) membership() domain.Membership {
 		Role:            domain.Role(d.Role),
 		Status:          domain.MembershipStatus(d.Status),
 		AdminApprovedBy: hexOrEmpty(d.AdminApprovedBy),
-		AdminApprovedAt: utcPtr(d.AdminApprovedAt),
+		AdminApprovedAt: d.AdminApprovedAt,
 		OwnerApprovedBy: hexOrEmpty(d.OwnerApprovedBy),
-		OwnerApprovedAt: utcPtr(d.OwnerApprovedAt),
-		RequestedAt:     utc(d.RequestedAt),
-		DecidedAt:       utcPtr(d.DecidedAt),
+		OwnerApprovedAt: d.OwnerApprovedAt,
+		RequestedAt:     d.RequestedAt,
+		DecidedAt:       d.DecidedAt,
 	}
 }
 
@@ -341,11 +332,11 @@ func (d outboxDoc) message() domain.OutboxMessage {
 		Text:          d.Text,
 		HTML:          d.HTML,
 		Attempts:      d.Attempts,
-		NextAttemptAt: utc(d.NextAttemptAt),
-		ClaimedUntil:  utcPtr(d.ClaimedUntil),
-		SentAt:        utcPtr(d.SentAt),
+		NextAttemptAt: d.NextAttemptAt,
+		ClaimedUntil:  d.ClaimedUntil,
+		SentAt:        d.SentAt,
 		GaveUp:        d.GaveUp,
 		LastError:     d.LastError,
-		CreatedAt:     utc(d.CreatedAt),
+		CreatedAt:     d.CreatedAt,
 	}
 }
