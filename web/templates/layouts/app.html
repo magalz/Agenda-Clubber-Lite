@@ -36,7 +36,7 @@
   </aside>
   <div class="sidebar-backdrop" @click="close"></div>
   <main id="conteudo" class="shell__main">
-    {{- with .User}}{{if gt .PasswordDaysLeft 0}}<div class="expiry-banner" role="status">
+    {{- with .User}}{{if gt .PasswordDaysLeft 0}}<div class="status status--warn expiry-banner" role="status">
       <span class="expiry-banner__text">sua senha vence em {{if eq .PasswordDaysLeft 1}}1 dia{{else}}{{.PasswordDaysLeft}} dias{{end}}.</span>
       <a class="expiry-banner__link" href="/senha/trocar">[→] trocar agora</a>
     </div>{{end}}{{end}}{{template "content" .}}{{template "footer" .}}</main>
