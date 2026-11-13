@@ -109,6 +109,12 @@ type Tokens interface {
 	// (unknown hash, other purpose, used, expired) is ErrNotFound and consumes
 	// nothing.
 	Consume(ctx context.Context, purpose TokenPurpose, hash []byte, now time.Time) (Token, error)
+
+	// DeleteExpired removes every token that is used (UsedAt set, by Consume or
+	// by Create retiring it) or has ExpiresAt not after now (ExpiresAt <= now,
+	// the rule Consume uses), and returns how many it removed. The unused
+	// tokens that have not expired stay.
+	DeleteExpired(ctx context.Context, now time.Time) (int, error)
 }
 
 // Sessions stores logins, identified by the SHA-256 of the cookie value.

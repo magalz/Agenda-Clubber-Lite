@@ -96,7 +96,7 @@ func (s *Store) Repos() domain.Repos {
 		Sessions:    sessions{s},
 		Collectives: collectives{s},
 		Memberships: memberships{s},
-		// Outbox is the next task's.
+		Outbox:      outbox{s},
 	}
 }
 

@@ -77,3 +77,6 @@ func (r tokens) Consume(ctx context.Context, purpose domain.TokenPurpose, hash [
 	}
 	return d.token(), nil
 }
+
+// DeleteExpired is a stub until the next commit.
+func (r tokens) DeleteExpired(ctx context.Context, now time.Time) (int, error) { return 0, nil }
