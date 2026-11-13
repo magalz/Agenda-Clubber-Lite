@@ -35,7 +35,8 @@ const (
 type fakeSMTPOptions struct {
 	tls      *tls.Config // non-nil: offer STARTTLS with this certificate
 	auth     bool        // advertise AUTH PLAIN (after STARTTLS when that is offered)
-	authEcho bool        // refuse AUTH with a 535 that repeats the credentials
+	authEcho bool        // refuse AUTH with a 535 that repeats the credentials and the AUTH line
+	mailEcho bool        // accept AUTH, then refuse MAIL with a 550 that repeats the credentials
 }
 
 // deliveredMail is what the fake server got through MAIL, RCPT and DATA.
@@ -162,8 +163,9 @@ func (f *fakeSMTP) serve(conn net.Conn) {
 	tp := textproto.NewConn(conn)
 	_ = tp.PrintfLine("220 fake.test ESMTP ready")
 	var (
-		secured bool
-		cur     deliveredMail
+		secured    bool
+		cur        deliveredMail
+		user, pass string // from the last AUTH PLAIN
 	)
 	for {
 		line, err := tp.ReadLine()
@@ -222,15 +224,20 @@ func (f *fakeSMTP) serve(conn net.Conn) {
 				_ = tp.PrintfLine("501 5.5.2 cannot decode the response")
 				continue
 			}
+			user, pass = parts[1], parts[2]
 			f.mu.Lock()
-			f.creds = append(f.creds, parts[1]+":"+parts[2])
+			f.creds = append(f.creds, user+":"+pass)
 			f.mu.Unlock()
 			if f.opts.authEcho {
-				_ = tp.PrintfLine("535 5.7.8 authentication failed for %s with password %s", parts[1], parts[2])
+				_ = tp.PrintfLine("535 5.7.8 authentication failed for %s with password %s (AUTH PLAIN %s)", user, pass, encoded)
 				continue
 			}
 			_ = tp.PrintfLine("235 2.7.0 authenticated")
 		case "MAIL":
+			if f.opts.mailEcho {
+				_ = tp.PrintfLine("550 5.7.1 sender refused for %s with password %s", user, pass)
+				continue
+			}
 			cur = deliveredMail{from: arg}
 			_ = tp.PrintfLine("250 2.1.0 ok")
 		case "RCPT":
@@ -470,9 +477,72 @@ func TestSMTPSenderRedactsOverlappingCredentials(t *testing.T) {
 
 func checkNoSecrets(t *testing.T, err error) {
 	t.Helper()
-	for _, secret := range []string{testUsername, testPassword} {
-		if strings.Contains(err.Error(), secret) {
-			t.Errorf("error leaks %q: %q", secret, err)
+	checkNoCredentials(t, err, testUsername, testPassword)
+}
+
+// checkNoCredentials fails the test if err carries the username or the password
+// in any shape a server reply could bring it back: as written, as net/textproto
+// quotes a reply (%q), with its whitespace collapsed, or inside the base64 line
+// of AUTH PLAIN.
+func checkNoCredentials(t *testing.T, err error, username, password string) {
+	t.Helper()
+	var forms []string
+	for _, secret := range []string{username, password} {
+		forms = append(forms,
+			secret,
+			strings.Trim(strconv.Quote(secret), `"`),
+			strings.Join(strings.Fields(secret), " "),
+		)
+	}
+	forms = append(forms, base64.StdEncoding.EncodeToString([]byte("\x00"+username+"\x00"+password)))
+	for _, form := range forms {
+		if strings.Contains(err.Error(), form) {
+			t.Errorf("error leaks %q: %q", form, err)
+		}
+	}
+}
+
+func TestSMTPSenderRedactsAwkwardCredentialsFromErrors(t *testing.T) {
+	// A server may repeat the credentials in a refusal. net/textproto quotes the
+	// reply with %q, and the error is flattened onto one line, so a password with
+	// whitespace, a quote or a backslash does not come back as it was written.
+	serverTLS, clientTLS := selfSigned(t)
+	passwords := []struct{ name, password string }{
+		{"double space", "p@ss  word-7c21"},
+		{"tab", "p@ss\tword-7c21"},
+		{"double quote", `p@ss"word-7c21`},
+		{"backslash", `p@ss\word-7c21`},
+	}
+	refusals := []struct {
+		name     string
+		opts     fakeSMTPOptions
+		wantCode string
+	}{
+		{"login refused", fakeSMTPOptions{authEcho: true}, "535"},
+		{"sender refused after the login", fakeSMTPOptions{mailEcho: true}, "550"},
+	}
+	for _, refusal := range refusals {
+		for _, pw := range passwords {
+			t.Run(refusal.name+"/"+pw.name, func(t *testing.T) {
+				opts := refusal.opts
+				opts.tls, opts.auth = serverTLS, true
+				srv := startFakeSMTP(t, opts)
+				cfg := srv.config()
+				cfg.Username, cfg.Password = testUsername, pw.password
+				s, err := newSMTPSender(cfg, gomail.WithTLSConfig(clientTLS))
+				if err != nil {
+					t.Fatalf("newSMTPSender: %v", err)
+				}
+				err = s.Send(context.Background(), sampleMessage())
+				if err == nil {
+					t.Fatal("Send succeeded after a refusal, want an error")
+				}
+				checkNoCredentials(t, err, testUsername, pw.password)
+				if !strings.Contains(err.Error(), refusal.wantCode) {
+					t.Errorf("error = %q, want the server's status %s kept", err, refusal.wantCode)
+				}
+				srv.noDelivery(t)
+			})
 		}
 	}
 }
