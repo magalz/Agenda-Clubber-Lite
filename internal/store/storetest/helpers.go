@@ -411,6 +411,11 @@ func normView(v domain.MembershipView) domain.MembershipView {
 	return v
 }
 
+func normMemberView(v domain.MemberView) domain.MemberView {
+	v.Membership = normMembership(v.Membership)
+	return v
+}
+
 func normToken(t domain.Token) domain.Token {
 	t.ExpiresAt = ms(t.ExpiresAt)
 	t.UsedAt = msPtr(t.UsedAt)

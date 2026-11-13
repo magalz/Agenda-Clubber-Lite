@@ -1,12 +1,65 @@
 package storetest
 
 import (
+	"cmp"
 	"fmt"
+	"math"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/magalz/agenda-clubber-lite/internal/domain"
 )
+
+func (e env) members(collectiveID string) []domain.MemberView {
+	e.t.Helper()
+	got, err := e.r.Memberships.ListByCollective(e.ctx, collectiveID)
+	noErr(e.t, "ListByCollective("+collectiveID+")", err)
+	return got
+}
+
+func (e env) awaitingAdmin(limit int) []domain.MembershipView {
+	e.t.Helper()
+	got, err := e.r.Memberships.ListAwaitingAdmin(e.ctx, limit)
+	noErr(e.t, fmt.Sprintf("ListAwaitingAdmin(%d)", limit), err)
+	return got
+}
+
+// memberView is what ListByCollective shows of the membership of u.
+func memberView(m domain.Membership, u domain.User) domain.MemberView {
+	return domain.MemberView{Membership: m, UserName: u.Name, UserStatus: u.Status}
+}
+
+// collectiveView is what ListAwaitingAdmin shows of a membership in c.
+func collectiveView(m domain.Membership, c domain.Collective) domain.MembershipView {
+	return domain.MembershipView{Membership: m, CollectiveName: c.Name, CollectiveKind: c.Kind, CollectiveStatus: c.Status}
+}
+
+// withEmail gives a user the email of its own that a second user with the same
+// name needs, because emails are unique.
+func withEmail(email string) func(*domain.User) {
+	return func(u *domain.User) { u.Email = email }
+}
+
+// userStatus makes a user fixture have the given status.
+func userStatus(s domain.UserStatus) func(*domain.User) {
+	return func(u *domain.User) { u.Status = s }
+}
+
+// requestedAfter moves RequestedAt to base plus d.
+func requestedAfter(d time.Duration) func(*domain.Membership) {
+	return func(m *domain.Membership) { m.RequestedAt = at(d) }
+}
+
+// ownerSide fills the owner side of an approval, the one a new collective's
+// creator has from the start: the admin side stays open.
+func ownerSide(by string) func(*domain.Membership) {
+	return func(m *domain.Membership) {
+		m.OwnerApprovedBy = by
+		m.OwnerApprovedAt = ptr(at(time.Minute))
+	}
+}
 
 func (e env) views(userID string) []domain.MembershipView {
 	e.t.Helper()
@@ -472,6 +525,170 @@ func RunMemberships(t *testing.T, newStore NewStore) {
 					isErr(t, fmt.Sprintf("Delete with an unknown %s %q", name, id), e.r.Memberships.Delete(e.ctx, pair[0], pair[1]), domain.ErrNotFound)
 				}
 			}
+		}},
+		{"ListByCollective returns every membership, whatever its status, with its user's name and status, the owners first and then by name", func(t *testing.T, e env) {
+			c, other := e.collective("Casa Azul", coletivo, cApproved), e.collective("Casa Verde", produtora, cApproved)
+			admin := e.user("admin")
+			zeca, ana, bia := e.user("zeca"), e.user("ana"), e.user("bia")
+			edu := e.user("edu", userStatus(uPendingApproval))
+			dani := e.user("dani", userStatus(uPendingEmail))
+			caio := e.user("caio", userStatus(uDisabled))
+
+			// Created in an order that is neither the expected one nor its reverse.
+			mz := e.member(zeca, c, roleOwner, mApproved, decided(admin.ID, admin.ID))
+			me := e.member(edu, c, roleMember, mPending)
+			mb := e.member(bia, c, roleMember, mApproved, decided(admin.ID, zeca.ID))
+			ma := e.member(ana, c, roleOwner, mPending, ownerSide(ana.ID))
+			md := e.member(dani, c, roleMember, mRejected)
+			mc := e.member(caio, c, roleMember, mApproved)
+			bo := e.member(bia, other, roleOwner, mApproved)
+			zo := e.member(zeca, other, roleMember, mPending)
+
+			wantEqual(t, "ListByCollective", normAll(e.members(c.ID), normMemberView), normAll([]domain.MemberView{
+				memberView(ma, ana), memberView(mz, zeca), memberView(mb, bia), memberView(mc, caio), memberView(md, dani), memberView(me, edu),
+			}, normMemberView))
+			wantEqual(t, "ListByCollective of the other collective", normAll(e.members(other.ID), normMemberView), normAll([]domain.MemberView{
+				memberView(bo, bia), memberView(zo, zeca),
+			}, normMemberView))
+		}},
+		{"ListByCollective breaks ties by user ID", func(t *testing.T, e env) {
+			c := e.collective("Casa Azul", coletivo, cApproved)
+			a1, a2 := e.user("ana"), e.user("ana", withEmail("ana2@example.com"))
+			b1, b2 := e.user("bia"), e.user("bia", withEmail("bia2@example.com"))
+
+			// Each pair joins in the reverse of the order its users were created in,
+			// so the order the memberships were stored in is not the answer.
+			mb2 := e.member(b2, c, roleMember, mApproved)
+			mb1 := e.member(b1, c, roleMember, mApproved)
+			ma2 := e.member(a2, c, roleOwner, mApproved)
+			ma1 := e.member(a1, c, roleOwner, mApproved)
+
+			want := []domain.MemberView{memberView(ma1, a1), memberView(ma2, a2), memberView(mb1, b1), memberView(mb2, b2)}
+			byUserID := func(a, b domain.MemberView) int { return strings.Compare(a.UserID, b.UserID) }
+			slices.SortFunc(want[:2], byUserID)
+			slices.SortFunc(want[2:], byUserID)
+			wantEqual(t, "ListByCollective", normAll(e.members(c.ID), normMemberView), normAll(want, normMemberView))
+		}},
+		{"ListByCollective is empty for a collective without memberships and for IDs the store never issued", func(t *testing.T, e env) {
+			ana := e.user("ana")
+			c, other := e.collective("Casa Azul", coletivo, cApproved), e.collective("Casa Verde", coletivo, cApproved)
+			e.member(ana, other, roleOwner, mApproved)
+			for _, id := range append([]string{c.ID}, unknownIDs...) {
+				if got := e.members(id); len(got) != 0 {
+					t.Errorf("ListByCollective(%q) = %v, want none", id, got)
+				}
+			}
+		}},
+		{"ListAwaitingAdmin returns the pending memberships of active and pending_approval users that the admin has not decided", func(t *testing.T, e env) {
+			admin, ana, bia := e.user("admin"), e.user("ana"), e.user("bia", userStatus(uPendingApproval))
+			caio, dani := e.user("caio", userStatus(uPendingEmail)), e.user("dani", userStatus(uDisabled))
+			eva, fred, gina := e.user("eva"), e.user("fred"), e.user("gina")
+			fresh := e.collective("Bloco Novo", coletivo, cPending, func(c *domain.Collective) { c.CreatedBy = ana.ID })
+			old := e.collective("Casa Azul", produtora, cApproved)
+
+			// What does not belong, stored first so that it sits ahead of what does.
+			e.member(caio, old, roleMember, mPending)
+			e.member(dani, old, roleMember, mPending)
+			e.member(eva, old, roleMember, mPending, func(m *domain.Membership) {
+				m.AdminApprovedBy = admin.ID
+				m.AdminApprovedAt = ptr(at(time.Minute))
+			})
+			e.member(fred, old, roleMember, mApproved)
+			e.member(fred, fresh, roleMember, mApproved, decided(admin.ID, ana.ID))
+			e.member(gina, old, roleMember, mRejected)
+			e.member(gina, fresh, roleMember, mRejected, decided(admin.ID, ana.ID))
+
+			// A join request, and the creator's membership in a collective that was
+			// just requested: its owner side is set and its admin side is open.
+			join := e.member(bia, old, roleMember, mPending, requestedAfter(2*time.Minute))
+			creator := e.member(ana, fresh, roleOwner, mPending, ownerSide(ana.ID), requestedAfter(time.Minute))
+
+			wantEqual(t, "ListAwaitingAdmin", normAll(e.awaitingAdmin(10), normView), normAll([]domain.MembershipView{
+				collectiveView(creator, fresh), collectiveView(join, old),
+			}, normView))
+		}},
+		{"ListAwaitingAdmin fills every field of the membership and the collective's name, kind and status", func(t *testing.T, e env) {
+			ana := e.user("ana")
+			var want []domain.MembershipView
+			for i, tc := range []struct {
+				kind   domain.CollectiveKind
+				status domain.CollectiveStatus
+			}{{coletivo, cPending}, {produtora, cApproved}, {coletivo, cRejected}, {produtora, cPending}} {
+				c := e.collective(fmt.Sprintf("Coletivo %d", i), tc.kind, tc.status)
+				m := e.member(ana, c, roleOwner, mPending, ownerSide(ana.ID), requestedAfter(time.Duration(i)*time.Minute))
+				want = append(want, collectiveView(m, c))
+			}
+			wantEqual(t, "ListAwaitingAdmin", normAll(e.awaitingAdmin(10), normView), normAll(want, normView))
+		}},
+		{"ListAwaitingAdmin puts the oldest request first and breaks ties by user ID, then collective ID", func(t *testing.T, e env) {
+			u1, u2, u3 := e.user("ana"), e.user("bia"), e.user("caio")
+			c1, c2 := e.collective("Casa Azul", coletivo, cApproved), e.collective("Casa Verde", coletivo, cApproved)
+
+			// The four requests of the same time are stored in the reverse of the
+			// order of their IDs, with the newest and the oldest request at the ends,
+			// so the order the memberships were stored in is not the answer.
+			var want []domain.MembershipView
+			for _, s := range []struct {
+				u domain.User
+				c domain.Collective
+				d time.Duration
+			}{{u3, c1, time.Hour}, {u2, c2, 0}, {u2, c1, 0}, {u1, c2, 0}, {u1, c1, 0}, {u3, c2, -time.Hour}} {
+				want = append(want, collectiveView(e.member(s.u, s.c, roleMember, mPending, requestedAfter(s.d)), s.c))
+			}
+			slices.SortFunc(want, func(a, b domain.MembershipView) int {
+				return cmp.Or(a.RequestedAt.Compare(b.RequestedAt), strings.Compare(a.UserID, b.UserID), strings.Compare(a.CollectiveID, b.CollectiveID))
+			})
+			wantEqual(t, "ListAwaitingAdmin", normAll(e.awaitingAdmin(10), normView), normAll(want, normView))
+		}},
+		{"ListAwaitingAdmin returns at most limit memberships, with limit clamped to 1..ListLimitMax", func(t *testing.T, e env) {
+			c := e.collective("Casa Azul", coletivo, cApproved)
+			var all []domain.MembershipView
+			for i := range 5 {
+				u := e.user(fmt.Sprintf("user%d", i))
+				all = append(all, collectiveView(e.member(u, c, roleMember, mPending, requestedAfter(time.Duration(i)*time.Minute)), c))
+			}
+			for _, tc := range []struct{ limit, n int }{
+				{-1, 1}, {0, 1}, {1, 1}, {2, 2}, {5, 5}, {6, 5},
+				{domain.ListLimitMax, 5}, {domain.ListLimitMax + 1, 5}, {math.MaxInt, 5},
+			} {
+				wantEqual(t, fmt.Sprintf("ListAwaitingAdmin(%d)", tc.limit), normAll(e.awaitingAdmin(tc.limit), normView), normAll(all[:tc.n], normView))
+			}
+		}},
+		{"ListAwaitingAdmin is empty when nobody awaits the admin", func(t *testing.T, e env) {
+			if got := e.awaitingAdmin(10); len(got) != 0 {
+				t.Errorf("ListAwaitingAdmin in an empty store = %v, want none", got)
+			}
+			ana := e.user("ana")
+			c := e.collective("Casa Azul", coletivo, cApproved)
+			e.member(ana, c, roleMember, mApproved)
+			if got := e.awaitingAdmin(domain.ListLimitMax); len(got) != 0 {
+				t.Errorf("ListAwaitingAdmin with only an approved membership = %v, want none", got)
+			}
+		}},
+		{"ListAwaitingAdmin follows the user's status and the membership's admin side", func(t *testing.T, e env) {
+			admin := e.user("admin")
+			ana := e.user("ana", userStatus(uPendingEmail))
+			c := e.collective("Casa Azul", coletivo, cApproved)
+			m := e.member(ana, c, roleMember, mPending)
+			want := func(what string, views ...domain.MembershipView) {
+				t.Helper()
+				wantEqual(t, what, normAll(e.awaitingAdmin(10), normView), normAll(views, normView))
+			}
+			want("while the email is not confirmed")
+
+			now := at(time.Hour)
+			noErr(t, "MarkEmailVerified", e.r.Users.MarkEmailVerified(e.ctx, ana.ID, now))
+			want("pending approval", collectiveView(m, c))
+			noErr(t, "Approve", e.r.Users.Approve(e.ctx, ana.ID, admin.ID, now))
+			want("active", collectiveView(m, c))
+			noErr(t, "SetStatus disabled", e.r.Users.SetStatus(e.ctx, ana.ID, uDisabled, now))
+			want("disabled")
+			noErr(t, "SetStatus active", e.r.Users.SetStatus(e.ctx, ana.ID, uActive, now))
+			want("active again", collectiveView(m, c))
+
+			m.AdminApprovedBy, m.AdminApprovedAt = admin.ID, ptr(now)
+			noErr(t, "Update with the admin side set", e.r.Memberships.Update(e.ctx, m))
+			want("after the admin side was set")
 		}},
 	})
 }
