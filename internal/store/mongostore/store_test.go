@@ -92,17 +92,18 @@ func TestRequireReplicaSet(t *testing.T) {
 
 // --- schema ---
 
-var collections = []string{"users", "tokens", "sessions", "collectives", "memberships", "outbox"}
+var collections = []string{"users", "tokens", "sessions", "collectives", "memberships", "outbox", "audit_entries"}
 
 // wantIndexes are the index names of each collection. There is no TTL index:
 // the contract says a backend never expires data on its own.
 var wantIndexes = map[string][]string{
-	"users":       {"_id_", "email_unique"},
-	"tokens":      {"_id_", "hash_unique", "user_id_purpose"},
-	"sessions":    {"_id_", "user_id"},
-	"collectives": {"_id_", "name_key_unique", "status_kind_name_key"},
-	"memberships": {"_id_", "collective_id_status", "user_id_collective_id_unique"},
-	"outbox":      {"_id_", "sent_at_gave_up_next_attempt_at"},
+	"users":         {"_id_", "email_unique", "status_created_at"},
+	"tokens":        {"_id_", "hash_unique", "user_id_purpose"},
+	"sessions":      {"_id_", "user_id"},
+	"collectives":   {"_id_", "name_key_unique", "status_kind_name_key"},
+	"memberships":   {"_id_", "collective_id_status", "status_requested_at", "user_id_collective_id_unique"},
+	"outbox":        {"_id_", "sent_at_gave_up_next_attempt_at"},
+	"audit_entries": {"_id_", "at_desc_id_desc"},
 }
 
 func indexes(t *testing.T, s *mongostore.Store, collection string) []bson.M {
@@ -213,6 +214,127 @@ func TestSchemaRefusesMalformedDocuments(t *testing.T) {
 	raw["phone"] = 11987654321
 	if _, err := s.DB().Collection("users").InsertOne(t.Context(), raw); !isValidationFailure(err) {
 		t.Errorf("insert with a numeric phone: error = %v, want a document validation failure", err)
+	}
+}
+
+// rawCollective stores a collective and returns its document with a new _id and a
+// new name_key, ready to be inserted again (the name key is unique).
+func rawCollective(t *testing.T, s *mongostore.Store) bson.M {
+	t.Helper()
+	name := "c" + bson.NewObjectID().Hex()
+	c := domain.Collective{Name: name, NameKey: domain.NameKey(name), Kind: domain.CollectiveKindColetivo,
+		Status: domain.CollectiveStatusPending, CreatedAt: now, UpdatedAt: now}
+	if err := s.Repos().Collectives.Create(t.Context(), &c); err != nil {
+		t.Fatalf("create collective: %v", err)
+	}
+	var raw bson.M
+	if err := s.DB().Collection("collectives").FindOne(t.Context(), bson.M{"name_key": c.NameKey}).Decode(&raw); err != nil {
+		t.Fatalf("read the collective: %v", err)
+	}
+	raw["_id"] = bson.NewObjectID()
+	raw["name_key"] = "copy " + c.NameKey
+	return raw
+}
+
+func TestSchemaChecksTheCollectiveFlagsAndTheRevision(t *testing.T) {
+	s := mongotest.New(t)
+	coll := s.DB().Collection("collectives")
+
+	for field, bad := range map[string]any{"events_blocked": "yes", "locked": 1, "rev": "1"} {
+		raw := rawCollective(t, s)
+		raw[field] = bad
+		if _, err := coll.InsertOne(t.Context(), raw); !isValidationFailure(err) {
+			t.Errorf("insert with a malformed %s: error = %v, want a document validation failure", field, err)
+		}
+	}
+
+	raw := rawCollective(t, s)
+	raw["events_blocked"], raw["locked"], raw["rev"] = true, true, int64(1)
+	if _, err := coll.InsertOne(t.Context(), raw); err != nil {
+		t.Errorf("insert with both flags set and a revision: %v", err)
+	}
+}
+
+func TestCollectiveFlagsRoundTripAndAreStoredOnlyWhenSet(t *testing.T) {
+	s := mongotest.New(t)
+	repo := s.Repos().Collectives
+	plain := domain.Collective{Name: "Plain", NameKey: "plain", Kind: domain.CollectiveKindColetivo,
+		Status: domain.CollectiveStatusPending, CreatedAt: now, UpdatedAt: now}
+	flagged := domain.Collective{Name: "Flagged", NameKey: "flagged", Kind: domain.CollectiveKindProdutora,
+		Status: domain.CollectiveStatusPending, EventsBlocked: true, Locked: true, CreatedAt: now, UpdatedAt: now}
+	for _, c := range []*domain.Collective{&plain, &flagged} {
+		if err := repo.Create(t.Context(), c); err != nil {
+			t.Fatalf("create %s: %v", c.Name, err)
+		}
+	}
+
+	for _, c := range []domain.Collective{plain, flagged} {
+		got, err := repo.ByID(t.Context(), c.ID)
+		if err != nil {
+			t.Fatalf("ByID %s: %v", c.Name, err)
+		}
+		if got.EventsBlocked != c.EventsBlocked || got.Locked != c.Locked {
+			t.Errorf("%s: flags = (%v, %v), want (%v, %v)", c.Name, got.EventsBlocked, got.Locked, c.EventsBlocked, c.Locked)
+		}
+	}
+
+	for name, want := range map[string]bool{"plain": false, "flagged": true} {
+		var raw bson.M
+		if err := s.DB().Collection("collectives").FindOne(t.Context(), bson.M{"name_key": name}).Decode(&raw); err != nil {
+			t.Fatalf("read %s: %v", name, err)
+		}
+		_, blocked := raw["events_blocked"]
+		_, locked := raw["locked"]
+		if blocked != want || locked != want {
+			t.Errorf("%s: stored events_blocked = %v, locked = %v, want both %v", name, blocked, locked, want)
+		}
+		if _, rev := raw["rev"]; rev {
+			t.Errorf("%s: Create stored a rev", name)
+		}
+	}
+}
+
+// rawAuditEntry is a document the audit_entries validator accepts.
+func rawAuditEntry() bson.M {
+	return bson.M{"_id": "entry-1", "at": now, "action": string(domain.AuditAccountApproved), "actor_id": "actor-1"}
+}
+
+func TestSchemaChecksAuditEntries(t *testing.T) {
+	s := mongotest.New(t)
+	coll := s.DB().Collection("audit_entries")
+
+	full := rawAuditEntry()
+	full["_id"] = "entry-0"
+	for _, k := range []string{"actor_name", "user_id", "user_name", "collective_id", "collective_name", "detail", "reason"} {
+		full[k] = "x"
+	}
+	if _, err := coll.InsertOne(t.Context(), full); err != nil {
+		t.Errorf("insert a complete entry: %v", err)
+	}
+	if _, err := coll.InsertOne(t.Context(), rawAuditEntry()); err != nil {
+		t.Errorf("insert an entry with only the required fields: %v", err)
+	}
+
+	bad := map[string]func(bson.M){
+		"an ObjectID _id":     func(d bson.M) { d["_id"] = bson.NewObjectID() },
+		"an unknown action":   func(d bson.M) { d["action"] = "account_deleted" },
+		"no action":           func(d bson.M) { delete(d, "action") },
+		"no at":               func(d bson.M) { delete(d, "at") },
+		"no actor_id":         func(d bson.M) { delete(d, "actor_id") },
+		"a string at":         func(d bson.M) { d["at"] = "2026-11-12" },
+		"an unexpected field": func(d bson.M) { d["email"] = "ana@example.com" },
+	}
+	// The text fields hold strings, and so do the IDs of the snapshots.
+	for _, k := range []string{"actor_id", "actor_name", "user_id", "user_name", "collective_id", "collective_name", "detail", "reason"} {
+		bad["a non-string "+k] = func(d bson.M) { d[k] = 7 }
+	}
+	for name, mutate := range bad {
+		d := rawAuditEntry()
+		d["_id"] = "bad: " + name
+		mutate(d)
+		if _, err := coll.InsertOne(t.Context(), d); !isValidationFailure(err) {
+			t.Errorf("insert with %s: error = %v, want a document validation failure", name, err)
+		}
 	}
 }
 
