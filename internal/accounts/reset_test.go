@@ -440,3 +440,38 @@ func TestResetPasswordStoreFailureIsAServerError(t *testing.T) {
 		signupFieldErrors(t, err)
 	}
 }
+
+// A link nobody issued must cost no argon2 work: hashing a password takes about
+// 19 MiB and the reset form has no rate limit, so the hash runs only once the
+// link has been consumed.
+func TestResetPasswordHashesOnlyForAWorkingLink(t *testing.T) {
+	s := newTestStore(t)
+	ctx := t.Context()
+	u := insertLoginUser(t, s)
+	var calls int
+	real := resetHashPassword
+	resetHashPassword = func(password string) (string, error) {
+		calls++
+		return real(password)
+	}
+	t.Cleanup(func() { resetHashPassword = real })
+
+	forged, _, err := auth.NewToken()
+	if err != nil {
+		t.Fatalf("NewToken: %v", err)
+	}
+	if err := ResetPassword(ctx, s, forged, resetNewPassword, resetNewPassword, resetAt); !errors.Is(err, ErrResetInvalid) {
+		t.Fatalf("forged link: err = %v, want ErrResetInvalid", err)
+	}
+	if calls != 0 {
+		t.Errorf("a forged link hashed the password %d time(s), want 0", calls)
+	}
+
+	link := resetToken(t, s, u.ID, testNow)
+	if err := ResetPassword(ctx, s, link, resetNewPassword, resetNewPassword, resetAt); err != nil {
+		t.Fatalf("working link: %v", err)
+	}
+	if calls == 0 {
+		t.Error("a working link never hashed the new password")
+	}
+}

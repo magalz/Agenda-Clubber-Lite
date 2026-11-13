@@ -73,6 +73,10 @@ func RequestPasswordReset(ctx context.Context, store domain.Store, origin, email
 	})
 }
 
+// resetHashPassword hashes the new password; a variable so a test can count
+// the calls.
+var resetHashPassword = auth.HashPassword
+
 // ResetPassword consumes a reset_password token and sets the new password;
 // domain.FieldErrors (keys password, password_confirm) leave the token unused.
 // A link that does not work is ErrResetInvalid; any other error is a server
@@ -102,7 +106,7 @@ func ResetPassword(ctx context.Context, store domain.Store, rawToken, password, 
 	if err := fe.Err(); err != nil {
 		return err
 	}
-	newHash, err := auth.HashPassword(password)
+	newHash, err := resetHashPassword(password)
 	if err != nil {
 		return fmt.Errorf("accounts: reset password: %w", err)
 	}
