@@ -337,6 +337,28 @@ func TestLoadMongoInvalid(t *testing.T) {
 	}
 }
 
+// Option keys are case-insensitive, so ?directConnection=false&directconnection=true
+// sets the option twice. Which of the two a driver honors is not defined, and Go
+// ranges over a map in random order, so such a URI (and a repeated key) is
+// refused, every time, whatever the values.
+func TestLoadMongoRefusesADuplicatedDirectConnection(t *testing.T) {
+	for _, query := range []string{
+		"directConnection=true&directConnection=true",
+		"directConnection=true&DIRECTCONNECTION=true",
+		"directConnection=false&directconnection=true",
+		"directConnection=true&directconnection=false",
+	} {
+		uri := "mongodb://localhost:27017/?" + query
+		for range 100 {
+			_, err := LoadMongo(getenvOf("MONGO_URI", uri))
+			if err == nil || !strings.Contains(err.Error(), "MONGO_URI:") {
+				t.Errorf("LoadMongo(%q) error = %v, want one naming MONGO_URI", uri, err)
+				break
+			}
+		}
+	}
+}
+
 func TestLoadMongoValid(t *testing.T) {
 	tests := []struct {
 		name string
