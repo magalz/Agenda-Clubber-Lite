@@ -56,7 +56,7 @@ Dependency rule: for data access, business code (accounts, approvals, events, `i
 | `TRUSTED_PROXY_CIDRS` | empty | comma-separated CIDRs whose `CF-Connecting-IP` header is trusted |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM` | | SMTP2GO in prod (587, STARTTLS mandatory); Mailpit in dev. With `APP_ENV=prod` the config refuses a missing `SMTP_HOST` or `SMTP_USERNAME` (TLS and login are mandatory there). In dev with no `SMTP_HOST` and no `MAIL_DROP_DIR`, `serve` logs one warning, runs no outbox worker and leaves queued emails in the outbox |
 | `MAIL_DROP_DIR` | empty | dev only (refused with `APP_ENV=prod`): `serve` writes outgoing email as `.eml` files in this folder, From = `SMTP_FROM`, instead of sending; it wins over `SMTP_HOST` |
-| `SEED_PASSWORD` | empty | dev only: the password `seed-dev` gives the sample accounts; the command refuses to run without it or with `APP_ENV=prod` |
+| `SEED_PASSWORD` | empty | dev only: the password `seed-dev` gives the sample accounts (it must pass the password policy); the command refuses to run without it or with `APP_ENV=prod` |
 
 Secrets live only in `.env` (gitignored). Never log, print or commit them.
 
