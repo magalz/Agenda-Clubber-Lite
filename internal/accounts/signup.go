@@ -201,6 +201,11 @@ func signupValidate(in SignupInput) (signupFields, error) {
 	return f, fe.Err()
 }
 
+// PhoneDigits returns the ASCII digits of s, in order.
+func PhoneDigits(s string) string {
+	return ""
+}
+
 // signupLengthProblem returns the pt-BR message for s (already trimmed) when its
 // length in runes is outside [min, max], or "". The wording matches domain's.
 func signupLengthProblem(s string, min, max int) string {

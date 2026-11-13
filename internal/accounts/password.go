@@ -93,6 +93,12 @@ func ChangePassword(ctx context.Context, store domain.Store, userID, keepSession
 	})
 }
 
+// PasswordPolicyMessage is the pt-BR message for the policy rules a password
+// violates.
+func PasswordPolicyMessage(violated []auth.Rule) string {
+	return ""
+}
+
 // PasswordReused reports whether password matches one of the user's last two
 // hashes; a hash that cannot be read is an error, never false.
 func PasswordReused(ctx context.Context, store domain.Store, userID, password string) (bool, error) {

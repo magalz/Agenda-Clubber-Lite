@@ -368,3 +368,24 @@ func TestPasswordReusedUnreadableHistoryIsAnError(t *testing.T) {
 		t.Errorf("unknown account: PasswordReused = %v, %v; want false and an error", used, err)
 	}
 }
+
+func TestPasswordPolicyMessage(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		violated []auth.Rule
+		want     string
+	}{
+		{"one rule", []auth.Rule{auth.RuleMinLength}, "requisitos da senha: 8 caracteres ou mais"},
+		{"the email rule", []auth.Rule{auth.RuleNotEmail}, "requisitos da senha: diferente do seu e-mail"},
+		{"several rules keep their order", []auth.Rule{auth.RuleMinLength, auth.RuleUpper, auth.RuleDigit, auth.RuleSymbol},
+			"requisitos da senha: 8 caracteres ou mais, uma letra maiúscula, um número, um símbolo"},
+		{"the rules an empty password breaks", auth.CheckPolicy("", "a@b.co"),
+			"requisitos da senha: 8 caracteres ou mais, uma letra minúscula, uma letra maiúscula, um número, um símbolo"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := PasswordPolicyMessage(tc.violated); got != tc.want {
+				t.Errorf("PasswordPolicyMessage(%v) = %q, want %q", tc.violated, got, tc.want)
+			}
+		})
+	}
+}
