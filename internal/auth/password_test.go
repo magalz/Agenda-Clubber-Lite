@@ -264,6 +264,8 @@ func TestVerifyPasswordRejectsBadHashes(t *testing.T) {
 		{"salt with padding", replace(4, parts[4]+"==")},
 		{"salt in url alphabet", replace(4, "ab-d_fghijklmnopqrstuv")},
 		{"salt trailing bits set", replace(4, nonCanonicalSalt)},
+		{"salt with a line break", replace(4, parts[4]+"\n")},
+		{"key with a line break", replace(5, parts[5][:20]+"\r\n"+parts[5][20:])},
 		{"key not base64", replace(5, "!!!!")},
 		{"key with padding", replace(5, parts[5]+"=")},
 		{"salt empty", replace(4, "")},
