@@ -113,7 +113,7 @@ Tokens are defined once in `web/static/css/tokens.css`; every other stylesheet u
 - Collectives are serialized through the store: an operation that depends on a collective's state (a join decision, a role change, a rename, a join request, a change of the blocks) runs in `Store.WithTx`, reads the collective there and writes it back with `Collectives.Update`, which always writes, so two such transactions on one collective conflict and one retries. The generic `Update` methods (`Collectives.Update`, `Memberships.Update`) are called only inside `WithTx`, after a read in that same transaction.
 - The audit log keeps IDs and name snapshots, never an email address. Its references are not checked on write and never cleared or changed when a user or collective is deleted.
 - In `/admin` the IDs a POST acts on travel in hidden form fields.
-- A collective's page (`/coletivo/<id>`) answers anyone who may not see it (a stranger, or a member who is not an approved Administrador) exactly like a path that does not exist.
+- A collective's page (`/coletivo/<id>`) answers anyone who may not see it (a stranger, a Membro, the Admin, or everyone while the collective is not approved) exactly like a path that does not exist.
 
 ## Testing and checks
 

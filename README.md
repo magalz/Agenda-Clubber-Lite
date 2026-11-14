@@ -111,13 +111,13 @@ The rules:
 - A new collective needs only the Admin's approval.
 - Joining an existing collective needs two approvals, in any order: the Admin's and one Administrador's of that collective.
 - A rename takes effect at once; the Admin gets an email about it.
-- Every decision is in the history, and a decision about a person's request or account emails the person. Steps that are no decision about a request are only recorded: an Administrador's half of a join approval, a block of an account or of a collective's events, a freeze of its members and name, a promotion or a demotion.
+- Every decision is in the history, and a decision about a person's request or account emails the person. Steps that are no decision about a request are only recorded: an Administrador's half of a join approval, a block or unblock of an account, a block of a collective's events, a freeze of its members and name, a promotion or a demotion.
 
 The pages:
 
 - `/admin`, for the Admin only, with `Fila` (what waits for a decision), `Contas`, `Coletivos` and `Histórico` (`/admin/historico`);
 - `/coletivos`, "Meus Coletivos": a person's collectives and requests, and where to ask to join one or to create one;
-- `/coletivo/<id>`, a collective's page for its Administradores: join requests, members and roles, the name. Anyone else gets the same 404 as for a path that does not exist.
+- `/coletivo/<id>`, a collective's page for its Administradores: join requests, members and roles, the name. Anyone else (the Admin included) gets the same 404 as for a path that does not exist, as does everyone while the collective is not approved.
 
 The rules live in `internal/approvals`; [AGENTS.md](AGENTS.md) records the decisions behind them.
 
