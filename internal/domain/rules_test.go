@@ -491,3 +491,61 @@ func TestNameKey(t *testing.T) {
 		})
 	}
 }
+
+func TestCleanCollectiveName(t *testing.T) {
+	const (
+		required = "campo obrigatório"
+		invalid  = "valor inválido"
+		control  = "não use quebras de linha nem caracteres de controle"
+		length   = "use de 2 a 80 caracteres"
+	)
+	if MsgControl != control {
+		t.Errorf("MsgControl = %q, want %q", MsgControl, control)
+	}
+
+	for _, tc := range []struct {
+		name, in string
+		want     string // the cleaned name, "" when there is a problem
+		problem  string
+	}{
+		{"plain name", "Coletivo Ação", "Coletivo Ação", ""},
+		{"trimmed", " \t Casa Dois \n", "Casa Dois", ""},
+		{"inside kept as typed", "  Coletivo   AÇÃO  ", "Coletivo   AÇÃO", ""},
+		{"decomposed accents kept", "Ação", "Ação", ""},
+		{"exactly 2 runes", "ab", "ab", ""},
+		{"exactly 2 runes with accents", "éé", "éé", ""},
+		{"exactly 80 runes", rep("a", 80), rep("a", 80), ""},
+		{"80 multibyte runes count as 80", rep("ç", 80), rep("ç", 80), ""},
+
+		{"empty", "", "", required},
+		{"only space", " \t\n ", "", required},
+		{"1 rune", "a", "", length},
+		{"1 multibyte rune", "é", "", length},
+		{"1 rune after trimming", "  a  ", "", length},
+		{"81 runes", rep("a", 81), "", length},
+		{"81 multibyte runes", rep("ç", 81), "", length},
+
+		{"invalid UTF-8", "ab\xffcd", "", invalid},
+		{"invalid UTF-8 wins over control", "\xff\x00", "", invalid},
+		{"only combining marks", "̃̃", "", invalid},
+
+		{"newline inside", "linha\noutra", "", control},
+		{"carriage return inside", "a\rb", "", control},
+		{"tab inside", "a\tb", "", control},
+		{"NUL inside", "ab\x00cd", "", control},
+		{"DEL inside", "ab\x7fcd", "", control},
+		{"C1 control inside", "ab\u0085cd", "", control},
+		{"control wins over length", "a\x00", "", control},
+		{"control wins over empty key", "̃\x00", "", control},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, problem := CleanCollectiveName(tc.in)
+			if got != tc.want || problem != tc.problem {
+				t.Errorf("CleanCollectiveName(%q) = (%q, %q), want (%q, %q)", tc.in, got, problem, tc.want, tc.problem)
+			}
+			if problem == "" && NameKey(got) == "" {
+				t.Errorf("accepted %q, which has no comparison key", tc.in)
+			}
+		})
+	}
+}
