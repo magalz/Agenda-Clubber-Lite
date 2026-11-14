@@ -611,8 +611,8 @@ func TestAdminRefusesWhatTheServerRefuses(t *testing.T) {
 
 	// A body that cannot be read.
 	rec := post(w.r, "/admin/conta/aprovar", "user_id=%zz", withCookie(w.cookie))
-	if rec.Code != http.StatusBadRequest {
-		t.Errorf("a malformed body = %d, want 400", rec.Code)
+	if rec.Code != http.StatusBadRequest || rec.Body.String() != "requisição inválida" {
+		t.Errorf("a malformed body = %d %q, want 400 requisição inválida", rec.Code, rec.Body)
 	}
 }
 
@@ -648,4 +648,42 @@ func TestAdminComponentsAreStyled(t *testing.T) {
 			t.Errorf("components.css has no rule for %s", selector)
 		}
 	}
+}
+
+// A decision that fails for a reason of the server answers 500 "erro interno",
+// changes nothing, and logs the admin and the error but not what was posted.
+func TestAdminServerError(t *testing.T) {
+	w := newAdmWorld(t)
+	const secret = "segredo digitado pelo admin"
+	w.app.Store = colFailingStore{w.store}
+	logs := captureLogs(w.app)
+	w.r = w.app.Router()
+
+	for target, form := range w.posts() {
+		t.Run(target, func(t *testing.T) {
+			logs.Reset()
+			if form.Has("reason") {
+				form.Set("reason", secret)
+			}
+			rec := w.post(target, form)
+			if rec.Code != http.StatusInternalServerError || rec.Body.String() != "erro interno" {
+				t.Fatalf("POST %s: %d %q; want 500 erro interno", target, rec.Code, rec.Body)
+			}
+			var logged bool
+			for _, l := range logLines(t, logs) {
+				if l["level"] == "ERROR" && l["msg"] != "request" {
+					logged = true
+				}
+			}
+			if !logged {
+				t.Errorf("no error was logged: %s", logs)
+			}
+			for _, leak := range []string{secret, w.paula.ID, w.caio.ID, w.caioNew.ID, w.caioJoin.ID} {
+				if strings.Contains(logs.String(), leak) {
+					t.Errorf("the log carries %q: %s", leak, logs)
+				}
+			}
+		})
+	}
+	w.requireUntouched(t)
 }
