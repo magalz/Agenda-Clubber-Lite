@@ -1,0 +1,27 @@
+{{/* Fila de aprovação do admin (/admin), for the site admin. Data is an adminQueuePage: Cards, one adminCard for each person
+     who waits for the admin (see partials/admin-person.html), Notice, a status above the cards after a decision, and Alert,
+     an alert when a decision was refused. The ?msg= code of the redirect that follows a decision picks the Notice text on the
+     server; the URL never supplies text. With no Cards the page shows the empty state.
+     The decisions are ordinary posts, one small form for each (no HTMX is needed); a decision that succeeds redirects here
+     with ?msg=<code>, and one that is refused comes back to this page, with the queue as it is now, and Alert set (422 for a
+     reason that is not plain text, 409 for a second decision, 403 for what the person may not do, 404 for an id that names
+     nothing). The ids are hidden fields, never a part of the path.
+       POST /admin/pessoa/aprovar-tudo  user_id                       approve the account and every request of a person
+       POST /admin/conta/aprovar        user_id                       approve only the account
+       POST /admin/conta/recusar        user_id, reason               reject the sign-up
+       POST /admin/coletivo/aprovar     collective_id                 approve a new collective (active accounts only)
+       POST /admin/coletivo/recusar     collective_id, reason         reject a new collective
+       POST /admin/pedido/aprovar       user_id, collective_id        approve a request to join (active accounts only)
+       POST /admin/pedido/recusar       user_id, collective_id, reason  reject a request to join
+     CSS: section-heading, stack, status, status--ok, status--error, empty, admin-nav (components.css). */}}
+{{define "content"}}<div class="section-heading">
+  <h1 class="section-heading__title text-glow"><span class="section-heading__prompt" aria-hidden="true">~/ </span>admin</h1>
+</div>
+<div class="stack stack--lg">
+  {{template "admin-nav" "fila"}}
+  {{with .Data.Notice}}<p class="status status--ok" role="status">{{.}}</p>{{end}}
+  {{with .Data.Alert}}<p class="status status--error" role="alert">{{.}}</p>{{end}}
+  {{range .Data.Cards}}{{template "admin-person" .}}
+  {{else}}<div class="empty">nada esperando aprovação</div>
+  {{end}}
+</div>{{end}}

@@ -1,0 +1,73 @@
+{{/* admin-person: one person of the admin's queue (pages/app/admin.html). Call it with an adminCard (internal/web/routes_admin.go):
+     {{template "admin-person" .}}. It shows who the person is (name, e-mail, phone, "(WhatsApp)" when it is one, the account
+     status, the sign-up date) and what they wait for: Items, a .item-list with a row for each collective they asked to create
+     (NewCollective, decided with /admin/coletivo/*) or request to join (decided with /admin/pedido/*).
+     What a card offers follows the account. A pending account (.Pending) is approved with "Aprovar tudo" (the account and every
+     request) or "aprovar só a conta", or rejected as a whole ("recusar cadastro"); each of its requests may be rejected, and
+     none approved alone, because the server refuses that for a person whose account still awaits approval. An active account has
+     requests only: each one is approved or rejected by itself, and "Aprovar tudo" approves them all.
+     Every action is a small form of its own with the ids in hidden fields. The reject forms are .reason-form (components.css); the
+     ids of their fields (.ReasonID) and of the card's heading (.HeadingID) are unique in the page. Each button ends with a
+     .sr-only text naming what it decides, so the buttons of a page do not sound alike. CSS: panel, panel--plain, panel__body, stack,
+     badge, item-list, btn, admin-person (components.css). */}}
+{{define "admin-person"}}<section class="panel panel--plain admin-person" aria-labelledby="{{.HeadingID}}">
+  <div class="panel__body stack">
+    <div class="admin-person__head">
+      <h2 class="admin-person__name" id="{{.HeadingID}}">{{.Name}}</h2>
+      <span class="badge badge--{{if .Pending}}warn{{else}}ok{{end}}">{{.Status}}</span>
+    </div>
+    <dl class="admin-person__details">
+      <dt>e-mail</dt><dd>{{.Email}}</dd>
+      {{with .Phone}}<dt>telefone</dt><dd>{{.}}{{if $.WhatsApp}} (WhatsApp){{end}}</dd>{{end}}
+      <dt>cadastro em</dt><dd>{{.Registered}}</dd>
+    </dl>
+    <div class="admin-person__actions">
+      <form method="post" action="/admin/pessoa/aprovar-tudo">
+        <input type="hidden" name="user_id" value="{{.UserID}}">
+        <button class="btn btn--solid btn--sm" type="submit">[→] APROVAR TUDO<span class="sr-only"> de {{.Name}}</span></button>
+      </form>
+      {{if .Pending}}<form method="post" action="/admin/conta/aprovar">
+        <input type="hidden" name="user_id" value="{{.UserID}}">
+        <button class="btn btn--outline btn--sm" type="submit">[→] APROVAR SÓ A CONTA<span class="sr-only"> de {{.Name}}</span></button>
+      </form>
+      <form method="post" action="/admin/conta/recusar">
+        <input type="hidden" name="user_id" value="{{.UserID}}">
+        <details class="reason-form">
+          <summary>[✕] recusar cadastro</summary>
+          <label class="label" for="{{.ReasonID}}">motivo (opcional)</label>
+          <textarea class="textarea" id="{{.ReasonID}}" name="reason" maxlength="500"></textarea>
+          <button class="btn btn--sm" type="submit">[✕] RECUSAR CADASTRO<span class="sr-only"> de {{.Name}}</span></button>
+        </details>
+      </form>{{end}}
+    </div>
+    {{if .Items}}<ul class="item-list">
+      {{range .Items}}<li class="item-list__item">
+        <div class="item-list__main">
+          <p class="item-list__title">{{.Title}}</p>
+          <p class="item-list__meta">{{.Meta}}</p>
+        </div>
+        <div class="item-list__actions">
+          {{if not $.Pending}}{{if .NewCollective}}<form method="post" action="/admin/coletivo/aprovar">
+            <input type="hidden" name="collective_id" value="{{.CollectiveID}}">
+            <button class="btn btn--outline btn--sm" type="submit">[→] APROVAR<span class="sr-only"> {{.Title}}</span></button>
+          </form>{{else}}<form method="post" action="/admin/pedido/aprovar">
+            <input type="hidden" name="user_id" value="{{.UserID}}">
+            <input type="hidden" name="collective_id" value="{{.CollectiveID}}">
+            <button class="btn btn--outline btn--sm" type="submit">[→] APROVAR<span class="sr-only"> {{.Title}}</span></button>
+          </form>{{end}}{{end}}
+          <form method="post" action="/admin/{{if .NewCollective}}coletivo{{else}}pedido{{end}}/recusar">
+            {{if not .NewCollective}}<input type="hidden" name="user_id" value="{{.UserID}}">
+            {{end}}<input type="hidden" name="collective_id" value="{{.CollectiveID}}">
+            <details class="reason-form">
+              <summary>[✕] recusar com um motivo</summary>
+              <label class="label" for="{{.ReasonID}}">motivo (opcional)</label>
+              <textarea class="textarea" id="{{.ReasonID}}" name="reason" maxlength="500"></textarea>
+              <button class="btn btn--sm" type="submit">[✕] RECUSAR<span class="sr-only"> {{.Title}}</span></button>
+            </details>
+          </form>
+        </div>
+      </li>
+      {{end}}
+    </ul>{{end}}
+  </div>
+</section>{{end}}

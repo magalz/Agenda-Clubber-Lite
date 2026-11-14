@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"errors"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/magalz/agenda-clubber-lite/internal/domain"
+	webfs "github.com/magalz/agenda-clubber-lite/web"
 )
 
 // Texts the /admin page shows (see routes_admin.go). The notices are chosen by
@@ -628,5 +630,22 @@ func TestAdminAReasonWithAControlCharacterIs422(t *testing.T) {
 			wantAll(t, "the 422 page", rec.Body.String(), `<p class="status status--error" role="alert">`+admReasonText+`</p>`, `<nav class="admin-nav"`)
 			w.requireUntouched(t)
 		})
+	}
+}
+
+// The classes the admin queue's markup uses must have a rule in components.css, or
+// the page renders unstyled.
+func TestAdminComponentsAreStyled(t *testing.T) {
+	css, err := fs.ReadFile(webfs.Static, "static/css/components.css")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, selector := range []string{
+		".admin-nav", ".admin-nav a", ".admin-person__head", ".admin-person__name",
+		".admin-person__details", ".admin-person__actions",
+	} {
+		if !strings.Contains(string(css), selector+" {") {
+			t.Errorf("components.css has no rule for %s", selector)
+		}
 	}
 }
