@@ -265,11 +265,9 @@ func TestColetivoPageShowsTheMembersTheRequestsAndTheForms(t *testing.T) {
 	if v := cspViolations(body); len(v) > 0 {
 		t.Errorf("%s in:\n%s", strings.Join(v, "; "), body)
 	}
-	inOrder(t, body, "Maria Master", "Ana Admin", "Caco Admin", "Bia Membro", "Caio Pedido", "Duda Pedido", `action="`+e.path("/nome")+`"`)
+	// Administradores first, then the Membros, each by name (the Master is one of the Administradores); requests the same way.
+	inOrder(t, body, "Ana Admin", "Caco Admin", "Maria Master", "Bia Membro", "Duda Pedido", "Caio Pedido", `action="`+e.path("/nome")+`"`)
 
-	role := func(p cpPerson) string {
-		return colField(t, colRow(t, body, p.Name), colStatusRE, "role of "+p.Name)
-	}
 	hasAction := func(p cpPerson, suffix string) bool {
 		row := colRow(t, body, p.Name)
 		if !strings.Contains(row, `action="`+e.path(suffix)+`"`) {
@@ -290,7 +288,6 @@ func TestColetivoPageShowsTheMembersTheRequestsAndTheForms(t *testing.T) {
 				t.Errorf("%s is shown as %q, want %q", p, got, want)
 			}
 		}
-		_ = role
 		// The Master can be neither demoted nor promoted; an Administrador is only demoted; a Membro only promoted.
 		for _, p := range []cpPerson{e.master} {
 			for _, suffix := range []string{"/membro/rebaixar", "/membro/promover"} {
