@@ -303,7 +303,7 @@ type OutboxMessage struct {
 // deleted; it never holds an email address. ActorID is who acted, UserID the
 // person the action is about and CollectiveID the collective, the last two
 // empty when the action has none. Detail is a short description the code builds
-// (for example "old -> new" for a rename, the blocks that changed, the role) and
+// (for example "old → new" for a rename, the blocks that changed, the role) and
 // Reason is the optional free text of whoever decided.
 type AuditEntry struct {
 	ID             string

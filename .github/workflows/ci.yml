@@ -15,7 +15,7 @@ concurrency:
 jobs:
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 40
     steps:
       # Every action is pinned to a full commit SHA; the comment names the release.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -66,7 +66,8 @@ jobs:
       - name: go test
         env:
           MONGO_TEST_URI: mongodb://localhost:27017/?directConnection=true
-        run: go test -race -count=1 ./...
+        # The database packages can pass Go's default 10-minute test timeout under -race.
+        run: go test -race -count=1 -timeout 30m ./...
 
       - name: govulncheck
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...

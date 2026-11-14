@@ -128,10 +128,10 @@ Run these before every commit:
 ```sh
 gofmt -l .               # prints nothing
 go vet ./...
-go test -race ./...
+go test -race -timeout 30m ./...
 ```
 
-Database tests need `MONGO_TEST_URI`, a single-node replica set URI with `directConnection=true`; without it they are skipped, and the packages still report `ok`. `-race` needs a C compiler; without one, run `go test ./...`.
+Database tests need `MONGO_TEST_URI`, a single-node replica set URI with `directConnection=true`; without it they are skipped, and the packages still report `ok`. `-race` needs a C compiler; without one, run `go test ./...`. The database packages can run past Go's default 10-minute test timeout under `-race`, hence `-timeout 30m`; on Windows add `-p 4`.
 
 ---
 

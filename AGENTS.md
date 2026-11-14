@@ -31,7 +31,7 @@ internal/store/storetest/    contract test suite every store implementation must
 internal/store/mongostore/   the MongoDB implementation of the domain interfaces
 internal/store/mongotest/    mongotest.New(t): an isolated test database on MONGO_TEST_URI
 internal/auth/         password policy/hash/history/expiry, sessions, rate limiting
-internal/approvals/    the approval flows as service functions (store, actor, time; one WithTx each); imports only internal/domain and internal/mail
+internal/approvals/    the approval flows as service functions (store, actor, time; one WithTx for each write); imports only internal/domain and internal/mail
 internal/catalog/      music styles (embedded JSON) and event types
 internal/mail/         SMTP sender, outbox worker, email templates
 internal/web/          App (dependencies), router, middleware, render, handlers
@@ -119,7 +119,7 @@ Tokens are defined once in `web/static/css/tokens.css`; every other stylesheet u
 
 - Test first where behavior changes. Tests live next to the code (`*_test.go`), use the standard `testing` package and `net/http/httptest`; no assertion libraries.
 - Database tests use `mongotest.New(t)`, which needs `MONGO_TEST_URI`: a single-node replica set URI with `directConnection=true`. CI starts one; locally, run the pinned image from `deploy/compose.dev.yml` with `--replSet rs0`, initiate it, and point the variable at it.
-- Before every commit: `gofmt -l .` prints nothing, `go vet ./...` and `go test -race ./...` pass. (`-race` needs CGO; where no C compiler is available run `go test ./...` and say so.)
+- Before every commit: `gofmt -l .` prints nothing, `go vet ./...` and `go test -race -timeout 30m ./...` pass. (`-race` needs CGO; where no C compiler is available run `go test ./...` and say so.) The database packages can run past Go's default 10-minute test timeout under `-race`, hence `-timeout 30m`; on Windows add `-p 4` (more parallel packages exhaust local ports).
 
 ## Git and itsaplan
 
