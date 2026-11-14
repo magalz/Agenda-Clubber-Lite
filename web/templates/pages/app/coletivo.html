@@ -1,0 +1,90 @@
+{{/* A collective's management page (/coletivo/:id), for its approved Administradores only: everybody else gets the 404 of a
+     path no route serves. Data is a collectivePage: ID, Name, Kind, Locked and EventsBlocked (the admin's flags), Members
+     (each a collectiveMember: UserID, Name, Role, Badge, CanPromote, CanDemote), Requests (each a collectiveRequest: UserID,
+     Name, Role), RenameValue (what the rename field holds), Notice, a status above the page after an action went through,
+     and Alert, an alert for a refused action, a reason that is too long or the rate limit. The ?msg= code of the redirect
+     picks the Notice text on the server; the URL never supplies text.
+     Every action is an ordinary post (no HTMX is needed) that carries the person in user_id; the collective is in the path.
+     A 422 or a 409 comes back to this page, read afresh, with .Form refilled and .Errors set.
+       POST /coletivo/:id/pedido/aprovar   approve a request (the Administrador side). Field: user_id.
+       POST /coletivo/:id/pedido/recusar   reject a request. Fields: user_id, reason (optional, up to 500 characters; its
+                                           error is the Alert). The .reason-form is inside the form.
+       POST /coletivo/:id/membro/promover  make a Membro an Administrador. Field: user_id.
+       POST /coletivo/:id/membro/rebaixar  make an Administrador a Membro (never the Master). Field: user_id.
+       POST /coletivo/:id/nome             rename the collective. Field: name; its error shows under the field.
+     A locked collective has no action and no rename form, and says so. With no Requests the page shows the empty state.
+     CSS: section-heading, stack, status, status--ok, status--warn, status--error, uppercase-label, item-list (the rows),
+     badge, btn, btn--sm, btn--solid, reason-form, label, textarea, empty, field, label--required, input, sr-only
+     (components.css). */}}
+{{define "content"}}<div class="section-heading">
+  <h1 class="section-heading__title text-glow"><span class="section-heading__prompt" aria-hidden="true">~/ </span>{{.Data.Name}}</h1>
+  <p class="section-heading__sub">{{.Data.Kind}} · <a href="/coletivos">[←] meus coletivos</a></p>
+</div>
+<div class="stack stack--lg">
+  {{with .Data.Notice}}<p class="status status--ok" role="status">{{.}}</p>{{end}}
+  {{with .Data.Alert}}<p class="status status--error" role="alert">{{.}}</p>{{end}}
+  {{if .Data.Locked}}<p class="status status--warn" role="status">membros e nome congelados pelo admin: nada pode ser mudado aqui por enquanto.</p>{{end}}
+  {{if .Data.EventsBlocked}}<p class="status status--warn" role="status">eventos bloqueados pelo admin.</p>{{end}}
+  <section class="stack" aria-labelledby="membros-titulo">
+    <h2 class="uppercase-label" id="membros-titulo">membros</h2>
+    <ul class="item-list">
+      {{range .Data.Members}}{{$name := .Name}}<li class="item-list__item">
+        <div class="item-list__main">
+          <p class="item-list__title">{{.Name}}</p>
+        </div>
+        <span class="badge{{with .Badge}} badge--{{.}}{{end}} item-list__status">{{.Role}}</span>
+        {{if or .CanPromote .CanDemote}}<div class="item-list__actions">
+          {{if .CanPromote}}<form method="post" action="/coletivo/{{$.Data.ID}}/membro/promover">
+            <input type="hidden" name="user_id" value="{{.UserID}}">
+            <button class="btn btn--sm" type="submit">[→] PROMOVER<span class="sr-only"> {{$name}}</span></button>
+          </form>{{end}}
+          {{if .CanDemote}}<form method="post" action="/coletivo/{{$.Data.ID}}/membro/rebaixar">
+            <input type="hidden" name="user_id" value="{{.UserID}}">
+            <button class="btn btn--sm" type="submit">[→] REBAIXAR<span class="sr-only"> {{$name}}</span></button>
+          </form>{{end}}
+        </div>{{end}}
+      </li>
+      {{end}}
+    </ul>
+  </section>
+  <section class="stack" aria-labelledby="pedidos-titulo">
+    <h2 class="uppercase-label" id="pedidos-titulo">pedidos para entrar</h2>
+    {{if .Data.Requests}}<ul class="item-list">
+      {{range .Data.Requests}}{{$name := .Name}}<li class="item-list__item">
+        <div class="item-list__main">
+          <p class="item-list__title">{{.Name}}</p>
+          <p class="item-list__meta">quer entrar como {{.Role}}</p>
+        </div>
+        {{if not $.Data.Locked}}<div class="item-list__actions">
+          <form method="post" action="/coletivo/{{$.Data.ID}}/pedido/aprovar">
+            <input type="hidden" name="user_id" value="{{.UserID}}">
+            <button class="btn btn--sm" type="submit">[→] APROVAR<span class="sr-only"> {{$name}}</span></button>
+          </form>
+          <form method="post" action="/coletivo/{{$.Data.ID}}/pedido/recusar">
+            <input type="hidden" name="user_id" value="{{.UserID}}">
+            <details class="reason-form">
+              <summary>[✕] recusar com um motivo<span class="sr-only"> {{$name}}</span></summary>
+              <label class="label" for="motivo-{{.UserID}}">motivo (opcional)</label>
+              <textarea class="textarea" id="motivo-{{.UserID}}" name="reason" maxlength="500"></textarea>
+              <button class="btn btn--sm" type="submit">[✕] RECUSAR<span class="sr-only"> {{$name}}</span></button>
+            </details>
+          </form>
+        </div>{{end}}
+      </li>
+      {{end}}
+    </ul>
+    {{else}}<div class="empty">nenhum pedido para decidir</div>
+    {{end}}
+  </section>
+  {{if not .Data.Locked}}<section class="stack" aria-labelledby="nome-titulo">
+    <h2 class="uppercase-label" id="nome-titulo">mudar o nome</h2>
+    <form method="post" action="/coletivo/{{.Data.ID}}/nome" class="stack">
+      <div class="field">
+        <label class="label label--required" for="coletivo-nome">nome</label>
+        <input class="input" type="text" id="coletivo-nome" name="name" value="{{.Data.RenameValue}}" autocomplete="off" required{{with index .Errors "name"}} aria-invalid="true" aria-describedby="erro-name"{{end}}>
+        {{template "field-error" (dict "Errors" .Errors "Field" "name")}}
+      </div>
+      <button class="btn btn--solid" type="submit">[→] RENOMEAR</button>
+    </form>
+  </section>{{end}}
+</div>{{end}}
