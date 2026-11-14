@@ -174,10 +174,10 @@ func renderCases() []renderCase {
 			data: AdminRequestData{
 				Kind: AdminRequestNewCollective, UserName: "Ana Souza", CollectiveName: "Maré Alta", Link: linkAdmin,
 			},
-			subject: "Coletivo novo para aprovar: Maré Alta",
+			subject: "Novo coletivo ou produtora para aprovar: Maré Alta",
 			links:   []string{linkAdmin},
 			button:  "Abrir aprovações",
-			phrases: []string{"Ana Souza pediu para criar Maré Alta."},
+			phrases: []string{"$ novo_coletivo_ou_produtora", "Ana Souza pediu para criar Maré Alta."},
 			absent:  []string{"pediu para entrar", "mudou o nome"},
 		},
 		{
@@ -186,10 +186,10 @@ func renderCases() []renderCase {
 			data: AdminRequestData{
 				Kind: AdminRequestRename, UserName: "Ana Souza", OldName: "Maré Alta", CollectiveName: "Maré Alta Produções", Link: linkAdminCollectives,
 			},
-			subject: "Coletivo renomeado: Maré Alta → Maré Alta Produções",
+			subject: "Nome alterado: Maré Alta → Maré Alta Produções",
 			links:   []string{linkAdminCollectives},
 			button:  "Ver coletivos",
-			phrases: []string{"Ana Souza mudou o nome de Maré Alta para Maré Alta Produções."},
+			phrases: []string{"$ nome_alterado", "Ana Souza mudou o nome de Maré Alta para Maré Alta Produções."},
 			absent:  []string{"pediu para entrar", "pediu para criar"},
 		},
 	}
@@ -334,13 +334,13 @@ func TestRenderSubjectStaysOnOneLine(t *testing.T) {
 			"Pedido de entrada: Ana"},
 		{"admin request new collective", TemplateAdminRequest,
 			AdminRequestData{Kind: AdminRequestNewCollective, UserName: "Ana", CollectiveName: "Maré" + injected, Link: linkAdmin},
-			"Coletivo novo para aprovar: Maré"},
+			"Novo coletivo ou produtora para aprovar: Maré"},
 		{"admin request rename, old name", TemplateAdminRequest,
 			AdminRequestData{Kind: AdminRequestRename, UserName: "Ana", OldName: "Maré" + injected, CollectiveName: "Maré Alta", Link: linkAdminCollectives},
-			"Coletivo renomeado: Maré"},
+			"Nome alterado: Maré"},
 		{"admin request rename, new name", TemplateAdminRequest,
 			AdminRequestData{Kind: AdminRequestRename, UserName: "Ana", OldName: "Maré Alta", CollectiveName: "Alta" + injected, Link: linkAdminCollectives},
-			"Coletivo renomeado: Maré Alta → Alta"},
+			"Nome alterado: Maré Alta → Alta"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

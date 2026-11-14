@@ -405,7 +405,7 @@ func TestRequestCollective(t *testing.T) {
 			for _, u := range []domain.User{f.admin, f.admin2} {
 				// Render folds the whitespace of a subject into single spaces; the body
 				// keeps the name as stored.
-				requestsRequireEmail(t, by, u, "Coletivo novo para aprovar: Nova Casa",
+				requestsRequireEmail(t, by, u, "Novo coletivo ou produtora para aprovar: Nova Casa",
 					f.person.Name+" pediu para criar Nova  Casa", testOrigin+"/admin")
 			}
 
@@ -580,7 +580,7 @@ func TestRenameCollective(t *testing.T) {
 				t.Errorf("%d people got an email, want the two admins: %+v", len(by), by)
 			}
 			for _, u := range []domain.User{f.admin, f.admin2} {
-				requestsRequireEmail(t, by, u, "Coletivo renomeado: Alfa → Alfa Prime",
+				requestsRequireEmail(t, by, u, "Nome alterado: Alfa → Alfa Prime",
 					actor.Name+" mudou o nome de Alfa para Alfa Prime", testOrigin+"/admin/coletivos")
 			}
 
