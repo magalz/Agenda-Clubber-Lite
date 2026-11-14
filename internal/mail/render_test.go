@@ -59,7 +59,7 @@ func renderCases() []renderCase {
 				UserEmail:       "ana@example.com",
 				UserPhone:       "+55 85 99999-0000",
 				PhoneIsWhatsApp: true,
-				Collectives:     []SignupCollective{{Name: "Maré Alta", Kind: "Coletivo", Role: "Dono", New: true}},
+				Collectives:     []SignupCollective{{Name: "Maré Alta", Kind: "Coletivo", Role: "Administrador", New: true}},
 				AdminLink:       linkAdmin,
 			},
 			subject: "Novo cadastro para aprovar: Ana Souza",
