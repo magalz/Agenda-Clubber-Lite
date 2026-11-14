@@ -280,6 +280,13 @@ func signupTx(ctx context.Context, r domain.Repos, origin string, now time.Time,
 		m.OwnerApprovedBy = u.ID
 		m.OwnerApprovedAt = &ownerApprovedAt
 	} else {
+		// Joining depends on the collective's state (it may be frozen), so it is
+		// written back: a freeze that commits while this transaction is open
+		// conflicts with it, and the rerun sees the lock.
+		existing.UpdatedAt = now
+		if err := r.Collectives.Update(ctx, existing); err != nil {
+			return signupWrap("update collective", err)
+		}
 		m.CollectiveID = existing.ID
 	}
 	if err := r.Memberships.Create(ctx, m); err != nil {
@@ -338,17 +345,19 @@ func signupResolve(ctx context.Context, r domain.Repos, in SignupInput, f signup
 	case err != nil:
 		return domain.Collective{}, false, signupWrap("find collective", err)
 	case !signupJoinable(c, in.CollectiveKind):
-		// A pending or rejected collective, or one of the other kind, holds the
-		// name. All three read the same, so the form does not say which exist.
+		// A pending or rejected collective, one of the other kind, or a frozen one
+		// holds the name. All four read the same, so the form does not say which
+		// exist.
 		return domain.Collective{}, false, domain.FieldErrors{"collective": signupMsgNameInUse}
 	}
 	return c, false, nil
 }
 
 // signupJoinable reports whether a new member may ask to join c: it must be
-// approved and of the kind the person chose.
+// approved, of the kind the person chose, and not frozen by the admin (a frozen
+// collective refuses new join requests, as approvals.RequestJoin does).
 func signupJoinable(c domain.Collective, kind domain.CollectiveKind) bool {
-	return c.Status == domain.CollectiveStatusApproved && c.Kind == kind
+	return c.Status == domain.CollectiveStatusApproved && c.Kind == kind && !c.Locked
 }
 
 // signupNotifyExisting queues the email that tells the owner of u that someone
