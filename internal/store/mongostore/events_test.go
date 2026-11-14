@@ -17,7 +17,17 @@ import (
 // this backend stores an event: the keys of the document, never a null or an
 // empty string for a field that has no value.
 
-var optionalEventFields = []string{"type_other", "ticket_url", "substyle", "style_other", "venue", "artists", "description"}
+// The optional fields of an event. Substyle goes with a catalog style and
+// StyleOther with the style "Outros", never both, so there are two full sets.
+var (
+	catalogStyleFields = []string{"type_other", "ticket_url", "substyle", "venue", "artists", "description"}
+	otherStyleFields   = []string{"type_other", "ticket_url", "style_other", "venue", "artists", "description"}
+)
+
+// useOtherStyle switches the event to the style "Outros" with its own name.
+func useOtherStyle(ev *domain.Event) {
+	ev.Style, ev.Substyle, ev.StyleOther = domain.StyleOther, "", "Brega funk"
+}
 
 // eventsFixture is a store with the user and the collective an event needs.
 func eventsFixture(t *testing.T) (s *mongostore.Store, ana, bia domain.User, c domain.Collective) {
@@ -90,7 +100,9 @@ func TestEventCreateStoresOnlyTheFieldsThatHaveAValue(t *testing.T) {
 	full := eventToStore(c, ana)
 	fillOptionalFields(&full)
 	full.UpdatedBy = bia.ID
-	for _, ev := range []*domain.Event{&bare, &full} {
+	other := full
+	useOtherStyle(&other)
+	for _, ev := range []*domain.Event{&bare, &full, &other} {
 		if err := repo.Create(t.Context(), ev); err != nil {
 			t.Fatalf("Create %s: %v", ev.Name, err)
 		}
@@ -106,10 +118,13 @@ func TestEventCreateStoresOnlyTheFieldsThatHaveAValue(t *testing.T) {
 	}
 
 	raw = rawEventDoc(t, s, full.ID)
-	wantEventKeys(t, "the event with every optional field", raw, append([]string{"created_by", "updated_by"}, optionalEventFields...)...)
+	wantEventKeys(t, "the event with a catalog style and every optional field", raw, append([]string{"created_by", "updated_by"}, catalogStyleFields...)...)
 	if oid, ok := raw["updated_by"].(bson.ObjectID); !ok || oid.Hex() != bia.ID {
 		t.Errorf("updated_by = %#v, want the ObjectID of %s", raw["updated_by"], bia.ID)
 	}
+
+	raw = rawEventDoc(t, s, other.ID)
+	wantEventKeys(t, "the event with the style Outros and every optional field", raw, append([]string{"created_by", "updated_by"}, otherStyleFields...)...)
 }
 
 func TestEventUpdateRemovesTheFieldsThatBecameEmpty(t *testing.T) {
@@ -153,8 +168,21 @@ func TestEventUpdateRemovesTheFieldsThatBecameEmpty(t *testing.T) {
 		t.Fatalf("Update to full: %v", err)
 	}
 	raw = rawEventDoc(t, s, ev.ID)
-	wantEventKeys(t, "the event after Update to full", raw, append([]string{"created_by", "updated_by"}, optionalEventFields...)...)
+	wantEventKeys(t, "the event after Update to full", raw, append([]string{"created_by", "updated_by"}, catalogStyleFields...)...)
 	if v, ok := raw["version"].(int64); !ok || v != 3 {
 		t.Errorf("version = %#v after two Updates, want int64(3)", raw["version"])
+	}
+
+	// The style Outros swaps substyle for style_other: the old key goes away.
+	swapped := again
+	swapped.Version = 3
+	useOtherStyle(&swapped)
+	if err := repo.Update(t.Context(), swapped); err != nil {
+		t.Fatalf("Update to the style Outros: %v", err)
+	}
+	raw = rawEventDoc(t, s, ev.ID)
+	wantEventKeys(t, "the event after Update to the style Outros", raw, append([]string{"created_by", "updated_by"}, otherStyleFields...)...)
+	if v, ok := raw["version"].(int64); !ok || v != 4 {
+		t.Errorf("version = %#v after three Updates, want int64(4)", raw["version"])
 	}
 }
