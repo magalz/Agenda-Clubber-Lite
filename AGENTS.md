@@ -31,7 +31,7 @@ internal/store/storetest/    contract test suite every store implementation must
 internal/store/mongostore/   the MongoDB implementation of the domain interfaces
 internal/store/mongotest/    mongotest.New(t): an isolated test database on MONGO_TEST_URI
 internal/auth/         password policy/hash/history/expiry, sessions, rate limiting
-internal/approvals/    account/collective/membership approval rules
+internal/approvals/    the approval flows as service functions (store, actor, time; one WithTx each); imports only internal/domain and internal/mail
 internal/catalog/      music styles (embedded JSON) and event types
 internal/mail/         SMTP sender, outbox worker, email templates
 internal/web/          App (dependencies), router, middleware, render, handlers
@@ -109,6 +109,11 @@ Tokens are defined once in `web/static/css/tokens.css`; every other stylesheet u
 - Backups are `mongodump`, run outside the app; there is no `backup` subcommand.
 - CSS class names live in `web/static/css/components.css` (section comments list them and their markup contracts: wordmark, drawer, checklist `sr-only` state, `required` on `.label--required` controls). Use `.field-error` and `.spinner*` (not `.error` / `.spinner-input`).
 - The itsaplan commit hook only accepts the message (trailers included) through `-m` arguments, not `-F file`.
+- Roles and who approves what are in the README ("Approvals"). The labels: stored role `owner` is shown as Administrador, `member` as Membro, the creator of a collective (`Collective.CreatedBy`) is its Master, and `User.IsAdmin` is the Admin. The stored values never change; `approvals.RoleLabel` maps them to the labels.
+- Collectives are serialized through the store: an operation that depends on a collective's state (a join decision, a role change, a rename, a join request, a change of the blocks) runs in `Store.WithTx`, reads the collective there and writes it back with `Collectives.Update`, which always writes, so two such transactions on one collective conflict and one retries. The generic `Update` methods (`Collectives.Update`, `Memberships.Update`) are called only inside `WithTx`, after a read in that same transaction.
+- The audit log keeps IDs and name snapshots, never an email address. Its references are not checked on write and never cleared or changed when a user or collective is deleted.
+- In `/admin` the IDs a POST acts on travel in hidden form fields.
+- A collective's page (`/coletivo/<id>`) answers anyone who may not see it (a stranger, or a member who is not an approved Administrador) exactly like a path that does not exist.
 
 ## Testing and checks
 

@@ -79,16 +79,47 @@ The sample accounts, all `@agenda.test`:
 | Email | What it is |
 |---|---|
 | `admin@agenda.test` | the admin |
-| `dono@agenda.test` | the approved Administrador (Master) of the sample collective and producer |
-| `membro@agenda.test` | an approved member of the sample collective |
+| `dono@agenda.test` | "Administrador Dev": the approved Administrador and Master of Coletivo Alfa and Produtora Beta |
+| `membro@agenda.test` | an approved Membro of Coletivo Alfa |
 | `pendente-email@agenda.test` | has not confirmed its email (the first run prints its confirmation link) |
-| `pendente-aprovacao@agenda.test` | confirmed, waiting for the admin's approval |
+| `pendente-aprovacao@agenda.test` | confirmed, waiting for the admin's approval; also asked to join Coletivo Alfa (both approvals open) |
 | `senha-vencida@agenda.test` | its password has expired |
 | `senha-quase@agenda.test` | its password is about to expire |
+| `novo-coletivo@agenda.test` | confirmed, waiting for the admin's approval; signed up with the new Coletivo Gama, which waits for the admin too |
+| `pedido@agenda.test` | active; asked to join Produtora Beta as Membro (both approvals open) |
+| `delta@agenda.test` | active; the only Administrador (and Master) of Coletivo Delta, whose events the admin blocked, so its Criar Evento link is disabled |
+
+Together they leave something to decide in every flow of the [approvals](#approvals): accounts, a new collective, join requests, and a collective with blocked events.
 
 ### Email in development
 
 The dev stack sends through Mailpit. Natively, with neither `SMTP_HOST` nor `MAIL_DROP_DIR` set, the server sends nothing and the emails wait in the outbox. Set `MAIL_DROP_DIR` to a folder to have every outgoing email written there as an `.eml` file instead; it wins over `SMTP_HOST` and is refused with `APP_ENV=prod`.
+
+## Approvals
+
+People sign up, confirm their email and wait: nobody gets in or creates events on their own say-so. The roles, as the pages name them:
+
+| Role | Who | What it can do |
+|---|---|---|
+| Admin | the site administrator (`create-admin`) | approves, rejects and blocks accounts; approves or rejects collectives; can block a collective's events ("bloquear eventos") or freeze its members and name ("congelar membros e nome") |
+| Master | the person who created a collective | an Administrador of it who is never demoted |
+| Administrador | an approved member with the stored role `owner` | creates events for the collective; decides join requests; promotes and demotes members (never the Master, never leaving the collective without an Administrador); renames it |
+| Membro | an approved member with the stored role `member` | belongs to the collective; creates no events |
+
+The rules:
+
+- A new collective needs only the Admin's approval.
+- Joining an existing collective needs two approvals, in any order: the Admin's and one Administrador's of that collective.
+- A rename takes effect at once; the Admin gets an email about it.
+- Every decision is in the history, and emails the person it concerns (an Administrador's half of a join approval, and the Admin blocking an account, are only recorded).
+
+The pages:
+
+- `/admin`, for the Admin only, with `Fila` (what waits for a decision), `Contas`, `Coletivos` and `Histórico` (`/admin/historico`);
+- `/coletivos`, "Meus Coletivos": a person's collectives and requests, and where to ask to join one or to create one;
+- `/coletivo/<id>`, a collective's page for its Administradores: join requests, members and roles, the name. Anyone else gets the same 404 as for a path that does not exist.
+
+The rules live in `internal/approvals`; [AGENTS.md](AGENTS.md) records the decisions behind them.
 
 ## Checks
 

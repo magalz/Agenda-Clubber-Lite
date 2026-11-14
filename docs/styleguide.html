@@ -278,6 +278,41 @@
             </div>
 
             <div class="stack stack--sm">
+              <h3 class="uppercase-label muted">Lista de itens</h3>
+              <p class="muted text-sm"><code>.item-list</code> lista o que a pessoa decide ou abre: seus coletivos e a fila de aprovações. Cada linha tem título, meta, um selo de estado (o texto diz o estado, a cor sozinha não) e as ações, que somem quando não há o que fazer.</p>
+              <ul class="item-list">
+                <li class="item-list__item">
+                  <div class="item-list__main">
+                    <p class="item-list__title">Casa Verde</p>
+                    <p class="item-list__meta">Coletivo · Membro</p>
+                  </div>
+                  <span class="badge badge--warn item-list__status">aguardando o admin</span>
+                  <div class="item-list__actions"><a href="#s-blocos">[→] gerenciar</a></div>
+                </li>
+                <li class="item-list__item">
+                  <div class="item-list__main">
+                    <p class="item-list__title">Produtora Beta</p>
+                    <p class="item-list__meta">Produtora · Administrador</p>
+                  </div>
+                  <span class="badge badge--ok item-list__status">aprovado</span>
+                </li>
+              </ul>
+            </div>
+
+            <div class="stack stack--sm">
+              <h3 class="uppercase-label muted">Motivo opcional</h3>
+              <p class="muted text-sm"><code>.reason-form</code> é um <code>&lt;details&gt;</code> fechado onde a pessoa diz por que recusou, se quiser. No app ele fica dentro do <code>&lt;form method="post"&gt;</code> que envia a decisão, então o motivo e o botão seguem juntos e funciona sem JavaScript; aqui o formulário é só um exemplo.</p>
+              <form method="dialog">
+                <details class="reason-form">
+                  <summary>[✕] recusar com um motivo</summary>
+                  <label class="label" for="f-motivo">motivo (opcional)</label>
+                  <textarea class="textarea" id="f-motivo" name="reason" maxlength="500"></textarea>
+                  <button class="btn btn--sm" type="submit">[✕] RECUSAR</button>
+                </details>
+              </form>
+            </div>
+
+            <div class="stack stack--sm">
               <h3 class="uppercase-label muted">Mensagens de status</h3>
               <p class="status status--ok animate-fade-up" role="status">Conta criada. Confira seu e-mail para confirmar o cadastro.</p>
               <p class="status status--error" role="alert">Não foi possível salvar o evento. Tente de novo.</p>
