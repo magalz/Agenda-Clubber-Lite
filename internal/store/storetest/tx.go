@@ -19,12 +19,14 @@ type written struct {
 	token      domain.Token
 	session    domain.Session
 	collective domain.Collective
+	event      domain.Event
 	message    domain.OutboxMessage
 	audit      domain.AuditEntry
 }
 
 // writeEverything creates one record of every kind through r, with a
-// membership that makes the user an approved owner of an approved collective.
+// membership that makes the user an approved owner of an approved collective
+// and an event of that collective made by the user.
 func writeEverything(ctx context.Context, r domain.Repos) (written, error) {
 	var w written
 	w.user = newUser("ana")
@@ -45,6 +47,10 @@ func writeEverything(ctx context.Context, r domain.Repos) (written, error) {
 	}
 	if err := r.Memberships.Create(ctx, newMembership(w.user, w.collective, roleOwner, mApproved)); err != nil {
 		return w, fmt.Errorf("create membership: %w", err)
+	}
+	w.event = newEvent(w.collective.ID, w.user.ID)
+	if err := r.Events.Create(ctx, &w.event); err != nil {
+		return w, fmt.Errorf("create event: %w", err)
 	}
 	w.message = newMessage(w.user.Email)
 	if err := r.Outbox.Enqueue(ctx, &w.message); err != nil {
@@ -86,6 +92,11 @@ func readBack(ctx context.Context, r domain.Repos, w written) error {
 	if ok, err := r.Memberships.UserCanCreateEvents(ctx, w.user.ID); err != nil || !ok {
 		return fmt.Errorf("UserCanCreateEvents over your own writes = %v, error %v", ok, err)
 	}
+	// ByID only: it joins the event to its collective, both written here.
+	// ListBetween and the other lists are not part of this contract.
+	if v, err := r.Events.ByID(ctx, w.event.ID); err != nil || v.CollectiveName != w.collective.Name {
+		return fmt.Errorf("read your own event: collective %q, error %v", v.CollectiveName, err)
+	}
 	entries, err := r.AuditEntries.List(ctx, domain.ListLimitMax)
 	if err != nil || len(entries) != 1 || entries[0].ID != w.audit.ID {
 		return fmt.Errorf("read your own audit entry: %d entries, error %v", len(entries), err)
@@ -110,6 +121,7 @@ func (e env) wantStored(w written) {
 	if _, err := e.r.Tokens.Consume(e.ctx, w.token.Purpose, w.token.Hash, at(time.Minute)); err != nil {
 		e.t.Errorf("token: %v", err)
 	}
+	e.wantStoredEvent("the event", w.event, w.collective.Name)
 	wantIDs(e.t, "Claim", e.claim(base, leaseFor, 10), w.message)
 	wantIDsBy(e.t, "audit List", auditID, e.auditList(domain.ListLimitMax), w.audit)
 }
@@ -132,6 +144,8 @@ func (e env) wantNothing(w written) {
 	}
 	_, err = e.r.Tokens.Consume(e.ctx, w.token.Purpose, w.token.Hash, at(time.Minute))
 	isErr(e.t, "token", err, domain.ErrNotFound)
+	_, err = e.r.Events.ByID(e.ctx, w.event.ID)
+	isErr(e.t, "event", err, domain.ErrNotFound)
 	if got := e.claim(base, leaseFor, 10); len(got) != 0 {
 		e.t.Errorf("Claim returned %d messages, want none", len(got))
 	}
@@ -145,12 +159,15 @@ func (e env) wantNothing(w written) {
 // and victim (a user with a session and a membership), plus two collectives. The
 // admin approves newcomer (a user waiting for the approval) and the collective
 // under review, where joiner has a pending membership to decide and leaver an
-// approved one to remove.
+// approved one to remove. Three events: editing (of kept, made by victim, who
+// is deleted, and edited by ana), removing (of kept, deleted by itself) and
+// cascaded (of doomed, which goes with its collective).
 type txFixture struct {
 	ana, victim                     domain.User
 	anaSession                      domain.Session
 	victimSession                   domain.Session
 	kept, doomed                    domain.Collective
+	editing, removing, cascaded     domain.Event
 	message                         domain.OutboxMessage
 	anaNewPasswordTag               string
 	admin, newcomer, joiner, leaver domain.User
@@ -166,6 +183,9 @@ func (e env) txFixture() txFixture {
 	f.doomed = e.collective("Casa Verde", produtora, cApproved)
 	e.member(f.victim, f.kept, roleOwner, mApproved)
 	e.member(f.ana, f.doomed, roleOwner, mApproved)
+	f.editing = e.event(f.kept.ID, f.victim.ID, func(ev *domain.Event) { ev.Name = "Noite Azul" })
+	f.removing = e.event(f.kept.ID, f.ana.ID, func(ev *domain.Event) { ev.Name = "Dia Azul" })
+	f.cascaded = e.event(f.doomed.ID, f.ana.ID, func(ev *domain.Event) { ev.Name = "Noite Verde" })
 	f.anaSession = e.session(f.ana.ID, "ana-session")
 	f.victimSession = e.session(f.victim.ID, "victim-session")
 	f.message = e.message(f.ana.Email)
@@ -204,6 +224,15 @@ func (f txFixture) joined() domain.Membership {
 	return m
 }
 
+// edited is editing as ana's Update stores it: the fields it takes differ from
+// the stored ones, the version is the one it read.
+func (f txFixture) edited() domain.Event {
+	ev := f.editing
+	ev.Name, ev.DurationMin, ev.PriceCents, ev.Description = "Noite Azul Nova", 300, 4500, "Programação nova"
+	ev.UpdatedBy, ev.UpdatedAt = f.ana.ID, at(time.Minute)
+	return ev
+}
+
 // mutate updates and deletes through r: one call of every kind that is not a Create.
 func (f txFixture) mutate(ctx context.Context, r domain.Repos) error {
 	steps := []struct {
@@ -214,6 +243,8 @@ func (f txFixture) mutate(ctx context.Context, r domain.Repos) error {
 		{"Collectives.Update", func() error { return r.Collectives.Update(ctx, f.reviewed()) }},
 		{"Memberships.Update", func() error { return r.Memberships.Update(ctx, f.joined()) }},
 		{"Memberships.Delete", func() error { return r.Memberships.Delete(ctx, f.leaver.ID, f.review.ID) }},
+		{"Events.Update", func() error { return r.Events.Update(ctx, f.edited()) }},
+		{"Events.Delete", func() error { return r.Events.Delete(ctx, f.removing.ID) }},
 		{"SetStatus", func() error { return r.Users.SetStatus(ctx, f.ana.ID, uDisabled, at(time.Minute)) }},
 		{"ChangePassword", func() error { return r.Users.ChangePassword(ctx, f.ana.ID, f.anaNewPasswordTag, at(time.Minute)) }},
 		{"Sessions.Delete", func() error { return r.Sessions.Delete(ctx, f.anaSession.Hash) }},
@@ -261,6 +292,9 @@ func (f txFixture) wantUntouched(e env) {
 	isErr(e.t, "collective by the name Update gives it", err, domain.ErrNotFound)
 	wantEqual(e.t, "joiner's membership", normMembership(e.membership(f.joiner.ID, f.review.ID)), normMembership(f.joining))
 	wantEqual(e.t, "leaver's membership", normMembership(e.membership(f.leaver.ID, f.review.ID)), normMembership(f.leaving))
+	for _, want := range []domain.Event{f.editing, f.removing, f.cascaded} {
+		wantEqual(e.t, "event "+want.Name, normEvent(e.eventView("ByID for "+want.Name, want.ID).Event), normEvent(want))
+	}
 }
 
 // wantMutated checks that mutate took effect.
@@ -294,6 +328,14 @@ func (f txFixture) wantMutated(e env) {
 	wantEqual(e.t, "joiner's membership", normMembership(e.membership(f.joiner.ID, f.review.ID)), normMembership(f.joined()))
 	_, err = e.r.Memberships.Get(e.ctx, f.leaver.ID, f.review.ID)
 	isErr(e.t, "leaver's membership", err, domain.ErrNotFound)
+	// Users.Delete(victim) emptied the creator of the edited event.
+	edited := f.edited()
+	edited.CreatedBy, edited.Version = "", f.editing.Version+1
+	wantEqual(e.t, "edited event", normEvent(e.eventView("ByID for the edited event", f.editing.ID).Event), normEvent(edited))
+	_, err = e.r.Events.ByID(e.ctx, f.removing.ID)
+	isErr(e.t, "deleted event", err, domain.ErrNotFound)
+	_, err = e.r.Events.ByID(e.ctx, f.cascaded.ID)
+	isErr(e.t, "event of the deleted collective", err, domain.ErrNotFound)
 }
 
 // RunTx runs the contract of Store.WithTx and Store.Ping.
@@ -393,6 +435,12 @@ func RunTx(t *testing.T, newStore NewStore) {
 					"Users.Delete":            func() error { return r.Users.Delete(ctx, unknownRefs[1]) },
 					"Outbox.MarkSent":         func() error { return r.Outbox.MarkSent(ctx, unknownRefs[1], base) },
 					"Collectives.ByID (path)": func() error { _, err := r.Collectives.ByID(ctx, unknownRefs[2]); return err },
+					"Events.ByID":             func() error { _, err := r.Events.ByID(ctx, unknownRefs[1]); return err },
+					"Events.Delete":           func() error { return r.Events.Delete(ctx, unknownRefs[1]) },
+					"Events.Create": func() error {
+						ev := newEvent(unknownRefs[1], unknownRefs[1])
+						return r.Events.Create(ctx, &ev)
+					},
 				} {
 					if err := call(); !errors.Is(err, domain.ErrNotFound) {
 						return fmt.Errorf("%s: error = %v, want ErrNotFound", name, err)
