@@ -77,10 +77,9 @@ type adminCard struct {
 
 // adminItem is one request of a card. A new collective (NewCollective) is decided
 // with /admin/coletivo/*, which names only the collective; a request to join one
-// with /admin/pedido/*, which names the person too. ReasonID is the id of the
-// row's reason field, unique in the page.
+// with /admin/pedido/*, which names the person too (the card's UserID). ReasonID
+// is the id of the row's reason field, unique in the page.
 type adminItem struct {
-	UserID        string
 	CollectiveID  string
 	Title         string
 	Meta          string
@@ -152,7 +151,7 @@ func (a *App) adminCards(queue []approvals.PersonCard) []adminCard {
 			card.Status = adminStatusPending
 		}
 		for j, v := range p.Items {
-			item := adminItem{UserID: p.User.ID, CollectiveID: v.CollectiveID, ReasonID: next("motivo")}
+			item := adminItem{CollectiveID: v.CollectiveID, ReasonID: next("motivo")}
 			if v.CollectiveStatus == domain.CollectiveStatusPending {
 				item.NewCollective = true
 				item.Title = "coletivo novo: " + v.CollectiveName

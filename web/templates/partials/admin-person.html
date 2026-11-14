@@ -51,12 +51,12 @@
             <input type="hidden" name="collective_id" value="{{.CollectiveID}}">
             <button class="btn btn--outline btn--sm" type="submit">[→] APROVAR<span class="sr-only"> {{.Title}}</span></button>
           </form>{{else}}<form method="post" action="/admin/pedido/aprovar">
-            <input type="hidden" name="user_id" value="{{.UserID}}">
+            <input type="hidden" name="user_id" value="{{$.UserID}}">
             <input type="hidden" name="collective_id" value="{{.CollectiveID}}">
             <button class="btn btn--outline btn--sm" type="submit">[→] APROVAR<span class="sr-only"> {{.Title}}</span></button>
           </form>{{end}}{{end}}
           <form method="post" action="/admin/{{if .NewCollective}}coletivo{{else}}pedido{{end}}/recusar">
-            {{if not .NewCollective}}<input type="hidden" name="user_id" value="{{.UserID}}">
+            {{if not .NewCollective}}<input type="hidden" name="user_id" value="{{$.UserID}}">
             {{end}}<input type="hidden" name="collective_id" value="{{.CollectiveID}}">
             <details class="reason-form">
               <summary>[✕] recusar com um motivo</summary>
