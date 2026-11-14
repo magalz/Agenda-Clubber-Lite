@@ -1,6 +1,7 @@
 package mongostore_test
 
 import (
+	"errors"
 	"maps"
 	"slices"
 	"testing"
@@ -184,5 +185,80 @@ func TestEventUpdateRemovesTheFieldsThatBecameEmpty(t *testing.T) {
 	wantEventKeys(t, "the event after Update to the style Outros", raw, append([]string{"created_by", "updated_by"}, otherStyleFields...)...)
 	if v, ok := raw["version"].(int64); !ok || v != 4 {
 		t.Errorf("version = %#v after three Updates, want int64(4)", raw["version"])
+	}
+}
+
+// An event that outlives its collective (the cascade is a later task, and a race
+// can leave one behind) is still read, with no collective name.
+func TestEventByIDWithoutItsCollectiveHasAnEmptyName(t *testing.T) {
+	s, ana, _, c := eventsFixture(t)
+	repo := s.Repos().Events
+
+	ev := eventToStore(c, ana)
+	if err := repo.Create(t.Context(), &ev); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	collectiveID, err := bson.ObjectIDFromHex(c.ID)
+	if err != nil {
+		t.Fatalf("collective ID %q: %v", c.ID, err)
+	}
+	if _, err := s.DB().Collection("collectives").DeleteOne(t.Context(), bson.M{"_id": collectiveID}); err != nil {
+		t.Fatalf("delete the collective document: %v", err)
+	}
+
+	view, err := repo.ByID(t.Context(), ev.ID)
+	if err != nil {
+		t.Fatalf("ByID after the collective is gone: %v, want the event", err)
+	}
+	if view.Event.ID != ev.ID || view.Event.Name != ev.Name || view.Event.CollectiveID != c.ID {
+		t.Errorf("ByID = %+v, want the event %s of the deleted collective", view.Event, ev.ID)
+	}
+	if view.CollectiveName != "" {
+		t.Errorf("CollectiveName = %q, want empty", view.CollectiveName)
+	}
+}
+
+func TestEventCreateThatFailsStoresNothing(t *testing.T) {
+	s, ana, _, c := eventsFixture(t)
+	repo := s.Repos().Events
+	unknown := bson.NewObjectID().Hex()
+
+	invalid := eventToStore(c, ana)
+	invalid.Name = ""
+	noCollective := eventToStore(c, ana)
+	noCollective.CollectiveID = unknown
+	noCreator := eventToStore(c, ana)
+	noCreator.CreatedBy = ""
+	unknownCreator := eventToStore(c, ana)
+	unknownCreator.CreatedBy = unknown
+	unknownEditor := eventToStore(c, ana)
+	unknownEditor.UpdatedBy = unknown
+
+	cases := []struct {
+		name    string
+		ev      domain.Event
+		wantErr func(error) bool
+	}{
+		{"invalid event", invalid, func(err error) bool { var fe domain.FieldErrors; return errors.As(err, &fe) }},
+		{"unknown collective", noCollective, func(err error) bool { return errors.Is(err, domain.ErrNotFound) }},
+		{"empty CreatedBy", noCreator, func(err error) bool { return errors.Is(err, domain.ErrNotFound) }},
+		{"unknown CreatedBy", unknownCreator, func(err error) bool { return errors.Is(err, domain.ErrNotFound) }},
+		{"unknown UpdatedBy", unknownEditor, func(err error) bool { return errors.Is(err, domain.ErrNotFound) }},
+	}
+	for _, tc := range cases {
+		err := repo.Create(t.Context(), &tc.ev)
+		if !tc.wantErr(err) {
+			t.Errorf("%s: Create error = %v, want the error of the contract", tc.name, err)
+		}
+		if tc.ev.ID != "" || tc.ev.Version != 0 {
+			t.Errorf("%s: Create set ID %q and Version %d on a failure", tc.name, tc.ev.ID, tc.ev.Version)
+		}
+		n, err := s.DB().Collection("events").CountDocuments(t.Context(), bson.M{})
+		if err != nil {
+			t.Fatalf("%s: count events: %v", tc.name, err)
+		}
+		if n != 0 {
+			t.Errorf("%s: %d events stored after a failed Create, want none", tc.name, n)
+		}
 	}
 }
