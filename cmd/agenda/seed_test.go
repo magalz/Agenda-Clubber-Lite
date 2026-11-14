@@ -20,7 +20,10 @@ import (
 const seedPassword = "Seed-Pass-2026!"
 
 // seedLocals are the local parts of the seed accounts, all at agenda.test.
-var seedLocals = []string{"admin", "dono", "membro", "pendente-email", "pendente-aprovacao", "senha-vencida", "senha-quase"}
+var seedLocals = []string{
+	"admin", "dono", "membro", "pendente-email", "pendente-aprovacao", "senha-vencida", "senha-quase",
+	"novo-coletivo", "pedido", "delta",
+}
 
 func seedEmail(local string) string { return local + "@agenda.test" }
 
@@ -66,6 +69,23 @@ func seedUsers(t *testing.T, store domain.Store) map[string]domain.User {
 	return users
 }
 
+// seedCollectives are the names of the sample collectives.
+var seedCollectives = []string{"Coletivo Alfa", "Produtora Beta", "Coletivo Gama", "Coletivo Delta"}
+
+// seedCollectivesByName reads the sample collectives.
+func seedCollectivesByName(t *testing.T, store domain.Store) map[string]domain.Collective {
+	t.Helper()
+	got := map[string]domain.Collective{}
+	for _, name := range seedCollectives {
+		c, err := store.Repos().Collectives.ByNameKey(t.Context(), domain.NameKey(name))
+		if err != nil {
+			t.Fatalf("find the collective %s: %v", name, err)
+		}
+		got[name] = c
+	}
+	return got
+}
+
 // wantWithin fails unless got lies in [lo, hi].
 func wantWithin(t *testing.T, name string, got *time.Time, lo, hi time.Time) {
 	t.Helper()
@@ -87,10 +107,15 @@ func seedLines(state string) []string {
 	return append(lines,
 		"collective Coletivo Alfa: "+state,
 		"collective Produtora Beta: "+state,
+		"collective Coletivo Gama: "+state,
+		"collective Coletivo Delta: "+state,
 		"membership dono@agenda.test in Coletivo Alfa: "+state,
 		"membership dono@agenda.test in Produtora Beta: "+state,
 		"membership membro@agenda.test in Coletivo Alfa: "+state,
 		"membership pendente-aprovacao@agenda.test in Coletivo Alfa: "+state,
+		"membership novo-coletivo@agenda.test in Coletivo Gama: "+state,
+		"membership pedido@agenda.test in Produtora Beta: "+state,
+		"membership delta@agenda.test in Coletivo Delta: "+state,
 	)
 }
 
@@ -166,8 +191,8 @@ func TestSeedDevCreatesTheSampleData(t *testing.T) {
 		t.Fatalf("exit code = %d, stderr = %q; want 0 and nothing on stderr", code, stderr)
 	}
 	wantLines(t, stdout, seedLines("created"))
-	if !strings.Contains(stdout, "13 created, 0 existing") {
-		t.Errorf("stdout has no summary of 13 created records:\n%s", stdout)
+	if !strings.Contains(stdout, "21 created, 0 existing") {
+		t.Errorf("stdout has no summary of 21 created records:\n%s", stdout)
 	}
 
 	// Nothing the run prints may unlock an account or the database.
@@ -194,6 +219,9 @@ func TestSeedDevCreatesTheSampleData(t *testing.T) {
 		{"pendente-aprovacao", domain.UserStatusPendingApproval, true, false},
 		{"senha-vencida", domain.UserStatusActive, true, false},
 		{"senha-quase", domain.UserStatusActive, true, false},
+		{"novo-coletivo", domain.UserStatusPendingApproval, true, false},
+		{"pedido", domain.UserStatusActive, true, false},
+		{"delta", domain.UserStatusActive, true, false},
 	} {
 		u := users[tc.local]
 		if u.Status != tc.status || u.IsAdmin != tc.admin || (u.EmailVerifiedAt != nil) != tc.verified {
@@ -237,38 +265,75 @@ func TestSeedDevCreatesTheSampleData(t *testing.T) {
 	} else {
 		wantWithin(t, "senha-quase PasswordChangedAt", &u.PasswordChangedAt, before.Add(-87*oneDay), after.Add(-87*oneDay))
 	}
-	for _, local := range []string{"admin", "dono", "membro", "pendente-email", "pendente-aprovacao"} {
+	for _, local := range []string{"admin", "dono", "membro", "pendente-email", "pendente-aprovacao", "novo-coletivo", "pedido", "delta"} {
 		u := users[local]
 		wantWithin(t, local+" PasswordChangedAt", &u.PasswordChangedAt, before, after)
 		wantWithin(t, local+" CreatedAt", &u.CreatedAt, before, after)
 	}
+	// The account that was "Dono Dev" is the Administrador of the sample collectives.
+	if got := users["dono"].Name; got != "Administrador Dev" {
+		t.Errorf("dono: name = %q, want %q", got, "Administrador Dev")
+	}
 
-	// Collectives: both approved, made by the owner, approved by the admin.
+	// Collectives: Alfa and Beta are approved by the admin; Gama is what a sign-up
+	// leaves, waiting for the admin; Delta is approved but its events are blocked.
 	for _, tc := range []struct {
-		name string
-		kind domain.CollectiveKind
-	}{{"Coletivo Alfa", domain.CollectiveKindColetivo}, {"Produtora Beta", domain.CollectiveKindProdutora}} {
+		name          string
+		kind          domain.CollectiveKind
+		status        domain.CollectiveStatus
+		creator       string // local part of the account that made it
+		eventsBlocked bool
+	}{
+		{"Coletivo Alfa", domain.CollectiveKindColetivo, domain.CollectiveStatusApproved, "dono", false},
+		{"Produtora Beta", domain.CollectiveKindProdutora, domain.CollectiveStatusApproved, "dono", false},
+		{"Coletivo Gama", domain.CollectiveKindColetivo, domain.CollectiveStatusPending, "novo-coletivo", false},
+		{"Coletivo Delta", domain.CollectiveKindColetivo, domain.CollectiveStatusApproved, "delta", true},
+	} {
 		c, err := repos.Collectives.ByNameKey(t.Context(), domain.NameKey(tc.name))
 		if err != nil {
-			t.Fatalf("find the collective %s: %v", tc.name, err)
+			t.Errorf("find the collective %s: %v", tc.name, err)
+			continue
 		}
-		if c.Name != tc.name || c.Kind != tc.kind || c.Status != domain.CollectiveStatusApproved || c.CreatedBy != users["dono"].ID || c.ApprovedBy != users["admin"].ID {
-			t.Errorf("%s: name = %q, kind = %q, status = %q, created by %q, approved by %q; want %q, %q, approved, the owner, the admin", tc.name, c.Name, c.Kind, c.Status, c.CreatedBy, c.ApprovedBy, tc.name, tc.kind)
+		if c.Name != tc.name || c.Kind != tc.kind || c.Status != tc.status || c.CreatedBy != users[tc.creator].ID {
+			t.Errorf("%s: name = %q, kind = %q, status = %q, created by %q; want %q, %q, %q, %s", tc.name, c.Name, c.Kind, c.Status, c.CreatedBy, tc.name, tc.kind, tc.status, tc.creator)
 		}
-		wantWithin(t, tc.name+" ApprovedAt", c.ApprovedAt, before, after)
+		if c.EventsBlocked != tc.eventsBlocked || c.Locked {
+			t.Errorf("%s: events blocked = %v, locked = %v; want %v, false", tc.name, c.EventsBlocked, c.Locked, tc.eventsBlocked)
+		}
+		if tc.status == domain.CollectiveStatusApproved {
+			if c.ApprovedBy != users["admin"].ID {
+				t.Errorf("%s: approved by %q, want the admin", tc.name, c.ApprovedBy)
+			}
+			wantWithin(t, tc.name+" ApprovedAt", c.ApprovedAt, before, after)
+		} else if c.ApprovedBy != "" || c.ApprovedAt != nil {
+			t.Errorf("%s: a pending collective already carries an approval: by %q at %v", tc.name, c.ApprovedBy, c.ApprovedAt)
+		}
 	}
 
-	// Memberships, by user, in the order of the collective's name.
+	// Memberships, by user, in the order of the collective's name. adminBy and
+	// ownerBy are the local parts of whoever approved each side, empty while the
+	// side is open; the request is decided exactly when it is approved.
 	type membership struct {
-		collective string
-		role       domain.Role
-		status     domain.MembershipStatus
+		collective       string
+		role             domain.Role
+		status           domain.MembershipStatus
+		adminBy, ownerBy string
 	}
 	for local, want := range map[string][]membership{
-		"dono":               {{"Coletivo Alfa", domain.RoleOwner, domain.MembershipStatusApproved}, {"Produtora Beta", domain.RoleOwner, domain.MembershipStatusApproved}},
-		"membro":             {{"Coletivo Alfa", domain.RoleMember, domain.MembershipStatusApproved}},
-		"pendente-aprovacao": {{"Coletivo Alfa", domain.RoleMember, domain.MembershipStatusPending}},
-		"admin":              nil, "pendente-email": nil, "senha-vencida": nil, "senha-quase": nil,
+		"dono": {
+			{"Coletivo Alfa", domain.RoleOwner, domain.MembershipStatusApproved, "admin", "dono"},
+			{"Produtora Beta", domain.RoleOwner, domain.MembershipStatusApproved, "admin", "dono"},
+		},
+		"membro":             {{"Coletivo Alfa", domain.RoleMember, domain.MembershipStatusApproved, "admin", "dono"}},
+		"pendente-aprovacao": {{"Coletivo Alfa", domain.RoleMember, domain.MembershipStatusPending, "", ""}},
+		// What a sign-up leaves for a new collective: the creator vouched for
+		// themself, the admin has not decided.
+		"novo-coletivo": {{"Coletivo Gama", domain.RoleOwner, domain.MembershipStatusPending, "", "novo-coletivo"}},
+		// A request to join Beta as a Membro: neither side has decided.
+		"pedido": {{"Produtora Beta", domain.RoleMember, domain.MembershipStatusPending, "", ""}},
+		// The only Administrador of Delta, whose events are blocked.
+		"delta": {{"Coletivo Delta", domain.RoleOwner, domain.MembershipStatusApproved, "admin", "delta"}},
+		"admin": nil, "pendente-email": nil, "senha-vencida": nil, "senha-quase": nil,
 	} {
 		list, err := repos.Memberships.ListByUser(t.Context(), users[local].ID)
 		if err != nil {
@@ -276,13 +341,27 @@ func TestSeedDevCreatesTheSampleData(t *testing.T) {
 		}
 		var got []membership
 		for _, m := range list {
-			got = append(got, membership{m.CollectiveName, m.Role, m.Status})
-			approved := m.Status == domain.MembershipStatusApproved
-			if approved && (m.AdminApprovedBy != users["admin"].ID || m.OwnerApprovedBy != users["dono"].ID || m.DecidedAt == nil) {
-				t.Errorf("%s in %s: approved by admin %q and owner %q, decided = %v; want the admin, the owner, and a decision time", local, m.CollectiveName, m.AdminApprovedBy, m.OwnerApprovedBy, m.DecidedAt != nil)
+			localOf := func(id string) string {
+				for l, u := range users {
+					if u.ID == id {
+						return l
+					}
+				}
+				return "(" + id + ")"
 			}
-			if !approved && (m.AdminApprovedBy != "" || m.OwnerApprovedBy != "" || m.DecidedAt != nil) {
-				t.Errorf("%s in %s: a pending request already carries a decision: %+v", local, m.CollectiveName, m.Membership)
+			var adminBy, ownerBy string
+			if m.AdminApprovedBy != "" {
+				adminBy = localOf(m.AdminApprovedBy)
+			}
+			if m.OwnerApprovedBy != "" {
+				ownerBy = localOf(m.OwnerApprovedBy)
+			}
+			got = append(got, membership{m.CollectiveName, m.Role, m.Status, adminBy, ownerBy})
+			if approved := m.Status == domain.MembershipStatusApproved; approved != (m.DecidedAt != nil) {
+				t.Errorf("%s in %s: status %q with decided = %v; want a decision time exactly when approved", local, m.CollectiveName, m.Status, m.DecidedAt != nil)
+			}
+			if (m.AdminApprovedBy != "") != (m.AdminApprovedAt != nil) || (m.OwnerApprovedBy != "") != (m.OwnerApprovedAt != nil) {
+				t.Errorf("%s in %s: an approval without its time or the other way round: %+v", local, m.CollectiveName, m.Membership)
 			}
 			wantWithin(t, local+" membership RequestedAt", &m.RequestedAt, before, after)
 		}
@@ -290,10 +369,35 @@ func TestSeedDevCreatesTheSampleData(t *testing.T) {
 			t.Errorf("memberships of %s = %v, want %v", local, got, want)
 		}
 	}
-	for local, want := range map[string]bool{"dono": true, "membro": false, "pendente-aprovacao": false, "admin": false} {
+	// Only an approved Administrador of an approved collective with its events open
+	// can create events; delta's collective is blocked, so delta cannot.
+	for local, want := range map[string]bool{
+		"dono": true, "membro": false, "pendente-aprovacao": false, "admin": false,
+		"novo-coletivo": false, "pedido": false, "delta": false,
+	} {
 		if got, err := repos.Memberships.UserCanCreateEvents(t.Context(), users[local].ID); err != nil || got != want {
 			t.Errorf("UserCanCreateEvents(%s) = %v, %v; want %v", local, got, err, want)
 		}
+	}
+
+	// The admin's queue holds the three requests that wait for the admin's side.
+	awaiting, err := repos.Memberships.ListAwaitingAdmin(t.Context(), domain.ListLimitMax)
+	if err != nil {
+		t.Fatalf("list the memberships awaiting the admin: %v", err)
+	}
+	var queue []string
+	for _, m := range awaiting {
+		queue = append(queue, m.CollectiveName+" <- "+m.UserID)
+	}
+	wantQueue := []string{
+		"Coletivo Alfa <- " + users["pendente-aprovacao"].ID,
+		"Coletivo Gama <- " + users["novo-coletivo"].ID,
+		"Produtora Beta <- " + users["pedido"].ID,
+	}
+	slices.Sort(queue)
+	slices.Sort(wantQueue)
+	if !slices.Equal(queue, wantQueue) {
+		t.Errorf("memberships awaiting the admin = %v, want %v", queue, wantQueue)
 	}
 
 	// The link works for the account that waits for its e-mail, once.
@@ -307,7 +411,8 @@ func TestSeedDevCreatesTheSampleData(t *testing.T) {
 		t.Errorf("Consume(the link's token) = user %q, %v; want the account of pendente-email", tok.UserID, err)
 	}
 
-	want := map[string]int64{"collectives": 2, "memberships": 4, "outbox": 0, "sessions": 0, "tokens": 1, "users": 7}
+	// One confirmation token: novo-coletivo has already confirmed its e-mail.
+	want := map[string]int64{"collectives": 4, "memberships": 7, "outbox": 0, "sessions": 0, "tokens": 1, "users": 10}
 	if got := docCounts(t, env); !reflect.DeepEqual(got, want) {
 		t.Errorf("documents per collection = %v, want %v", got, want)
 	}
@@ -321,6 +426,7 @@ func TestSeedDevSecondRunChangesNothing(t *testing.T) {
 	}
 	store := openTestStore(t, env)
 	usersBefore := seedUsers(t, store)
+	collectivesBefore := seedCollectivesByName(t, store)
 	countsBefore := docCounts(t, env)
 	historyBefore, err := store.Repos().Users.RecentPasswordHashes(t.Context(), usersBefore["senha-vencida"].ID)
 	if err != nil {
@@ -335,8 +441,8 @@ func TestSeedDevSecondRunChangesNothing(t *testing.T) {
 	if strings.Contains(stdout, ": created") || strings.Contains(stdout, "/confirmar") {
 		t.Errorf("the second run created something or printed a link:\n%s", stdout)
 	}
-	if !strings.Contains(stdout, "0 created, 13 existing") {
-		t.Errorf("stdout has no summary of 13 existing records:\n%s", stdout)
+	if !strings.Contains(stdout, "0 created, 21 existing") {
+		t.Errorf("stdout has no summary of 21 existing records:\n%s", stdout)
 	}
 	wantNone(t, map[string]string{
 		"the seed password": seedPassword, "the previous password": "Anterior-" + seedPassword,
@@ -348,6 +454,9 @@ func TestSeedDevSecondRunChangesNothing(t *testing.T) {
 	}
 	if usersAfter := seedUsers(t, store); !reflect.DeepEqual(usersAfter, usersBefore) {
 		t.Errorf("the second run changed an account:\nbefore %+v\nafter  %+v", usersBefore, usersAfter)
+	}
+	if collectivesAfter := seedCollectivesByName(t, store); !reflect.DeepEqual(collectivesAfter, collectivesBefore) {
+		t.Errorf("the second run changed a collective:\nbefore %+v\nafter  %+v", collectivesBefore, collectivesAfter)
 	}
 	historyAfter, err := store.Repos().Users.RecentPasswordHashes(t.Context(), usersBefore["senha-vencida"].ID)
 	if err != nil || !slices.Equal(historyAfter, historyBefore) {
@@ -371,8 +480,8 @@ func TestSeedDevKeepsAnExistingAccount(t *testing.T) {
 	lines := seedLines("created")
 	lines[0] = "user admin@agenda.test: exists"
 	wantLines(t, stdout, lines)
-	if !strings.Contains(stdout, "12 created, 1 existing") {
-		t.Errorf("stdout has no summary of 12 created and 1 existing record:\n%s", stdout)
+	if !strings.Contains(stdout, "20 created, 1 existing") {
+		t.Errorf("stdout has no summary of 20 created and 1 existing record:\n%s", stdout)
 	}
 	linkIn(t, stdout, "http://localhost:8120/confirmar?token=")
 
