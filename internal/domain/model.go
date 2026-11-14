@@ -177,7 +177,8 @@ func (a AuditAction) Valid() bool {
 		AuditCollectiveRequested, AuditCollectiveApproved, AuditCollectiveRejected,
 		AuditCollectiveRenamed, AuditCollectiveBlocks,
 		AuditJoinRequested, AuditJoinAdminApproved, AuditJoinOwnerApproved, AuditJoinRejected,
-		AuditMemberPromoted, AuditMemberDemoted:
+		AuditMemberPromoted, AuditMemberDemoted,
+		AuditEventEdited, AuditEventDeleted:
 		return true
 	}
 	return false
@@ -219,6 +220,17 @@ const (
 	// AuditTextMax is how many runes AuditEntry.Detail and AuditEntry.Reason
 	// hold.
 	AuditTextMax = 500
+
+	EventNameMin, EventNameMax         = 2, 120
+	EventOtherMax                      = 40        // TypeOther and StyleOther
+	EventStyleMax                      = 60        // Style and Substyle
+	EventDurationMin, EventDurationMax = 15, 1439  // minutes
+	EventPriceMax                      = 9_999_999 // cents
+	EventURLMax                        = 2048
+	EventCityMax                       = 60
+	EventVenueMax                      = 120
+	EventArtistsMax                    = 2000
+	EventDescriptionMax                = 4000
 )
 
 // Errors a backend returns and callers match with errors.Is.
@@ -384,4 +396,24 @@ type Event struct {
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
 	Version      int64
+}
+
+// EventView is an event with the name of its collective, which a calendar and a
+// list of events show. It carries no more than that, so a list takes one query.
+type EventView struct {
+	Event
+	CollectiveName string
+}
+
+// EventFilter selects the events that start in [From, To), the end excluded, and
+// optionally those in one place. City is only used with State: a city name alone
+// does not name a place.
+type EventFilter struct {
+	From, To    time.Time
+	State, City string
+}
+
+// Place is a state and a city where an event is held.
+type Place struct {
+	State, City string
 }
