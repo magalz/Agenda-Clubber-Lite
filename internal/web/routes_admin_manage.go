@@ -2,7 +2,6 @@ package web
 
 import (
 	"context"
-	"errors"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -135,40 +134,6 @@ func (a *App) adminManageRoutes(admin *gin.RouterGroup) {
 	admin.GET("/historico", a.adminHistory)
 }
 
-// manageDecide is adminDecide for the management pages: it reads the form, runs
-// do, and on success redirects to back with the notice code. A reason that is not
-// plain text is a 422, and any other refusal of internal/approvals answers with
-// the page as it is now (render) and the fixed text of the refusal. The log names
-// the admin, the action and the error, never the form.
-func (a *App) manageDecide(c *gin.Context, action, back, code string,
-	render func(c *gin.Context, u domain.User, status int, notice, alert string),
-	do func(ctx context.Context, actor domain.User, form url.Values, now time.Time) error) {
-	u, ok := a.adminUser(c)
-	if !ok {
-		return
-	}
-	form, err := a.parseForm(c)
-	if err != nil {
-		c.String(http.StatusBadRequest, "requisição inválida")
-		return
-	}
-	var fieldErrs domain.FieldErrors
-	switch err := do(c.Request.Context(), u, form, a.Now()); {
-	case err == nil:
-		a.redirect(c, back+"?msg="+code)
-	case errors.As(err, &fieldErrs):
-		render(c, u, http.StatusUnprocessableEntity, "", fieldErrs["reason"])
-	default:
-		status, msg, answered := approvalsAnswer(err)
-		if !answered {
-			a.Log.Error("admin: "+action, "user", u.ID, "err", err)
-			c.String(http.StatusInternalServerError, "erro interno")
-			return
-		}
-		render(c, u, status, "", msg)
-	}
-}
-
 // adminAccounts lists the active and the blocked accounts. Only the fixed text a
 // known ?msg= code stands for is shown.
 func (a *App) adminAccounts(c *gin.Context) {
@@ -221,7 +186,7 @@ func (a *App) manageAccountsRender(c *gin.Context, u domain.User, status int, no
 // adminBlockAccount blocks an active account, with an optional reason: its
 // sessions end and nothing is e-mailed.
 func (a *App) adminBlockAccount(c *gin.Context) {
-	a.manageDecide(c, "block account", "/admin/contas", manageCodeBlocked, a.manageAccountsRender,
+	a.adminDecide(c, "block account", "/admin/contas", manageCodeBlocked, a.manageAccountsRender,
 		func(ctx context.Context, u domain.User, form url.Values, now time.Time) error {
 			return approvals.BlockAccount(ctx, a.Store, u, form.Get("user_id"), form.Get("reason"), now)
 		})
@@ -229,7 +194,7 @@ func (a *App) adminBlockAccount(c *gin.Context) {
 
 // adminUnblockAccount makes a blocked account active again.
 func (a *App) adminUnblockAccount(c *gin.Context) {
-	a.manageDecide(c, "unblock account", "/admin/contas", manageCodeUnblocked, a.manageAccountsRender,
+	a.adminDecide(c, "unblock account", "/admin/contas", manageCodeUnblocked, a.manageAccountsRender,
 		func(ctx context.Context, u domain.User, form url.Values, now time.Time) error {
 			return approvals.UnblockAccount(ctx, a.Store, u, form.Get("user_id"), now)
 		})
@@ -267,7 +232,7 @@ func (a *App) manageCollectivesRender(c *gin.Context, u domain.User, status int,
 // adminSetBlocks sets the two blocks of an approved collective from the checkboxes
 // of its form (a box that is not sent is off), with an optional reason.
 func (a *App) adminSetBlocks(c *gin.Context) {
-	a.manageDecide(c, "set collective blocks", "/admin/coletivos", manageCodeBlocks, a.manageCollectivesRender,
+	a.adminDecide(c, "set collective blocks", "/admin/coletivos", manageCodeBlocks, a.manageCollectivesRender,
 		func(ctx context.Context, u domain.User, form url.Values, now time.Time) error {
 			return approvals.SetCollectiveBlocks(ctx, a.Store, u, form.Get("collective_id"),
 				form.Get("events_blocked") == "1", form.Get("locked") == "1", form.Get("reason"), now)
