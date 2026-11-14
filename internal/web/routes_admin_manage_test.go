@@ -361,7 +361,7 @@ func TestMngBlockAccount(t *testing.T) {
 
 	body := w.get("/admin/contas?msg=conta-bloqueada").Body.String()
 	wantAll(t, "the page after the block", body, `<p class="status status--ok" role="status">conta bloqueada.</p>`)
-	mngEqual(t, "blocked accounts", mngTitles(mngSection(t, body, "contas-bloqueadas")), []string{"Bia Bloqueada", "Ana Ativa"})
+	mngEqual(t, "blocked accounts", mngTitles(mngSection(t, body, "contas-bloqueadas")), []string{"Ana Ativa", "Bia Bloqueada"})
 }
 
 func TestMngUnblockAccount(t *testing.T) {

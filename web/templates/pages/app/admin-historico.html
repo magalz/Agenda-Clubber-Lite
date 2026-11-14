@@ -1,0 +1,25 @@
+{{/* Histórico do admin (/admin/historico), for the site admin: the latest decisions recorded in the audit log, newest first.
+     Data is a manageHistoryPage: Entries, each a manageHistoryRow (Label, Header, Detail, Reason; internal/web/routes_admin_manage.go).
+     Label is the pt-BR name of the action (an action the code does not know shows as it is). Header is one line with the time
+     (dd/mm/aaaa HH:MM in APP_TZ), who did it and the person and collective it was about; Detail and Reason are shown only when
+     the entry has them. An entry never carries an e-mail address. Everything is escaped. The page only reads: it has no forms,
+     and no ?msg= notice. With no Entries it shows the empty state.
+     CSS: section-heading, stack, hint, item-list (the rows), empty, admin-nav (components.css). */}}
+{{define "content"}}<div class="section-heading">
+  <h1 class="section-heading__title text-glow"><span class="section-heading__prompt" aria-hidden="true">~/ </span>admin/histórico</h1>
+</div>
+<div class="stack stack--lg">
+  {{template "admin-nav" "historico"}}
+  {{if .Data.Entries}}<p class="hint">as decisões mais recentes, da mais nova para a mais antiga.</p>
+  <ul class="item-list">
+    {{range .Data.Entries}}<li class="item-list__item">
+      <div class="item-list__main">
+        <p class="item-list__title">{{.Label}}</p>
+        <p class="item-list__meta">{{.Header}}</p>
+        {{with .Detail}}<p class="item-list__meta">{{.}}</p>{{end}}
+        {{with .Reason}}<p class="item-list__meta">motivo: {{.}}</p>{{end}}
+      </div>
+    </li>
+    {{end}}
+  </ul>{{else}}<div class="empty">nenhuma decisão registrada</div>{{end}}
+</div>{{end}}
