@@ -166,16 +166,16 @@ func NameKey(name string) string {
 // What is inside the name is kept as typed.
 func CleanCollectiveName(name string) (cleaned, problem string) {
 	name = strings.TrimSpace(name)
-	switch n := utf8.RuneCountInString(name); {
+	switch {
 	case !utf8.ValidString(name):
 		return "", MsgInvalid
 	case strings.ContainsFunc(name, unicode.IsControl):
 		return "", MsgControl
-	case n == 0:
-		return "", MsgRequired
-	case n < CollectiveNameMin || n > CollectiveNameMax:
-		return "", fmt.Sprintf("use de %d a %d caracteres", CollectiveNameMin, CollectiveNameMax)
-	case NameKey(name) == "":
+	}
+	if msg := lengthProblem(name, CollectiveNameMin, CollectiveNameMax); msg != "" {
+		return "", msg
+	}
+	if NameKey(name) == "" {
 		return "", MsgInvalid
 	}
 	return name, ""
