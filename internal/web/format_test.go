@@ -191,8 +191,9 @@ func TestFmtPrice(t *testing.T) {
 	}
 }
 
-// formatCall is the body that uses every registered format function; $v is
-// the value that holds the fields, "." in a partial and ".Data" in a page.
+// formatCall is the body that uses every registered format function; v is
+// what comes before ".Start" and the other fields: nothing in a partial, whose
+// dot is the data, and ".Data" in a page.
 func formatCall(v string) string {
 	body := `{{date $v.Start}}|{{dateLong $v.Start}}|{{monthYear $v.Start}}|{{clock $v.Start}}|` +
 		`{{until $v.Late 480}}|{{duration $v.Minutes}}|{{price false $v.Cents}}|{{price true $v.Cents}}`
@@ -216,7 +217,7 @@ func TestFormatFuncsAreRegistered(t *testing.T) {
 	fsys := withFiles(fstest.MapFS{}, map[string]string{
 		"layouts/base.html":      `{{define "base"}}{{template "content" .}}{{end}}`,
 		"pages/base/format.html": `{{define "content"}}` + formatCall(".Data") + `{{end}}`,
-		"partials/format.html":   `{{define "format"}}` + formatCall(".") + `{{end}}`,
+		"partials/format.html":   `{{define "format"}}` + formatCall("") + `{{end}}`,
 	})
 	r, _ := newTestRenderer(t, fsys)
 
