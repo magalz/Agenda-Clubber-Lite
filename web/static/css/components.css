@@ -892,6 +892,88 @@
   margin-top: var(--space-2);
 }
 
+/* ==== Admin queue ====
+   The site admin's pages (pages/app/admin.html and the pages T3.11 adds under /admin). The links between them, with the
+   current one marked by aria-current="page" (partials/admin-nav.html):
+     <nav class="admin-nav" aria-label="Seções do admin">
+       <a href="/admin" aria-current="page">Fila</a> <a href="/admin/contas">Contas</a> ...
+     </nav>
+   A row of underlined, muted uppercase links on a 1px line; the current one is in the foreground colour with the 2px accent
+   marker on that line, so colour never carries it alone (aria-current says it to a screen reader). A link is at least 1.5rem
+   tall. One person of the queue (partials/admin-person.html) is a .panel.panel--plain:
+     <section class="panel panel--plain admin-person" aria-labelledby="pessoa-1">
+       <div class="panel__body stack">
+         <div class="admin-person__head"><h2 class="admin-person__name" id="pessoa-1">Nome</h2><span class="badge badge--warn">...</span></div>
+         <dl class="admin-person__details"><dt>e-mail</dt><dd>...</dd> ...</dl>
+         <div class="admin-person__actions"><form>...</form> ...</div>
+         <ul class="item-list">...</ul>
+       </div>
+     </section>
+   The head puts the name and the status badge on one line that wraps on a narrow screen. The details are a two column grid
+   (muted uppercase terms, then the values, which break instead of overflowing); the actions are the card's small forms side
+   by side, wrapping, aligned to the top because an open .reason-form grows downwards. No radius, no motion. */
+.admin-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-4);
+  border-bottom: 1px solid var(--color-line);
+}
+.admin-nav a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.5rem;
+  margin-bottom: -1px;
+  border-bottom: 2px solid transparent;
+  font-size: var(--text-xs);
+  line-height: var(--leading-xs);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  text-decoration: underline;
+  color: var(--color-muted);
+}
+.admin-nav a[aria-current='page'] {
+  border-bottom-color: var(--accent);
+  color: var(--foreground);
+}
+.admin-person__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+.admin-person__name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  line-height: var(--leading-lg);
+  font-weight: 700;
+}
+.admin-person__details {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: var(--space-1) var(--space-4);
+  margin: 0;
+  font-size: var(--text-xs);
+  line-height: var(--leading-xs);
+}
+.admin-person__details dt {
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--color-muted);
+}
+.admin-person__details dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.admin-person__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--space-2) var(--space-4);
+}
+
 /* ==== Section heading ====
    <div class="section-heading"><h1 class="section-heading__title text-glow"><span class="section-heading__prompt" aria-hidden="true">~/ </span>Título</h1>
    <p class="section-heading__sub">...</p></div> */
