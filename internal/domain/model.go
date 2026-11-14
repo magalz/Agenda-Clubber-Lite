@@ -120,6 +120,32 @@ func (p TokenPurpose) Valid() bool {
 	return false
 }
 
+// EventType is the kind of an event. The values are part of every backend's data
+// format. EventTypeOutros means the organizer names the kind (Event.TypeOther).
+type EventType string
+
+const (
+	EventTypeFesta    EventType = "festa"
+	EventTypeRave     EventType = "rave"
+	EventTypeFestival EventType = "festival"
+	EventTypeWorkshop EventType = "workshop"
+	EventTypeFeira    EventType = "feira"
+	EventTypeOutros   EventType = "outros"
+)
+
+// StyleOther is the Event.Style that means the organizer names the style
+// (Event.StyleOther) instead of picking one from the catalog.
+const StyleOther = "outros"
+
+// Valid reports whether t is one of the defined types.
+func (t EventType) Valid() bool {
+	switch t {
+	case EventTypeFesta, EventTypeRave, EventTypeFestival, EventTypeWorkshop, EventTypeFeira, EventTypeOutros:
+		return true
+	}
+	return false
+}
+
 // AuditAction is what a decision or request in the audit log did. The values
 // are part of every backend's data format.
 type AuditAction string
@@ -140,6 +166,8 @@ const (
 	AuditJoinRejected        AuditAction = "join_rejected"
 	AuditMemberPromoted      AuditAction = "member_promoted"
 	AuditMemberDemoted       AuditAction = "member_demoted"
+	AuditEventEdited         AuditAction = "event_edited"
+	AuditEventDeleted        AuditAction = "event_deleted"
 )
 
 // Valid reports whether a is one of the defined actions.
@@ -317,4 +345,43 @@ type AuditEntry struct {
 	CollectiveName string
 	Detail         string
 	Reason         string
+}
+
+// Event is a party, rave, festival, workshop or fair that a collective puts on
+// the calendar. Event.Validate checks the shape of the fields; the catalog of
+// styles, the rule that a new event is not in the past and who may write an
+// event belong to the event service.
+//
+// StartsAt is a UTC instant and DurationMin the length in minutes, at most a day
+// (the end is StartsAt plus DurationMin). Free means no ticket price, and then
+// PriceCents is 0. Style and Substyle come from the catalog, or Style is
+// StyleOther and StyleOther holds the name the organizer typed (Substyle is then
+// empty). State is the two-letter UF and City the city, free text. CreatedBy and
+// UpdatedBy are user IDs, empty once that user is deleted. Version starts at 1
+// and counts the writes: Events.Update checks it, so two edits made from the same
+// version cannot both go through.
+type Event struct {
+	ID           string
+	CollectiveID string
+	Name         string
+	Type         EventType
+	TypeOther    string // required exactly when Type is EventTypeOutros
+	StartsAt     time.Time
+	DurationMin  int
+	Free         bool
+	PriceCents   int64
+	TicketURL    string
+	Style        string
+	Substyle     string
+	StyleOther   string // required exactly when Style is StyleOther
+	State        string
+	City         string
+	Venue        string
+	Artists      string // free text, one lead per line
+	Description  string
+	CreatedBy    string
+	UpdatedBy    string
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+	Version      int64
 }

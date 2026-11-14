@@ -343,3 +343,9 @@ func (e AuditEntry) Validate() error {
 	f.addIf("reason", lengthProblem(e.Reason, 0, AuditTextMax))
 	return f.Err()
 }
+
+// TextProblem is a stub until the GREEN commit.
+func TextProblem(s string, min, max int, multiline bool) string { return "" }
+
+// Validate is a stub until the GREEN commit.
+func (e Event) Validate() error { return nil }
