@@ -118,7 +118,12 @@ func (a *App) Router() *gin.Engine {
 	// need a signed-in user whose password has not expired.
 	public := r.Group("", a.loadSession())
 	authed := public.Group("", a.requireAuth(), a.requireFreshPassword())
-	authed.GET("/", a.home)
+	a.calendarRoutes(public, authed)
+	a.eventRoutes(public, authed)
+	a.eventFormRoutes(public, authed)
+	a.dayRoutes(public, authed)
+	a.myEventsRoutes(public, authed)
+	a.optionsRoutes(public, authed)
 	a.signupRoutes(public, authed)
 	a.loginRoutes(public, authed)
 	a.confirmRoutes(public, authed)
@@ -135,12 +140,6 @@ func (a *App) Router() *gin.Engine {
 	a.adminManageRoutes(admin)
 
 	return r
-}
-
-// home renders the calendar page. It is a placeholder until the calendar
-// lands.
-func (a *App) home(c *gin.Context) {
-	a.page(c, http.StatusOK, "app/home", PageData{Title: "Calendário", Nav: "calendario"})
 }
 
 // healthz answers the liveness probe.

@@ -120,7 +120,7 @@ func (a *App) collectiveAct(logMsg, code, selfCode string, limited bool, do func
 		ctx, id := c.Request.Context(), c.Param("id")
 		switch m, err := a.Store.Repos().Memberships.Get(ctx, u.ID, id); {
 		case errors.Is(err, domain.ErrNotFound):
-			collectiveNotFound(c)
+			answerNotFound(c)
 			return
 		case err != nil:
 			a.Log.Error(logMsg+": read membership", "user", u.ID, "collective", id, "err", err)
@@ -169,17 +169,6 @@ func (a *App) collectiveAct(logMsg, code, selfCode string, limited bool, do func
 	}
 }
 
-// collectiveNotFound answers like a path no route serves, the way Gin does it for
-// one (serveError): its status, its body and a Content-Type of exactly text/plain,
-// with no other header of its own, so nobody can tell a collective they may not
-// manage from one that does not exist. Gin ignores a failed write too: the client
-// is gone and there is nothing left to answer.
-func collectiveNotFound(c *gin.Context) {
-	c.Header("Content-Type", "text/plain")
-	c.Status(http.StatusNotFound)
-	_, _ = c.Writer.WriteString("404 page not found")
-}
-
 // collectiveRender answers with the page, read afresh for the person: the members
 // and the requests, plus what the answer carries (the form to refill, its field
 // errors, a notice or an alert). A collective the person may not manage is the
@@ -188,7 +177,7 @@ func (a *App) collectiveRender(c *gin.Context, u domain.User, id string, status 
 	view, err := approvals.CollectiveView(c.Request.Context(), a.Store, u, id)
 	switch {
 	case errors.Is(err, domain.ErrNotFound):
-		collectiveNotFound(c)
+		answerNotFound(c)
 		return
 	case err != nil:
 		a.Log.Error("collective view", "user", u.ID, "collective", id, "err", err)
