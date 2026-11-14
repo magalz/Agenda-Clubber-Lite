@@ -12,10 +12,12 @@ import (
 
 // MsgRequired and MsgInvalid are the pt-BR messages for a missing and a rejected
 // value. A store that raises a FieldErrors of its own uses them, so every
-// backend words these two the same way as Validate.
+// backend words these two the same way as Validate. MsgControl is the one for a
+// name that holds a line break or another control character.
 const (
 	MsgRequired = "campo obrigatório"
 	MsgInvalid  = "valor inválido"
+	MsgControl  = "não use quebras de linha nem caracteres de controle"
 )
 
 // More pt-BR messages shown next to a form field.
@@ -153,6 +155,12 @@ func emailProblem(s string, exact bool) string {
 // share a key.
 func NameKey(name string) string {
 	return strings.Join(strings.Fields(strings.Map(foldRune, strings.ToLower(name))), " ")
+}
+
+// CleanCollectiveName is the rule for a collective name typed in a form. RED
+// stub: the real body follows.
+func CleanCollectiveName(name string) (cleaned, problem string) {
+	return "", ""
 }
 
 // foldRune maps a lowercase Portuguese letter with a diacritic to its plain
