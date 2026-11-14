@@ -20,6 +20,7 @@ const (
 	colEmptyText    = "você ainda não faz parte de nenhum coletivo ou produtora"
 	colMsgJoin      = "pedido enviado. você recebe um e-mail quando ele for decidido."
 	colMsgNew       = "pedido de coletivo novo enviado ao admin."
+	colMsgDemoted   = "você deixou de ser administrador deste coletivo."
 	colPickOne      = "escolha um coletivo da lista"
 	colNoCollective = "coletivo não encontrado"
 	colAlreadyIn    = "você já faz parte deste coletivo ou já pediu para entrar"
@@ -316,6 +317,7 @@ func TestColetivosMessageCodes(t *testing.T) {
 	}{
 		{"?msg=pedido-enviado", colMsgJoin},
 		{"?msg=coletivo-pedido", colMsgNew},
+		{"?msg=voce-rebaixado", colMsgDemoted},
 		{"?msg=zzmarker", ""},
 		{"?msg=%3Cb%3Ezzmarker", ""},
 		{"?msg=", ""},
@@ -444,6 +446,129 @@ func TestColetivosJoinFieldErrors(t *testing.T) {
 			}
 		})
 	}
+}
+
+// Without JavaScript the picker never fills collective_id: the form carries only
+// what was typed in collective_name. The name stands for the approved collective
+// whose name it spells (the same key as the signup: case, accents and spacing do not
+// matter), and the join rules apply to it like to a picked one.
+func TestColetivosJoinByTypedName(t *testing.T) {
+	t.Run("a typed name that spells an approved collective", func(t *testing.T) {
+		e := newColEnv(t)
+		c := colCollective(t, e.store, "Casa Açaí", domain.CollectiveKindColetivo, domain.CollectiveStatusApproved)
+
+		rec := e.post("/coletivos/entrar", url.Values{"collective_name": {"  CASA acai "}, "collective_id": {""}, "role": {"owner"}})
+		if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/coletivos?msg=pedido-enviado" {
+			t.Fatalf("POST: %d, Location %q; want 303 to /coletivos?msg=pedido-enviado; body %q", rec.Code, rec.Header().Get("Location"), rec.Body)
+		}
+		list := e.memberships(t)
+		if len(list) != 1 || list[0].CollectiveID != c.ID || list[0].Role != domain.RoleOwner || list[0].Status != domain.MembershipStatusPending {
+			t.Fatalf("memberships = %+v, want one pending owner membership in %s", list, c.ID)
+		}
+	})
+
+	t.Run("a form with no collective_id field at all", func(t *testing.T) {
+		e := newColEnv(t)
+		c := colCollective(t, e.store, "Casa Verde", domain.CollectiveKindColetivo, domain.CollectiveStatusApproved)
+		rec := e.post("/coletivos/entrar", url.Values{"collective_name": {"casa verde"}, "role": {"member"}})
+		if rec.Code != http.StatusSeeOther {
+			t.Fatalf("POST: %d; want 303; body %q", rec.Code, rec.Body)
+		}
+		if list := e.memberships(t); len(list) != 1 || list[0].CollectiveID != c.ID {
+			t.Errorf("memberships = %+v, want one in %s", list, c.ID)
+		}
+	})
+
+	t.Run("a picked id wins over the typed name", func(t *testing.T) {
+		e := newColEnv(t)
+		picked := colCollective(t, e.store, "Casa Verde", domain.CollectiveKindColetivo, domain.CollectiveStatusApproved)
+		colCollective(t, e.store, "Casa Azul", domain.CollectiveKindColetivo, domain.CollectiveStatusApproved)
+		rec := e.post("/coletivos/entrar", url.Values{"collective_name": {"Casa Azul"}, "collective_id": {picked.ID}, "role": {"member"}})
+		if rec.Code != http.StatusSeeOther {
+			t.Fatalf("POST: %d; want 303; body %q", rec.Code, rec.Body)
+		}
+		if list := e.memberships(t); len(list) != 1 || list[0].CollectiveID != picked.ID {
+			t.Errorf("memberships = %+v, want one in the picked %s", list, picked.ID)
+		}
+	})
+}
+
+// A name that does not lead to an approved collective keeps the field error of an
+// empty pick, and the rules of the join still hold for one that does.
+func TestColetivosJoinByTypedNameRefused(t *testing.T) {
+	pick := func(t *testing.T, e colEnv, name string, status domain.CollectiveStatus) url.Values {
+		colCollective(t, e.store, name, domain.CollectiveKindColetivo, status)
+		return url.Values{"collective_name": {name}, "role": {"member"}}
+	}
+	tests := []struct {
+		name    string
+		form    func(t *testing.T, e colEnv) url.Values
+		code    int
+		field   string
+		message string
+		kept    string // what the re-rendered form must still carry
+	}{
+		{"no collective has the name", func(t *testing.T, e colEnv) url.Values {
+			colCollective(t, e.store, "Casa Verde", domain.CollectiveKindColetivo, domain.CollectiveStatusApproved)
+			return url.Values{"collective_name": {"Casa Azul"}, "role": {"member"}}
+		}, http.StatusUnprocessableEntity, "collective", colPickOne, `value="Casa Azul"`},
+		{"no id and no name", func(t *testing.T, e colEnv) url.Values {
+			return url.Values{"collective_name": {"   "}, "collective_id": {""}, "role": {"member"}}
+		}, http.StatusUnprocessableEntity, "collective", colPickOne, `value="member" checked`},
+		{"the collective is not approved yet", func(t *testing.T, e colEnv) url.Values {
+			return pick(t, e, "Casa Nova", domain.CollectiveStatusPending)
+		}, http.StatusUnprocessableEntity, "collective", colPickOne, `value="Casa Nova"`},
+		{"the collective was rejected", func(t *testing.T, e colEnv) url.Values {
+			return pick(t, e, "Casa Velha", domain.CollectiveStatusRejected)
+		}, http.StatusUnprocessableEntity, "collective", colPickOne, `value="Casa Velha"`},
+		{"the person already asked", func(t *testing.T, e colEnv) url.Values {
+			c := colCollective(t, e.store, "Casa Verde", domain.CollectiveKindColetivo, domain.CollectiveStatusApproved)
+			colMembership(t, e.store, e.user.ID, c.ID, domain.RoleMember, domain.MembershipStatusRejected)
+			return url.Values{"collective_name": {"Casa Verde"}, "role": {"member"}}
+		}, http.StatusUnprocessableEntity, "collective", colAlreadyIn, `value="Casa Verde"`},
+		{"the role is missing", func(t *testing.T, e colEnv) url.Values {
+			form := pick(t, e, "Casa Verde", domain.CollectiveStatusApproved)
+			form.Del("role")
+			return form
+		}, http.StatusUnprocessableEntity, "role", colNeedRole, `value="Casa Verde"`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e := newColEnv(t)
+			form := tt.form(t, e)
+			before := len(e.memberships(t))
+
+			rec := e.post("/coletivos/entrar", form)
+			if rec.Code != tt.code {
+				t.Fatalf("status = %d, want %d; body %q", rec.Code, tt.code, rec.Body)
+			}
+			body := rec.Body.String()
+			colWantError(t, body, tt.field, tt.message)
+			wantAll(t, "page", body, tt.kept, `action="/coletivos/entrar"`)
+			if after := len(e.memberships(t)); after != before {
+				t.Errorf("%d memberships after the refused request, want %d", after, before)
+			}
+		})
+	}
+
+	t.Run("a frozen collective", func(t *testing.T) {
+		e := newColEnv(t)
+		mine := colCollective(t, e.store, "Alfa Casa", domain.CollectiveKindColetivo, domain.CollectiveStatusApproved)
+		colMembership(t, e.store, e.user.ID, mine.ID, domain.RoleMember, domain.MembershipStatusApproved)
+		colCollective(t, e.store, "Casa Trancada", domain.CollectiveKindColetivo, domain.CollectiveStatusApproved,
+			func(c *domain.Collective) { c.Locked = true })
+
+		rec := e.post("/coletivos/entrar", url.Values{"collective_name": {"casa trancada"}, "role": {"member"}})
+		if rec.Code != http.StatusConflict {
+			t.Fatalf("status = %d, want 409; body %q", rec.Code, rec.Body)
+		}
+		body := rec.Body.String()
+		wantAll(t, "page", body, `class="status status--error"`, `role="alert"`, colLocked)
+		colRow(t, body, "Alfa Casa")
+		if n := len(e.memberships(t)); n != 1 {
+			t.Errorf("%d memberships, want only the first", n)
+		}
+	})
 }
 
 func TestColetivosJoinLockedCollective(t *testing.T) {
