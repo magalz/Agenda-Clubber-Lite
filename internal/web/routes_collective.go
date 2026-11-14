@@ -65,23 +65,23 @@ type collectiveRequest struct {
 // open only to its approved Administradores, and its actions.
 func (a *App) collectiveRoutes(public, authed *gin.RouterGroup) {
 	authed.GET("/coletivo/:id", a.collectiveShow)
-	authed.POST("/coletivo/:id/pedido/aprovar", a.collectiveAct("approve join", "pedido-aprovado", false,
+	authed.POST("/coletivo/:id/pedido/aprovar", a.collectiveAct("approve join", "pedido-aprovado", "", false,
 		func(ctx context.Context, u domain.User, id string, form url.Values, now time.Time) error {
 			return approvals.OwnerApproveJoin(ctx, a.Store, a.Cfg.Origin, u, form.Get("user_id"), id, now)
 		}))
-	authed.POST("/coletivo/:id/pedido/recusar", a.collectiveAct("reject join", "pedido-recusado", false,
+	authed.POST("/coletivo/:id/pedido/recusar", a.collectiveAct("reject join", "pedido-recusado", "", false,
 		func(ctx context.Context, u domain.User, id string, form url.Values, now time.Time) error {
 			return approvals.RejectJoin(ctx, a.Store, a.Cfg.Origin, u, form.Get("user_id"), id, form.Get("reason"), now)
 		}))
-	authed.POST("/coletivo/:id/membro/promover", a.collectiveAct("promote member", "promovido", false,
+	authed.POST("/coletivo/:id/membro/promover", a.collectiveAct("promote member", "promovido", "", false,
 		func(ctx context.Context, u domain.User, id string, form url.Values, now time.Time) error {
 			return approvals.Promote(ctx, a.Store, u, form.Get("user_id"), id, now)
 		}))
-	authed.POST("/coletivo/:id/membro/rebaixar", a.collectiveAct("demote member", "rebaixado", false,
+	authed.POST("/coletivo/:id/membro/rebaixar", a.collectiveAct("demote member", "rebaixado", "voce-rebaixado", false,
 		func(ctx context.Context, u domain.User, id string, form url.Values, now time.Time) error {
 			return approvals.Demote(ctx, a.Store, u, form.Get("user_id"), id, now)
 		}))
-	authed.POST("/coletivo/:id/nome", a.collectiveAct("rename collective", "nome-alterado", true,
+	authed.POST("/coletivo/:id/nome", a.collectiveAct("rename collective", "nome-alterado", "", true,
 		func(ctx context.Context, u domain.User, id string, form url.Values, now time.Time) error {
 			return approvals.RenameCollective(ctx, a.Store, a.Cfg.Origin, u, id, form.Get("name"), now)
 		}))
@@ -103,9 +103,15 @@ func (a *App) collectiveShow(c *gin.Context) {
 // not in it gets the 404 of the page, and not a 403 that says it exists. limited
 // counts the post against the person's budget (Limits.Requests) before the body is
 // read. A refused or failed post answers with the page, so the person sees the
-// current state. On success it redirects to the page with the notice code. The log
-// names the person and the error, never what was typed.
-func (a *App) collectiveAct(logMsg, code string, limited bool, do func(context.Context, domain.User, string, url.Values, time.Time) error) gin.HandlerFunc {
+// current state. On success it redirects to the page with the notice code, or, when
+// the form's user_id is the person's own and selfCode is not empty, to Meus Coletivos
+// with selfCode: an action on oneself can take the page away (a demotion), and the
+// page then answers the person with a 404. Once the pre-check above has passed, a
+// domain.ErrNotFound from do means the request or the member is gone (another
+// Administrador decided it first), so it is answered like a decided request, not
+// like a collective the person may not see. The log names the person and the error,
+// never what was typed.
+func (a *App) collectiveAct(logMsg, code, selfCode string, limited bool, do func(context.Context, domain.User, string, url.Values, time.Time) error) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		u, ok := a.collectivesUser(c)
 		if !ok {
@@ -137,6 +143,8 @@ func (a *App) collectiveAct(logMsg, code string, limited bool, do func(context.C
 		}
 		var fieldErrs domain.FieldErrors
 		switch err := do(ctx, u, id, form, now); {
+		case err == nil && selfCode != "" && form.Get("user_id") == u.ID:
+			a.redirect(c, "/coletivos?msg="+selfCode)
 		case err == nil:
 			a.redirect(c, "/coletivo/"+url.PathEscape(id)+"?msg="+code)
 		case errors.As(err, &fieldErrs):
@@ -149,7 +157,9 @@ func (a *App) collectiveAct(logMsg, code string, limited bool, do func(context.C
 				a.Log.Error(logMsg, "user", u.ID, "collective", id, "err", err)
 				c.String(http.StatusInternalServerError, "erro interno")
 			case status == http.StatusNotFound:
-				collectiveNotFound(c)
+				// The request or the member is gone: the page, read afresh, without it. If
+				// the collective is gone too, collectiveRender answers with the 404.
+				a.collectiveRender(c, u, id, http.StatusConflict, form, nil, "", approvalsMsgDecided)
 			case status == http.StatusForbidden:
 				c.String(status, msg)
 			default:

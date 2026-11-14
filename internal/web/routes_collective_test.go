@@ -487,6 +487,120 @@ func TestColetivoActions(t *testing.T) {
 	})
 }
 
+// An Administrador may demote themself while another one remains. The page they
+// leave is the 404 of a collective they may not manage, so the redirect goes to
+// Meus Coletivos with a notice of its own, not back to the page.
+func TestColetivoSelfDemotion(t *testing.T) {
+	const to = "/coletivos?msg=voce-rebaixado"
+
+	t.Run("an Administrador demotes themself", func(t *testing.T) {
+		e := newCPEnv(t)
+		rec := e.post(e.ana, e.path("/membro/rebaixar"), url.Values{"user_id": {e.ana.ID}})
+		if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != to {
+			t.Fatalf("POST: %d, Location %q; want 303 to %q; body %q", rec.Code, rec.Header().Get("Location"), to, rec.Body)
+		}
+		e.wantRole(t, e.ana, domain.RoleMember)
+
+		landing := e.get(e.ana, to)
+		if landing.Code != http.StatusOK {
+			t.Fatalf("GET %s: status = %d, want 200", to, landing.Code)
+		}
+		wantAll(t, "page", landing.Body.String(), `class="status status--ok"`, colMsgDemoted)
+
+		// The notice is why they are not sent to the page: it answers them with a 404 now.
+		if page := e.get(e.ana, e.path("")); page.Code != http.StatusNotFound {
+			t.Errorf("the collective's page after the demotion: status = %d, want 404", page.Code)
+		}
+	})
+
+	t.Run("an HTMX post is redirected with a header", func(t *testing.T) {
+		e := newCPEnv(t)
+		rec := e.post(e.ana, e.path("/membro/rebaixar"), url.Values{"user_id": {e.ana.ID}}, hx)
+		if rec.Code != http.StatusNoContent || rec.Header().Get("HX-Redirect") != to {
+			t.Errorf("HTMX POST: %d, HX-Redirect %q; want 204 to %q", rec.Code, rec.Header().Get("HX-Redirect"), to)
+		}
+	})
+
+	t.Run("demoting somebody else goes back to the page", func(t *testing.T) {
+		e := newCPEnv(t)
+		rec := e.post(e.ana, e.path("/membro/rebaixar"), url.Values{"user_id": {e.coAdmin.ID}})
+		if want := e.path("?msg=rebaixado"); rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != want {
+			t.Errorf("POST: %d, Location %q; want 303 to %q", rec.Code, rec.Header().Get("Location"), want)
+		}
+	})
+
+	t.Run("the Master cannot demote themself", func(t *testing.T) {
+		e := newCPEnv(t)
+		rec := e.post(e.master, e.path("/membro/rebaixar"), url.Values{"user_id": {e.master.ID}})
+		if rec.Code != http.StatusConflict {
+			t.Fatalf("status = %d, want 409; body %q", rec.Code, rec.Body)
+		}
+		wantAll(t, "page", rec.Body.String(), approvalsMsgMaster, `role="alert"`)
+		e.wantRole(t, e.master, domain.RoleOwner)
+	})
+}
+
+// A request or a member that is gone by the time the post arrives (another
+// Administrador decided the request, the member was removed) is "already decided":
+// the answer is the 409 and the page read afresh. It is not the 404 that hides a
+// collective from somebody who may not manage it: the handler knows the person may.
+func TestColetivoStaleItems(t *testing.T) {
+	tests := []struct {
+		name   string
+		stale  func(t *testing.T, e cpEnv) // makes the item go away
+		suffix string
+		item   func(e cpEnv) cpPerson // whose request or membership it was
+	}{
+		{"approve a request another Administrador rejected", func(t *testing.T, e cpEnv) {
+			if rec := e.post(e.coAdmin, e.path("/pedido/recusar"), url.Values{"user_id": {e.wantsMember.ID}}); rec.Code != http.StatusSeeOther {
+				t.Fatalf("the other Administrador's rejection: %d; body %q", rec.Code, rec.Body)
+			}
+		}, "/pedido/aprovar", func(e cpEnv) cpPerson { return e.wantsMember }},
+		{"reject a request another Administrador rejected", func(t *testing.T, e cpEnv) {
+			if rec := e.post(e.coAdmin, e.path("/pedido/recusar"), url.Values{"user_id": {e.wantsMember.ID}}); rec.Code != http.StatusSeeOther {
+				t.Fatalf("the other Administrador's rejection: %d; body %q", rec.Code, rec.Body)
+			}
+		}, "/pedido/recusar", func(e cpEnv) cpPerson { return e.wantsMember }},
+		{"promote a Membro whose membership is gone", func(t *testing.T, e cpEnv) {
+			if err := e.store.Repos().Memberships.Delete(context.Background(), e.member.ID, e.c.ID); err != nil {
+				t.Fatal(err)
+			}
+		}, "/membro/promover", func(e cpEnv) cpPerson { return e.member }},
+		{"demote an Administrador whose membership is gone", func(t *testing.T, e cpEnv) {
+			if err := e.store.Repos().Memberships.Delete(context.Background(), e.coAdmin.ID, e.c.ID); err != nil {
+				t.Fatal(err)
+			}
+		}, "/membro/rebaixar", func(e cpEnv) cpPerson { return e.coAdmin }},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e := newCPEnv(t)
+			tt.stale(t, e)
+			item := tt.item(e)
+			form := url.Values{"user_id": {item.ID}}
+
+			rec := e.post(e.ana, e.path(tt.suffix), form)
+			if rec.Code != http.StatusConflict {
+				t.Fatalf("status = %d, want 409; body %q", rec.Code, rec.Body)
+			}
+			body := rec.Body.String()
+			wantAll(t, "page", body, approvalsMsgDecided, `role="alert"`, "Maria Master", `action="`+e.path("/nome")+`"`)
+			if strings.Contains(body, item.Name) {
+				t.Errorf("the refreshed page still lists %s", item.Name)
+			}
+
+			// The refusals that hide or deny the page do not change: a stranger still gets
+			// the 404, and somebody who is no approved Administrador (Duda Pedido, whose
+			// request is open) the 403.
+			want := e.get(e.ana, "/coletivo-que-nao-existe")
+			cpWantUnregistered(t, "a stranger", e.post(e.outsider, e.path(tt.suffix), form), want)
+			if rec := e.post(e.wantsOwner, e.path(tt.suffix), form); rec.Code != http.StatusForbidden {
+				t.Errorf("a person who is not an Administrador yet: status = %d, want 403", rec.Code)
+			}
+		})
+	}
+}
+
 func TestColetivoForgedPostsAreRefused(t *testing.T) {
 	t.Run("demote the Master", func(t *testing.T) {
 		e := newCPEnv(t)
@@ -590,13 +704,17 @@ func TestColetivoForgedPostsAreRefused(t *testing.T) {
 		e.wantName(t, "Casa Verde")
 	})
 
+	// The Administrador is one (the handler checked), so what is gone is the request or
+	// the member: the answer is the fresh page and the same "already decided" alert.
 	t.Run("a person who is not in the collective", func(t *testing.T) {
 		e := newCPEnv(t)
 		for _, suffix := range []string{"/pedido/aprovar", "/pedido/recusar", "/membro/promover", "/membro/rebaixar"} {
 			rec := e.post(e.ana, e.path(suffix), url.Values{"user_id": {e.outsider.ID}})
-			if rec.Code != http.StatusNotFound {
-				t.Errorf("%s for somebody outside: status = %d, want 404", suffix, rec.Code)
+			if rec.Code != http.StatusConflict {
+				t.Errorf("%s for somebody outside: status = %d, want 409; body %q", suffix, rec.Code, rec.Body)
+				continue
 			}
+			wantAll(t, suffix+" page", rec.Body.String(), approvalsMsgDecided, `role="alert"`)
 		}
 	})
 

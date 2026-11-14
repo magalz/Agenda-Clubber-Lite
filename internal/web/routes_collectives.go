@@ -23,6 +23,9 @@ const (
 	collectivesMsgNew    = "pedido de coletivo novo enviado ao admin."
 	collectivesMsgLocked = "este coletivo não está aceitando pedidos agora."
 	collectivesMsgPick   = "escolha um coletivo da lista"
+	// The notice of the person who demoted themself: the collective's page, where
+	// they would be sent after any other action, is closed to them now.
+	collectivesMsgDemoted = "você deixou de ser administrador deste coletivo."
 )
 
 // collectivesNotices maps the ?msg= codes of /coletivos to their text. A code
@@ -30,6 +33,7 @@ const (
 var collectivesNotices = map[string]string{
 	"pedido-enviado":  collectivesMsgJoin,
 	"coletivo-pedido": collectivesMsgNew,
+	"voce-rebaixado":  collectivesMsgDemoted,
 }
 
 // The pt-BR status of a membership row.
@@ -172,13 +176,22 @@ func (a *App) collectivesShow(c *gin.Context) {
 }
 
 // collectivesJoin asks to join an approved collective. The form carries the id
-// the picker filled in: no id is no pick, never a new collective.
+// the picker filled in. Without it (no JavaScript, so no picker) the typed name
+// stands for the approved collective that spells it; a name no approved collective
+// spells is no pick, never a new collective.
 func (a *App) collectivesJoin(c *gin.Context) {
 	a.collectivesSubmit(c, "request join", "/coletivos?msg=pedido-enviado",
 		func(ctx context.Context, u domain.User, form url.Values, now time.Time) error {
 			id := strings.TrimSpace(form.Get("collective_id"))
 			if id == "" {
-				return domain.FieldErrors{"collective": collectivesMsgPick}
+				col, err := a.Store.Repos().Collectives.ByNameKey(ctx, domain.NameKey(form.Get("collective_name")))
+				if err != nil && !errors.Is(err, domain.ErrNotFound) {
+					return fmt.Errorf("find collective by name: %w", err)
+				}
+				if err != nil || col.Status != domain.CollectiveStatusApproved {
+					return domain.FieldErrors{"collective": collectivesMsgPick}
+				}
+				id = col.ID
 			}
 			return approvals.RequestJoin(ctx, a.Store, a.Cfg.Origin, u, id, domain.Role(form.Get("role")), now)
 		})
