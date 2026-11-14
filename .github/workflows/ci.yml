@@ -67,7 +67,10 @@ jobs:
         env:
           MONGO_TEST_URI: mongodb://localhost:27017/?directConnection=true
         # The database packages can pass Go's default 10-minute test timeout under -race.
-        run: go test -race -count=1 -timeout 30m ./...
+        # -p 2: at most two test binaries at once, so the race-instrumented tests do not
+        # starve the MongoDB container of CPU (a test once waited past the driver's
+        # 10-second server selection and failed with "cannot reach the MongoDB server").
+        run: go test -race -count=1 -p 2 -timeout 30m ./...
 
       - name: govulncheck
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
