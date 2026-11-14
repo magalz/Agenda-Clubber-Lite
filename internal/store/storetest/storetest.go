@@ -9,7 +9,7 @@
 //	}
 //
 // Run calls every group; RunUsers, RunTokens, RunSessions, RunCollectives,
-// RunMemberships, RunOutbox, RunAuditEntries and RunTx run one group each. A
+// RunMemberships, RunEvents, RunOutbox, RunAuditEntries and RunTx run one group each. A
 // group is a set of subtests and each subtest gets a store of its own from the
 // NewStore function.
 //
@@ -37,6 +37,7 @@ func Run(t *testing.T, newStore NewStore) {
 	t.Run("Sessions", func(t *testing.T) { RunSessions(t, newStore) })
 	t.Run("Collectives", func(t *testing.T) { RunCollectives(t, newStore) })
 	t.Run("Memberships", func(t *testing.T) { RunMemberships(t, newStore) })
+	t.Run("Events", func(t *testing.T) { RunEvents(t, newStore) })
 	t.Run("Outbox", func(t *testing.T) { RunOutbox(t, newStore) })
 	t.Run("AuditEntries", func(t *testing.T) { RunAuditEntries(t, newStore) })
 	t.Run("Tx", func(t *testing.T) { RunTx(t, newStore) })
