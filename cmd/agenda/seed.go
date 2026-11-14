@@ -36,33 +36,51 @@ type devAccount struct {
 // The first account is the admin: the others are approved by it.
 var devAccounts = []devAccount{
 	{local: "admin", name: "Admin Dev", phone: "85999990100", status: domain.UserStatusActive, admin: true, verified: true},
-	{local: "dono", name: "Dono Dev", phone: "85999990101", status: domain.UserStatusActive, verified: true},
+	{local: "dono", name: "Administrador Dev", phone: "85999990101", status: domain.UserStatusActive, verified: true},
 	{local: "membro", name: "Membro Dev", phone: "85999990102", status: domain.UserStatusActive, verified: true},
 	{local: "pendente-email", name: "Pendente Email", phone: "85999990103", status: domain.UserStatusPendingEmail},
 	{local: "pendente-aprovacao", name: "Pendente Aprovacao", phone: "85999990104", status: domain.UserStatusPendingApproval, verified: true},
 	{local: "senha-vencida", name: "Senha Vencida", phone: "85999990105", status: domain.UserStatusActive, verified: true, age: 92 * oneDay, rotated: true},
 	{local: "senha-quase", name: "Senha Quase", phone: "85999990106", status: domain.UserStatusActive, verified: true, age: 87 * oneDay},
+	// The accounts of the approval flows: novo-coletivo signed up with a new
+	// collective and confirmed its e-mail, so the admin has the account to decide;
+	// pedido is active and asked to join a collective; delta is active.
+	{local: "novo-coletivo", name: "Novo Coletivo", phone: "85999990107", status: domain.UserStatusPendingApproval, verified: true},
+	{local: "pedido", name: "Pedido Dev", phone: "85999990108", status: domain.UserStatusActive, verified: true},
+	{local: "delta", name: "Delta Dev", phone: "85999990109", status: domain.UserStatusActive, verified: true},
 }
 
-// devCollectives are made by dono and approved by the admin.
+// devCollectives are made by the account creator. An approved collective is
+// approved by the admin; Gama is what a sign-up leaves, waiting for the admin,
+// and the admin blocked the events of Delta.
 var devCollectives = []struct {
-	name string
-	kind domain.CollectiveKind
+	name, creator string
+	kind          domain.CollectiveKind
+	status        domain.CollectiveStatus
+	eventsBlocked bool
 }{
-	{"Coletivo Alfa", domain.CollectiveKindColetivo},
-	{"Produtora Beta", domain.CollectiveKindProdutora},
+	{"Coletivo Alfa", "dono", domain.CollectiveKindColetivo, domain.CollectiveStatusApproved, false},
+	{"Produtora Beta", "dono", domain.CollectiveKindProdutora, domain.CollectiveStatusApproved, false},
+	{"Coletivo Gama", "novo-coletivo", domain.CollectiveKindColetivo, domain.CollectiveStatusPending, false},
+	{"Coletivo Delta", "delta", domain.CollectiveKindColetivo, domain.CollectiveStatusApproved, true},
 }
 
-// devMemberships: the approved ones are decided by the admin and dono.
+// devMemberships: adminBy and ownerBy name who approved each side of the request,
+// empty while the side is open. An approved membership has both sides approved.
+// Gama's creator vouched for themself, as a sign-up leaves it.
 var devMemberships = []struct {
 	local, collective string
 	role              domain.Role
 	status            domain.MembershipStatus
+	adminBy, ownerBy  string
 }{
-	{"dono", "Coletivo Alfa", domain.RoleOwner, domain.MembershipStatusApproved},
-	{"dono", "Produtora Beta", domain.RoleOwner, domain.MembershipStatusApproved},
-	{"membro", "Coletivo Alfa", domain.RoleMember, domain.MembershipStatusApproved},
-	{"pendente-aprovacao", "Coletivo Alfa", domain.RoleMember, domain.MembershipStatusPending},
+	{"dono", "Coletivo Alfa", domain.RoleOwner, domain.MembershipStatusApproved, "admin", "dono"},
+	{"dono", "Produtora Beta", domain.RoleOwner, domain.MembershipStatusApproved, "admin", "dono"},
+	{"membro", "Coletivo Alfa", domain.RoleMember, domain.MembershipStatusApproved, "admin", "dono"},
+	{"pendente-aprovacao", "Coletivo Alfa", domain.RoleMember, domain.MembershipStatusPending, "", ""},
+	{"novo-coletivo", "Coletivo Gama", domain.RoleOwner, domain.MembershipStatusPending, "", "novo-coletivo"},
+	{"pedido", "Produtora Beta", domain.RoleMember, domain.MembershipStatusPending, "", ""},
+	{"delta", "Coletivo Delta", domain.RoleOwner, domain.MembershipStatusApproved, "admin", "delta"},
 }
 
 func devEmail(local string) string { return local + devEmailDomain }
@@ -196,10 +214,13 @@ func seedRecords(ctx context.Context, r domain.Repos, p seedPlan) (seedResult, e
 		case err == nil:
 			res.record("collective "+want.name, false)
 		case errors.Is(err, domain.ErrNotFound):
-			approvedAt := p.now
 			c = domain.Collective{
-				Name: want.name, NameKey: domain.NameKey(want.name), Kind: want.kind, Status: domain.CollectiveStatusApproved,
-				CreatedBy: userIDs["dono"], ApprovedBy: userIDs["admin"], ApprovedAt: &approvedAt, CreatedAt: p.now, UpdatedAt: p.now,
+				Name: want.name, NameKey: domain.NameKey(want.name), Kind: want.kind, Status: want.status,
+				CreatedBy: userIDs[want.creator], EventsBlocked: want.eventsBlocked, CreatedAt: p.now, UpdatedAt: p.now,
+			}
+			if want.status == domain.CollectiveStatusApproved {
+				approvedAt := p.now
+				c.ApprovedBy, c.ApprovedAt = userIDs["admin"], &approvedAt
 			}
 			if err := r.Collectives.Create(ctx, &c); err != nil {
 				return seedResult{}, err
@@ -225,10 +246,16 @@ func seedRecords(ctx context.Context, r domain.Repos, p seedPlan) (seedResult, e
 			UserID: userIDs[want.local], CollectiveID: collectiveIDs[want.collective],
 			Role: want.role, Status: want.status, RequestedAt: p.now,
 		}
+		if want.adminBy != "" {
+			at := p.now
+			m.AdminApprovedBy, m.AdminApprovedAt = userIDs[want.adminBy], &at
+		}
+		if want.ownerBy != "" {
+			at := p.now
+			m.OwnerApprovedBy, m.OwnerApprovedAt = userIDs[want.ownerBy], &at
+		}
 		if want.status == domain.MembershipStatusApproved {
-			adminAt, ownerAt, decidedAt := p.now, p.now, p.now
-			m.AdminApprovedBy, m.AdminApprovedAt = userIDs["admin"], &adminAt
-			m.OwnerApprovedBy, m.OwnerApprovedAt = userIDs["dono"], &ownerAt
+			decidedAt := p.now
 			m.DecidedAt = &decidedAt
 		}
 		if err := r.Memberships.Create(ctx, m); err != nil {
