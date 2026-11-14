@@ -180,14 +180,17 @@ func (a *App) adminShow(c *gin.Context) {
 	a.adminRender(c, u, http.StatusOK, adminNotices[c.Query("msg")], "")
 }
 
-// adminDecide is the flow every decision shares. It reads the form, runs do, and
-// on success redirects to the queue with the notice code. A reason that is not
-// plain text is a 422; any other refusal of internal/approvals (a second decision,
-// an unknown id, one request of a pending person approved alone) answers with the
-// fresh queue and the fixed text of the refusal. The log names the admin, the
+// adminDecide is the flow every admin decision shares, on the queue and on the
+// management pages. It reads the form, runs do, and on success redirects to back
+// with the notice code. A reason that is not plain text is a 422; any other refusal
+// of internal/approvals (a second decision, an unknown id, one request of a pending
+// person approved alone) answers with the page as it is now (render, which each
+// page supplies) and the fixed text of the refusal. The log names the admin, the
 // action and the error, never the form: its ids and its reason are what the admin
 // typed.
-func (a *App) adminDecide(c *gin.Context, action, code string, do func(ctx context.Context, actor domain.User, form url.Values, now time.Time) error) {
+func (a *App) adminDecide(c *gin.Context, action, back, code string,
+	render func(c *gin.Context, u domain.User, status int, notice, alert string),
+	do func(ctx context.Context, actor domain.User, form url.Values, now time.Time) error) {
 	u, ok := a.adminUser(c)
 	if !ok {
 		return
@@ -200,9 +203,9 @@ func (a *App) adminDecide(c *gin.Context, action, code string, do func(ctx conte
 	var fieldErrs domain.FieldErrors
 	switch err := do(c.Request.Context(), u, form, a.Now()); {
 	case err == nil:
-		a.redirect(c, "/admin?msg="+code)
+		a.redirect(c, back+"?msg="+code)
 	case errors.As(err, &fieldErrs):
-		a.adminRender(c, u, http.StatusUnprocessableEntity, "", fieldErrs["reason"])
+		render(c, u, http.StatusUnprocessableEntity, "", fieldErrs["reason"])
 	default:
 		status, msg, answered := approvalsAnswer(err)
 		if !answered {
@@ -210,55 +213,55 @@ func (a *App) adminDecide(c *gin.Context, action, code string, do func(ctx conte
 			c.String(http.StatusInternalServerError, "erro interno")
 			return
 		}
-		a.adminRender(c, u, status, "", msg)
+		render(c, u, status, "", msg)
 	}
 }
 
 // adminApprovePerson approves the account and every request of a person.
 func (a *App) adminApprovePerson(c *gin.Context) {
-	a.adminDecide(c, "approve person", adminCodePerson, func(ctx context.Context, u domain.User, form url.Values, now time.Time) error {
+	a.adminDecide(c, "approve person", "/admin", adminCodePerson, a.adminRender, func(ctx context.Context, u domain.User, form url.Values, now time.Time) error {
 		return approvals.ApprovePerson(ctx, a.Store, a.Cfg.Origin, u, form.Get("user_id"), now)
 	})
 }
 
 // adminApproveAccount approves only the account of a person.
 func (a *App) adminApproveAccount(c *gin.Context) {
-	a.adminDecide(c, "approve account", adminCodeAccountApproved, func(ctx context.Context, u domain.User, form url.Values, now time.Time) error {
+	a.adminDecide(c, "approve account", "/admin", adminCodeAccountApproved, a.adminRender, func(ctx context.Context, u domain.User, form url.Values, now time.Time) error {
 		return approvals.ApproveAccount(ctx, a.Store, a.Cfg.Origin, u, form.Get("user_id"), now)
 	})
 }
 
 // adminRejectAccount rejects a sign-up, with an optional reason.
 func (a *App) adminRejectAccount(c *gin.Context) {
-	a.adminDecide(c, "reject account", adminCodeAccountRejected, func(ctx context.Context, u domain.User, form url.Values, now time.Time) error {
+	a.adminDecide(c, "reject account", "/admin", adminCodeAccountRejected, a.adminRender, func(ctx context.Context, u domain.User, form url.Values, now time.Time) error {
 		return approvals.RejectAccount(ctx, a.Store, a.Cfg.Origin, u, form.Get("user_id"), form.Get("reason"), now)
 	})
 }
 
 // adminApproveCollective approves a collective an active person asked for.
 func (a *App) adminApproveCollective(c *gin.Context) {
-	a.adminDecide(c, "approve collective", adminCodeCollApproved, func(ctx context.Context, u domain.User, form url.Values, now time.Time) error {
+	a.adminDecide(c, "approve collective", "/admin", adminCodeCollApproved, a.adminRender, func(ctx context.Context, u domain.User, form url.Values, now time.Time) error {
 		return approvals.ApproveCollective(ctx, a.Store, a.Cfg.Origin, u, form.Get("collective_id"), now)
 	})
 }
 
 // adminRejectCollective rejects a collective someone asked for, with an optional reason.
 func (a *App) adminRejectCollective(c *gin.Context) {
-	a.adminDecide(c, "reject collective", adminCodeCollRejected, func(ctx context.Context, u domain.User, form url.Values, now time.Time) error {
+	a.adminDecide(c, "reject collective", "/admin", adminCodeCollRejected, a.adminRender, func(ctx context.Context, u domain.User, form url.Values, now time.Time) error {
 		return approvals.RejectCollective(ctx, a.Store, a.Cfg.Origin, u, form.Get("collective_id"), form.Get("reason"), now)
 	})
 }
 
 // adminApproveJoin gives the admin's side of a request to join a collective.
 func (a *App) adminApproveJoin(c *gin.Context) {
-	a.adminDecide(c, "approve join", adminCodeJoinApproved, func(ctx context.Context, u domain.User, form url.Values, now time.Time) error {
+	a.adminDecide(c, "approve join", "/admin", adminCodeJoinApproved, a.adminRender, func(ctx context.Context, u domain.User, form url.Values, now time.Time) error {
 		return approvals.AdminApproveJoin(ctx, a.Store, a.Cfg.Origin, u, form.Get("user_id"), form.Get("collective_id"), now)
 	})
 }
 
 // adminRejectJoin rejects a request to join a collective, with an optional reason.
 func (a *App) adminRejectJoin(c *gin.Context) {
-	a.adminDecide(c, "reject join", adminCodeJoinRejected, func(ctx context.Context, u domain.User, form url.Values, now time.Time) error {
+	a.adminDecide(c, "reject join", "/admin", adminCodeJoinRejected, a.adminRender, func(ctx context.Context, u domain.User, form url.Values, now time.Time) error {
 		return approvals.RejectJoin(ctx, a.Store, a.Cfg.Origin, u, form.Get("user_id"), form.Get("collective_id"), form.Get("reason"), now)
 	})
 }

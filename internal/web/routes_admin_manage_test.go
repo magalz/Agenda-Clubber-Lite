@@ -569,7 +569,7 @@ func TestMngHistoryEmpty(t *testing.T) {
 func TestMngHistoryShowsTheDecisionsNewestFirst(t *testing.T) {
 	w := newMngWorld(t)
 	at := func(h, m int) time.Time { return time.Date(2026, 11, 12, h, m, 0, 0, time.UTC) }
-	// Stored out of order: the page sorts by time, not by insertion.
+	// Stored out of order: the store lists by time, not by insertion, and the page keeps that order.
 	mngAudit(t, w.store, at(13, 5), domain.AuditCollectiveBlocks, func(e *domain.AuditEntry) {
 		e.CollectiveID, e.CollectiveName, e.Detail, e.Reason = "c-1", "Alfa Total", "eventos bloqueados", "festa de rua"
 	})

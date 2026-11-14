@@ -470,7 +470,7 @@ func TestRenderAdminNewSignupListsEachCollective(t *testing.T) {
 		UserPhone:       "+55 85 99999-0000",
 		PhoneIsWhatsApp: true,
 		Collectives: []SignupCollective{
-			{Name: "Maré Alta", Kind: "Coletivo", Role: "Dono", New: true},
+			{Name: "Maré Alta", Kind: "Coletivo", Role: "Administrador", New: true},
 			{Name: "Sol Nascente", Kind: "Produtora", Role: "Membro", New: false},
 		},
 		AdminLink: linkAdmin,
@@ -492,7 +492,7 @@ func TestRenderAdminNewSignupListsEachCollective(t *testing.T) {
 	}
 	for _, view := range []struct{ name, body, sep string }{{"text", text, "\n"}, {"html", htmlBody, "</tr>"}} {
 		fresh := rowOf(view.body, view.sep, "Maré Alta")
-		for _, want := range []string{"Coletivo", "Dono", "novo"} {
+		for _, want := range []string{"Coletivo", "Administrador", "novo"} {
 			if !strings.Contains(strings.ToLower(fresh), strings.ToLower(want)) {
 				t.Errorf("%s: the new collective's entry lacks %q: %q", view.name, want, fresh)
 			}
