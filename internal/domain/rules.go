@@ -175,13 +175,7 @@ func NameKey(name string) string {
 // What is inside the name is kept as typed.
 func CleanCollectiveName(name string) (cleaned, problem string) {
 	name = strings.TrimSpace(name)
-	switch {
-	case !utf8.ValidString(name):
-		return "", MsgInvalid
-	case strings.ContainsFunc(name, unicode.IsControl):
-		return "", MsgControl
-	}
-	if msg := lengthProblem(name, CollectiveNameMin, CollectiveNameMax); msg != "" {
+	if msg := TextProblem(name, CollectiveNameMin, CollectiveNameMax, false); msg != "" {
 		return "", msg
 	}
 	if NameKey(name) == "" {
