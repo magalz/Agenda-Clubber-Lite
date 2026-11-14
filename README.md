@@ -111,7 +111,7 @@ The rules:
 - A new collective needs only the Admin's approval.
 - Joining an existing collective needs two approvals, in any order: the Admin's and one Administrador's of that collective.
 - A rename takes effect at once; the Admin gets an email about it.
-- Every decision is in the history, and emails the person it concerns (an Administrador's half of a join approval, and the Admin blocking an account, are only recorded).
+- Every decision is in the history, and a decision about a person's request or account emails the person. Steps that are no decision about a request are only recorded: an Administrador's half of a join approval, a block of an account or of a collective's events, a freeze of its members and name, a promotion or a demotion.
 
 The pages:
 
