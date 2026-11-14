@@ -629,6 +629,8 @@ func RunEvents(t *testing.T, newStore NewStore) {
 				{"PE", []domain.Event{recife}},
 				{"BA", []domain.Event{salvador}},
 				{"RN", nil},
+				// A State is a value to match, never an operator or a pattern.
+				{"$ne", nil}, {".*", nil}, {"C.", nil}, {"ce", nil},
 			} {
 				f.State = tc.state
 				wantEvents(t, "State "+tc.state, e.listBetween("ListBetween", f, domain.ListLimitMax), tc.want...)
@@ -660,6 +662,7 @@ func RunEvents(t *testing.T, newStore NewStore) {
 				{"CE", "Santa Rita", nil},
 				{"PE", "Fortaleza", nil},
 				{"CE", "Recife", nil},
+				{"CE", "$ne", nil}, {"CE", ".*", nil}, {"CE", "fortaleza", nil},
 			} {
 				f.State, f.City = tc.state, tc.city
 				wantEvents(t, fmt.Sprintf("State %s, City %s", tc.state, tc.city), e.listBetween("ListBetween", f, domain.ListLimitMax), tc.want...)
