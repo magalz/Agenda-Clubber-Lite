@@ -35,7 +35,9 @@ func signupInput() SignupInput {
 }
 
 // signupInsertCollective stores a collective in the given state and returns it.
-func signupInsertCollective(t *testing.T, s domain.Store, name string, kind domain.CollectiveKind, status domain.CollectiveStatus) domain.Collective {
+// A mutate function changes the other fields (Locked, UpdatedAt) before the
+// insert.
+func signupInsertCollective(t *testing.T, s domain.Store, name string, kind domain.CollectiveKind, status domain.CollectiveStatus, mutate ...func(*domain.Collective)) domain.Collective {
 	t.Helper()
 	c := domain.Collective{
 		Name:      name,
@@ -45,11 +47,17 @@ func signupInsertCollective(t *testing.T, s domain.Store, name string, kind doma
 		CreatedAt: testNow,
 		UpdatedAt: testNow,
 	}
+	for _, m := range mutate {
+		m(&c)
+	}
 	if err := s.Repos().Collectives.Create(t.Context(), &c); err != nil {
 		t.Fatalf("insert collective %q: %v", name, err)
 	}
 	return c
 }
+
+// signupLock is a signupInsertCollective option: the admin froze the collective.
+func signupLock(c *domain.Collective) { c.Locked = true }
 
 // signupOutbox claims the messages due at testNow. It leases them, so call it
 // once per test.
@@ -287,6 +295,7 @@ func TestSignupCollectiveErrorsWriteNothing(t *testing.T) {
 	rejected := signupInsertCollective(t, s, "Rejeitado Club", domain.CollectiveKindColetivo, domain.CollectiveStatusRejected)
 	produtora := signupInsertCollective(t, s, "Casa Aurora", domain.CollectiveKindProdutora, domain.CollectiveStatusApproved)
 	signupInsertCollective(t, s, "Noite Verde", domain.CollectiveKindColetivo, domain.CollectiveStatusApproved)
+	locked := signupInsertCollective(t, s, "Casa Trancada", domain.CollectiveKindColetivo, domain.CollectiveStatusApproved, signupLock)
 
 	tests := []struct {
 		name    string
@@ -301,7 +310,12 @@ func TestSignupCollectiveErrorsWriteNothing(t *testing.T) {
 		{"picked collective that is rejected", func(in *SignupInput) { in.CollectiveID = rejected.ID }, "collective", "escolha um coletivo da lista"},
 		{"picked collective of the other kind", func(in *SignupInput) { in.CollectiveID = produtora.ID }, "collective", "escolha um coletivo da lista"},
 		{"picked collective that does not exist", func(in *SignupInput) { in.CollectiveID = "no-such-collective" }, "collective", "escolha um coletivo da lista"},
-		{"member of a new collective", func(in *SignupInput) { in.CollectiveName = "Totalmente Nova"; in.Role = domain.RoleMember }, "role", "quem cria um coletivo novo entra como dono"},
+		// The admin's freeze refuses new join requests, a signup's included. The
+		// answer is the one of a collective that cannot be joined, so the form does
+		// not tell a stranger which collectives are frozen.
+		{"typed name of a locked collective", func(in *SignupInput) { in.CollectiveName = "casa trancada" }, "collective", "em uso"},
+		{"picked collective that is locked", func(in *SignupInput) { in.CollectiveID = locked.ID }, "collective", "escolha um coletivo da lista"},
+		{"member of a new collective", func(in *SignupInput) { in.CollectiveName = "Totalmente Nova"; in.Role = domain.RoleMember }, "role", "quem cria um coletivo novo entra como administrador (master)"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -327,6 +341,7 @@ func TestSignupCollectiveErrorsDoNotDependOnTheEmail(t *testing.T) {
 	s := newTestStore(t)
 	insertActiveUser(t, s, "ana@example.com")
 	signupInsertCollective(t, s, "Fila Nova", domain.CollectiveKindColetivo, domain.CollectiveStatusPending)
+	signupInsertCollective(t, s, "Casa Trancada", domain.CollectiveKindColetivo, domain.CollectiveStatusApproved, signupLock)
 
 	tests := []struct {
 		name   string
@@ -334,6 +349,7 @@ func TestSignupCollectiveErrorsDoNotDependOnTheEmail(t *testing.T) {
 		key    string
 	}{
 		{"name of a pending collective", func(in *SignupInput) { in.CollectiveName = "Fila Nova" }, "collective"},
+		{"name of a locked collective", func(in *SignupInput) { in.CollectiveName = "Casa Trancada" }, "collective"},
 		{"member of a new collective", func(in *SignupInput) { in.CollectiveName = "Totalmente Nova"; in.Role = domain.RoleMember }, "role"},
 	}
 	for _, tt := range tests {
@@ -672,5 +688,99 @@ func TestSignupNameTakenRace(t *testing.T) {
 		t.Errorf("transactions = %d, want 1", hs.runs)
 	}
 	// The user written before the failing Create is rolled back with it.
+	signupAssertNothingWritten(t, s, in.Email, "")
+}
+
+// Joining a collective depends on its state, so the signup writes the collective
+// back with UpdatedAt set to now (the serialization rule of internal/domain).
+func TestSignupWritesTheJoinedCollectiveBack(t *testing.T) {
+	earlier := testNow.Add(-time.Hour)
+	tests := []struct {
+		name   string
+		mutate func(in *SignupInput, c domain.Collective)
+		want   time.Time
+	}{
+		{"picked by ID", func(in *SignupInput, c domain.Collective) { in.CollectiveID = c.ID }, testNow},
+		{"typed name", func(in *SignupInput, c domain.Collective) { in.CollectiveName = "casa aurora" }, testNow},
+		// An address that already has an account joins nothing, so nothing is written.
+		{"address that already has an account", func(in *SignupInput, c domain.Collective) {
+			in.CollectiveID = c.ID
+			in.Email = "ana@example.com"
+		}, earlier},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := newTestStore(t)
+			insertActiveUser(t, s, "ana@example.com")
+			c := signupInsertCollective(t, s, "Casa Aurora", domain.CollectiveKindColetivo, domain.CollectiveStatusApproved,
+				func(c *domain.Collective) { c.UpdatedAt = earlier })
+			in := signupInput()
+			in.Email = "bia@example.com"
+			in.Role = domain.RoleMember
+			tt.mutate(&in, c)
+
+			if err := Signup(t.Context(), s, signupOrigin, testNow, in); err != nil {
+				t.Fatalf("Signup: %v", err)
+			}
+			got, err := s.Repos().Collectives.ByID(t.Context(), c.ID)
+			if err != nil {
+				t.Fatalf("collective: %v", err)
+			}
+			if !got.UpdatedAt.Truncate(time.Millisecond).Equal(tt.want) {
+				t.Errorf("collective UpdatedAt = %v, want %v", got.UpdatedAt, tt.want)
+			}
+		})
+	}
+}
+
+// signupFreezingCollectives hands the collective the signup reads to freeze, which
+// runs outside the transaction right after the read: the admin's freeze that
+// commits while the signup is open.
+type signupFreezingCollectives struct {
+	domain.Collectives
+	freeze func(c domain.Collective)
+}
+
+func (f signupFreezingCollectives) ByID(ctx context.Context, id string) (domain.Collective, error) {
+	c, err := f.Collectives.ByID(ctx, id)
+	if err == nil {
+		f.freeze(c)
+	}
+	return c, err
+}
+
+// A freeze that commits after the signup read the collective must not be lost
+// behind the new membership. Because the signup writes the collective back, the
+// two transactions conflict, the backend runs the signup again, and the second
+// run sees the lock.
+func TestSignupSerializesWithAFreeze(t *testing.T) {
+	s := newTestStore(t)
+	c := signupInsertCollective(t, s, "Casa Aurora", domain.CollectiveKindColetivo, domain.CollectiveStatusApproved)
+	frozen, attempts := false, 0
+	hs := &signupHookStore{Store: s, hook: func(_ int, r domain.Repos) domain.Repos {
+		attempts++
+		if !frozen {
+			r.Collectives = signupFreezingCollectives{Collectives: r.Collectives, freeze: func(c domain.Collective) {
+				frozen = true
+				c.Locked, c.UpdatedAt = true, testNow
+				if err := s.Repos().Collectives.Update(t.Context(), c); err != nil {
+					t.Errorf("freeze the collective: %v", err)
+				}
+			}}
+		}
+		return r
+	}}
+	in := signupInput()
+	in.CollectiveID = c.ID
+	in.Role = domain.RoleMember
+
+	fe := signupFieldErrors(t, Signup(t.Context(), hs, signupOrigin, testNow, in))
+	signupAssertKeys(t, fe, "collective")
+	if attempts != 2 {
+		t.Errorf("transaction attempts = %d, want the signup and its rerun after the conflict", attempts)
+	}
+	if got, err := s.Repos().Collectives.ByID(t.Context(), c.ID); err != nil || !got.Locked {
+		t.Errorf("collective after the race = %+v, err %v; want it still locked", got, err)
+	}
 	signupAssertNothingWritten(t, s, in.Email, "")
 }

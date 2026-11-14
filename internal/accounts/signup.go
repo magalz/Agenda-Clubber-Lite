@@ -18,15 +18,14 @@ import (
 const SignupTokenTTL = 24 * time.Hour
 
 // More pt-BR messages shown next to a signup form field. The messages for a
-// missing value and for a length come from domain's wording.
+// missing value, a length and a control character come from domain's wording.
 const (
 	signupMsgPasswordMismatch = "as senhas não conferem"
 	signupMsgKind             = "escolha coletivo ou produtora"
 	signupMsgRole             = "escolha o seu papel"
 	signupMsgPick             = "escolha um coletivo da lista"
 	signupMsgNameInUse        = "nome já em uso; escolha outro"
-	signupMsgNewAsOwner       = "quem cria um coletivo novo entra como dono"
-	signupMsgControl          = "não use quebras de linha nem caracteres de controle"
+	signupMsgNewAsOwner       = "quem cria um coletivo novo entra como administrador (master)"
 )
 
 // SignupInput is the signup form as the person filled it in.
@@ -134,7 +133,7 @@ func signupValidate(in SignupInput) (signupFields, error) {
 	case !utf8.ValidString(f.name):
 		fe.Add("name", domain.MsgInvalid)
 	case strings.ContainsFunc(f.name, unicode.IsControl):
-		fe.Add("name", signupMsgControl)
+		fe.Add("name", domain.MsgControl)
 	default:
 		if msg := signupLengthProblem(f.name, domain.UserNameMin, domain.UserNameMax); msg != "" {
 			fe.Add("name", msg)
@@ -169,21 +168,11 @@ func signupValidate(in SignupInput) (signupFields, error) {
 	// A picked collective is looked up in the transaction; only a typed name is
 	// checked here.
 	if in.CollectiveID == "" {
-		f.collectiveName = strings.TrimSpace(in.CollectiveName)
-		switch {
-		case !utf8.ValidString(f.collectiveName):
-			fe.Add("collective", domain.MsgInvalid)
-		case strings.ContainsFunc(f.collectiveName, unicode.IsControl):
-			fe.Add("collective", signupMsgControl)
-		default:
-			if msg := signupLengthProblem(f.collectiveName, domain.CollectiveNameMin, domain.CollectiveNameMax); msg != "" {
-				fe.Add("collective", msg)
-				break
-			}
-			// A name of only combining marks has no comparison key to store.
-			if f.nameKey = domain.NameKey(f.collectiveName); f.nameKey == "" {
-				fe.Add("collective", domain.MsgInvalid)
-			}
+		cleaned, problem := domain.CleanCollectiveName(in.CollectiveName)
+		if problem != "" {
+			fe.Add("collective", problem)
+		} else {
+			f.collectiveName, f.nameKey = cleaned, domain.NameKey(cleaned)
 		}
 	}
 	return f, fe.Err()
@@ -280,6 +269,13 @@ func signupTx(ctx context.Context, r domain.Repos, origin string, now time.Time,
 		m.OwnerApprovedBy = u.ID
 		m.OwnerApprovedAt = &ownerApprovedAt
 	} else {
+		// Joining depends on the collective's state (it may be frozen), so it is
+		// written back: a freeze that commits while this transaction is open
+		// conflicts with it, and the rerun sees the lock.
+		existing.UpdatedAt = now
+		if err := r.Collectives.Update(ctx, existing); err != nil {
+			return signupWrap("update collective", err)
+		}
 		m.CollectiveID = existing.ID
 	}
 	if err := r.Memberships.Create(ctx, m); err != nil {
@@ -338,17 +334,19 @@ func signupResolve(ctx context.Context, r domain.Repos, in SignupInput, f signup
 	case err != nil:
 		return domain.Collective{}, false, signupWrap("find collective", err)
 	case !signupJoinable(c, in.CollectiveKind):
-		// A pending or rejected collective, or one of the other kind, holds the
-		// name. All three read the same, so the form does not say which exist.
+		// A pending or rejected collective, one of the other kind, or a frozen one
+		// holds the name. All four read the same, so the form does not say which
+		// exist.
 		return domain.Collective{}, false, domain.FieldErrors{"collective": signupMsgNameInUse}
 	}
 	return c, false, nil
 }
 
 // signupJoinable reports whether a new member may ask to join c: it must be
-// approved and of the kind the person chose.
+// approved, of the kind the person chose, and not frozen by the admin (a frozen
+// collective refuses new join requests, as approvals.RequestJoin does).
 func signupJoinable(c domain.Collective, kind domain.CollectiveKind) bool {
-	return c.Status == domain.CollectiveStatusApproved && c.Kind == kind
+	return c.Status == domain.CollectiveStatusApproved && c.Kind == kind && !c.Locked
 }
 
 // signupNotifyExisting queues the email that tells the owner of u that someone

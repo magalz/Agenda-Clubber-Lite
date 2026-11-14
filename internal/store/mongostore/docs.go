@@ -24,6 +24,8 @@ const (
 	colCollectives = "collectives"
 	colMemberships = "memberships"
 	colOutbox      = "outbox"
+
+	colAuditEntries = "audit_entries"
 )
 
 // parseID turns an ID the store issued into its ObjectID. Anything else (empty,
@@ -198,46 +200,58 @@ func (d sessionDoc) session() domain.Session {
 
 // --- collectives ---
 
+// collectiveDoc leaves a false flag out on Create; Update writes both flags as
+// they are, so a cleared flag is stored as false. Absent and false both read as
+// false: never query these fields with $exists. Rev is never seen by the domain:
+// Update bumps it so that two transactions that both write the collective
+// conflict. Create leaves it out.
 type collectiveDoc struct {
-	ID         bson.ObjectID  `bson:"_id"`
-	Name       string         `bson:"name"`
-	NameKey    string         `bson:"name_key"`
-	Kind       string         `bson:"kind"`
-	Status     string         `bson:"status"`
-	CreatedBy  *bson.ObjectID `bson:"created_by,omitempty"`
-	ApprovedBy *bson.ObjectID `bson:"approved_by,omitempty"`
-	ApprovedAt *time.Time     `bson:"approved_at,omitempty"`
-	CreatedAt  time.Time      `bson:"created_at"`
-	UpdatedAt  time.Time      `bson:"updated_at"`
+	ID            bson.ObjectID  `bson:"_id"`
+	Name          string         `bson:"name"`
+	NameKey       string         `bson:"name_key"`
+	Kind          string         `bson:"kind"`
+	Status        string         `bson:"status"`
+	CreatedBy     *bson.ObjectID `bson:"created_by,omitempty"`
+	ApprovedBy    *bson.ObjectID `bson:"approved_by,omitempty"`
+	ApprovedAt    *time.Time     `bson:"approved_at,omitempty"`
+	EventsBlocked bool           `bson:"events_blocked,omitempty"`
+	Locked        bool           `bson:"locked,omitempty"`
+	Rev           int64          `bson:"rev,omitempty"`
+	CreatedAt     time.Time      `bson:"created_at"`
+	UpdatedAt     time.Time      `bson:"updated_at"`
 }
 
 func collectiveToDoc(c domain.Collective, oid bson.ObjectID, createdBy, approvedBy *bson.ObjectID) collectiveDoc {
 	return collectiveDoc{
-		ID:         oid,
-		Name:       c.Name,
-		NameKey:    c.NameKey,
-		Kind:       string(c.Kind),
-		Status:     string(c.Status),
-		CreatedBy:  createdBy,
-		ApprovedBy: approvedBy,
-		ApprovedAt: c.ApprovedAt,
-		CreatedAt:  c.CreatedAt,
-		UpdatedAt:  c.UpdatedAt,
+		ID:            oid,
+		Name:          c.Name,
+		NameKey:       c.NameKey,
+		Kind:          string(c.Kind),
+		Status:        string(c.Status),
+		CreatedBy:     createdBy,
+		ApprovedBy:    approvedBy,
+		ApprovedAt:    c.ApprovedAt,
+		EventsBlocked: c.EventsBlocked,
+		Locked:        c.Locked,
+		CreatedAt:     c.CreatedAt,
+		UpdatedAt:     c.UpdatedAt,
 	}
 }
 
 func (d collectiveDoc) collective() domain.Collective {
 	return domain.Collective{
-		ID:         d.ID.Hex(),
-		Name:       d.Name,
-		NameKey:    d.NameKey,
-		Kind:       domain.CollectiveKind(d.Kind),
-		Status:     domain.CollectiveStatus(d.Status),
-		CreatedBy:  hexOrEmpty(d.CreatedBy),
-		ApprovedBy: hexOrEmpty(d.ApprovedBy),
-		ApprovedAt: d.ApprovedAt,
-		CreatedAt:  d.CreatedAt,
-		UpdatedAt:  d.UpdatedAt,
+		ID:            d.ID.Hex(),
+		Name:          d.Name,
+		NameKey:       d.NameKey,
+		Kind:          domain.CollectiveKind(d.Kind),
+		Status:        domain.CollectiveStatus(d.Status),
+		CreatedBy:     hexOrEmpty(d.CreatedBy),
+		ApprovedBy:    hexOrEmpty(d.ApprovedBy),
+		ApprovedAt:    d.ApprovedAt,
+		EventsBlocked: d.EventsBlocked,
+		Locked:        d.Locked,
+		CreatedAt:     d.CreatedAt,
+		UpdatedAt:     d.UpdatedAt,
 	}
 }
 
@@ -338,5 +352,58 @@ func (d outboxDoc) message() domain.OutboxMessage {
 		GaveUp:        d.GaveUp,
 		LastError:     d.LastError,
 		CreatedAt:     d.CreatedAt,
+	}
+}
+
+// --- audit entries ---
+
+// auditEntryDoc is an immutable log line. Its _id, actor_id, user_id and
+// collective_id are plain strings and not ObjectIDs: they are snapshots that are
+// never checked against another collection and must survive the deletion of the
+// user or the collective they name. Optional text is left out when empty.
+type auditEntryDoc struct {
+	ID             string    `bson:"_id"`
+	At             time.Time `bson:"at"`
+	Action         string    `bson:"action"`
+	ActorID        string    `bson:"actor_id"`
+	ActorName      string    `bson:"actor_name,omitempty"`
+	UserID         string    `bson:"user_id,omitempty"`
+	UserName       string    `bson:"user_name,omitempty"`
+	CollectiveID   string    `bson:"collective_id,omitempty"`
+	CollectiveName string    `bson:"collective_name,omitempty"`
+	Detail         string    `bson:"detail,omitempty"`
+	Reason         string    `bson:"reason,omitempty"`
+}
+
+// auditEntryToDoc builds the document of e under the ID id.
+func auditEntryToDoc(e domain.AuditEntry, id string) auditEntryDoc {
+	return auditEntryDoc{
+		ID:             id,
+		At:             e.At,
+		Action:         string(e.Action),
+		ActorID:        e.ActorID,
+		ActorName:      e.ActorName,
+		UserID:         e.UserID,
+		UserName:       e.UserName,
+		CollectiveID:   e.CollectiveID,
+		CollectiveName: e.CollectiveName,
+		Detail:         e.Detail,
+		Reason:         e.Reason,
+	}
+}
+
+func (d auditEntryDoc) auditEntry() domain.AuditEntry {
+	return domain.AuditEntry{
+		ID:             d.ID,
+		At:             d.At,
+		Action:         domain.AuditAction(d.Action),
+		ActorID:        d.ActorID,
+		ActorName:      d.ActorName,
+		UserID:         d.UserID,
+		UserName:       d.UserName,
+		CollectiveID:   d.CollectiveID,
+		CollectiveName: d.CollectiveName,
+		Detail:         d.Detail,
+		Reason:         d.Reason,
 	}
 }

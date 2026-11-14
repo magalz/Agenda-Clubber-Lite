@@ -26,8 +26,10 @@ coverage.*
 .DS_Store
 Thumbs.db
 
-# Local tool state (Memtrace query audit)
+# Local tool state (Memtrace query audit and history)
 .memdb/
+.memdb.history/
+.memtrace/
 
 # Stray file created by "> NUL" redirects under Git Bash on Windows
 /NUL

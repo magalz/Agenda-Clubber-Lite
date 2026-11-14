@@ -12,10 +12,12 @@ import (
 
 // MsgRequired and MsgInvalid are the pt-BR messages for a missing and a rejected
 // value. A store that raises a FieldErrors of its own uses them, so every
-// backend words these two the same way as Validate.
+// backend words these two the same way as Validate. MsgControl is the one for a
+// name that holds a line break or another control character.
 const (
 	MsgRequired = "campo obrigatório"
 	MsgInvalid  = "valor inválido"
+	MsgControl  = "não use quebras de linha nem caracteres de controle"
 )
 
 // More pt-BR messages shown next to a form field.
@@ -153,6 +155,30 @@ func emailProblem(s string, exact bool) string {
 // share a key.
 func NameKey(name string) string {
 	return strings.Join(strings.Fields(strings.Map(foldRune, strings.ToLower(name))), " ")
+}
+
+// CleanCollectiveName is the rule for a collective name typed in a form, the
+// same for sign-up, a collective request and a rename. It trims the name and
+// checks, in this order: valid UTF-8, no control character (a line break
+// included), a length of CollectiveNameMin to CollectiveNameMax runes, and a
+// NameKey that is not empty (a name of only combining marks has none). It
+// returns the cleaned name and "", or "" and the pt-BR message for the field.
+// What is inside the name is kept as typed.
+func CleanCollectiveName(name string) (cleaned, problem string) {
+	name = strings.TrimSpace(name)
+	switch {
+	case !utf8.ValidString(name):
+		return "", MsgInvalid
+	case strings.ContainsFunc(name, unicode.IsControl):
+		return "", MsgControl
+	}
+	if msg := lengthProblem(name, CollectiveNameMin, CollectiveNameMax); msg != "" {
+		return "", msg
+	}
+	if NameKey(name) == "" {
+		return "", MsgInvalid
+	}
+	return name, ""
 }
 
 // foldRune maps a lowercase Portuguese letter with a diacritic to its plain
@@ -294,4 +320,26 @@ func (m OutboxMessage) Validate() error {
 		e.Add("attempts", msgNegative)
 	}
 	return e.Err()
+}
+
+// Validate checks the fields of an audit entry. It does not check ID, which the
+// backend assigns, nor the IDs of the user and of the collective, which are
+// snapshots.
+func (e AuditEntry) Validate() error {
+	var f FieldErrors
+	if !e.Action.Valid() {
+		f.Add("action", MsgInvalid)
+	}
+	if e.At.IsZero() {
+		f.Add("at", MsgRequired)
+	}
+	if e.ActorID == "" {
+		f.Add("actor_id", MsgRequired)
+	}
+	f.addIf("actor_name", lengthProblem(e.ActorName, 0, UserNameMax))
+	f.addIf("user_name", lengthProblem(e.UserName, 0, UserNameMax))
+	f.addIf("collective_name", lengthProblem(e.CollectiveName, 0, CollectiveNameMax))
+	f.addIf("detail", lengthProblem(e.Detail, 0, AuditTextMax))
+	f.addIf("reason", lengthProblem(e.Reason, 0, AuditTextMax))
+	return f.Err()
 }

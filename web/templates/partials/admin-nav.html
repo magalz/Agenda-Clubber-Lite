@@ -1,0 +1,10 @@
+{{/* admin-nav: the links between the admin's pages, with the current one marked. Call it with the key of the current
+     page as a string: {{template "admin-nav" "fila"}}. The keys are fila (/admin), contas (/admin/contas), coletivos
+     (/admin/coletivos) and historico (/admin/historico); any other key marks none. The current link gets
+     aria-current="page". CSS: admin-nav (components.css). */}}
+{{define "admin-nav"}}<nav class="admin-nav" aria-label="Seções do admin">
+  <a href="/admin"{{if eq . "fila"}} aria-current="page"{{end}}>Fila</a>
+  <a href="/admin/contas"{{if eq . "contas"}} aria-current="page"{{end}}>Contas</a>
+  <a href="/admin/coletivos"{{if eq . "coletivos"}} aria-current="page"{{end}}>Coletivos</a>
+  <a href="/admin/historico"{{if eq . "historico"}} aria-current="page"{{end}}>Histórico</a>
+</nav>{{end}}

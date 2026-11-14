@@ -36,6 +36,7 @@ type Limits struct {
 	EmailAction   *auth.Limiter // 5 per hour per IP: resend confirmation, forgot password
 	Suggestions   *auth.Limiter // 60 per minute per IP
 	PasswordCheck *auth.Limiter // 30 per minute per user
+	Requests      *auth.Limiter // 10 per hour per user: join requests, new collectives and renames
 }
 
 // NewApp builds an App from a validated configuration. It panics if the
@@ -80,6 +81,7 @@ func NewApp(cfg config.Config, log *slog.Logger, store domain.Store) *App {
 			EmailAction:   auth.NewLimiter(5, time.Hour),
 			Suggestions:   auth.NewLimiter(60, time.Minute),
 			PasswordCheck: auth.NewLimiter(30, time.Minute),
+			Requests:      auth.NewLimiter(10, time.Hour),
 		},
 	}
 }
@@ -122,6 +124,15 @@ func (a *App) Router() *gin.Engine {
 	a.confirmRoutes(public, authed)
 	a.passwordRoutes(public, authed)
 	a.resetRoutes(public, authed)
+	a.collectivesRoutes(public, authed)
+	a.collectiveRoutes(public, authed)
+
+	// The site admin's pages sit under /admin on the authed group, so an
+	// anonymous visitor is sent to the login page and a signed-in non-admin
+	// gets 403.
+	admin := authed.Group("/admin", a.requireAdmin())
+	a.adminRoutes(admin)
+	a.adminManageRoutes(admin)
 
 	return r
 }

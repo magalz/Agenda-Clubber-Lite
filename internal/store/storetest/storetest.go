@@ -9,8 +9,9 @@
 //	}
 //
 // Run calls every group; RunUsers, RunTokens, RunSessions, RunCollectives,
-// RunMemberships, RunOutbox and RunTx run one group each. A group is a set of
-// subtests and each subtest gets a store of its own from the NewStore function.
+// RunMemberships, RunOutbox, RunAuditEntries and RunTx run one group each. A
+// group is a set of subtests and each subtest gets a store of its own from the
+// NewStore function.
 //
 // The suite checks the behavior written in the doc comments of the interfaces in
 // internal/domain, and nothing the comments leave open. Errors are compared with
@@ -37,5 +38,6 @@ func Run(t *testing.T, newStore NewStore) {
 	t.Run("Collectives", func(t *testing.T) { RunCollectives(t, newStore) })
 	t.Run("Memberships", func(t *testing.T) { RunMemberships(t, newStore) })
 	t.Run("Outbox", func(t *testing.T) { RunOutbox(t, newStore) })
+	t.Run("AuditEntries", func(t *testing.T) { RunAuditEntries(t, newStore) })
 	t.Run("Tx", func(t *testing.T) { RunTx(t, newStore) })
 }

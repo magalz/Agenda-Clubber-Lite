@@ -1,0 +1,64 @@
+{{/* Contas do admin (/admin/contas), for the site admin. Data is an manageAccountsPage: Active and Blocked, each a list of manageAccountRow
+     (UserID, Name, Meta, Admin, CanBlock, ReasonID; internal/web/routes_admin_manage.go), Notice, a status above the lists
+     after an action went through, and Alert, an alert for a refused one. The ?msg= code of the redirect that follows an action
+     picks the Notice text on the server; the URL never supplies text. A row shows the name, the e-mail and phone (Meta) and an
+     "Admin" badge for an admin. An active row has a block form with an optional reason, except the admin's own row (CanBlock is
+     false); a blocked row has an unblock button. Blocking ends the person's sessions and sends no e-mail.
+     The actions are ordinary posts, one small form for each (no HTMX is needed); a refusal comes back to this page, with the
+     lists as they are now and Alert set (422 for a reason that is not plain text, 409 for an account that is not in the state the
+     action needs or the admin's own, 404 for an id that names nothing). The ids are hidden fields, never a part of the path.
+       POST /admin/conta/bloquear     user_id, reason   block an active account
+       POST /admin/conta/desbloquear  user_id           make a blocked account active again
+     CSS: section-heading, stack, status, status--ok, status--error, uppercase-label, item-list (the rows), badge, btn,
+     btn--sm, btn--outline, reason-form, label, textarea, empty, sr-only, admin-nav (components.css). */}}
+{{define "content"}}<div class="section-heading">
+  <h1 class="section-heading__title text-glow"><span class="section-heading__prompt" aria-hidden="true">~/ </span>admin/contas</h1>
+</div>
+<div class="stack stack--lg">
+  {{template "admin-nav" "contas"}}
+  {{with .Data.Notice}}<p class="status status--ok" role="status">{{.}}</p>{{end}}
+  {{with .Data.Alert}}<p class="status status--error" role="alert">{{.}}</p>{{end}}
+  <section class="stack" aria-labelledby="contas-ativas">
+    <h2 class="uppercase-label" id="contas-ativas">contas ativas</h2>
+    <ul class="item-list">
+      {{range .Data.Active}}<li class="item-list__item">
+        <div class="item-list__main">
+          <p class="item-list__title">{{.Name}}</p>
+          <p class="item-list__meta">{{.Meta}}</p>
+        </div>
+        {{if .Admin}}<span class="badge badge--accent item-list__status">Admin</span>{{end}}
+        {{if .CanBlock}}<div class="item-list__actions">
+          <form method="post" action="/admin/conta/bloquear">
+            <input type="hidden" name="user_id" value="{{.UserID}}">
+            <details class="reason-form">
+              <summary>[✕] bloquear conta<span class="sr-only"> {{.Name}}</span></summary>
+              <label class="label" for="{{.ReasonID}}">motivo (opcional)</label>
+              <textarea class="textarea" id="{{.ReasonID}}" name="reason" maxlength="500"></textarea>
+              <button class="btn btn--sm" type="submit">[✕] BLOQUEAR<span class="sr-only"> {{.Name}}</span></button>
+            </details>
+          </form>
+        </div>{{end}}
+      </li>
+      {{end}}
+    </ul>
+  </section>
+  <section class="stack" aria-labelledby="contas-bloqueadas">
+    <h2 class="uppercase-label" id="contas-bloqueadas">contas bloqueadas</h2>
+    {{if .Data.Blocked}}<ul class="item-list">
+      {{range .Data.Blocked}}<li class="item-list__item">
+        <div class="item-list__main">
+          <p class="item-list__title">{{.Name}}</p>
+          <p class="item-list__meta">{{.Meta}}</p>
+        </div>
+        {{if .Admin}}<span class="badge badge--accent item-list__status">Admin</span>{{end}}
+        <div class="item-list__actions">
+          <form method="post" action="/admin/conta/desbloquear">
+            <input type="hidden" name="user_id" value="{{.UserID}}">
+            <button class="btn btn--outline btn--sm" type="submit">[→] DESBLOQUEAR<span class="sr-only"> {{.Name}}</span></button>
+          </form>
+        </div>
+      </li>
+      {{end}}
+    </ul>{{else}}<div class="empty">nenhuma conta bloqueada</div>{{end}}
+  </section>
+</div>{{end}}

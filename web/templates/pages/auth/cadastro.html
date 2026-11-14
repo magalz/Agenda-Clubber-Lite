@@ -9,7 +9,7 @@
        collectivePicker  around the kind radios, #collective_name, the hidden #collective_id, the suggestions box and
                          the role radios: #collective_name is a combobox over the list the script loads from
                          /coletivos/sugestoes into #collective-suggestions-box. Picking sets #collective_id; any typing
-                         clears it. A name with no pick is a new collective: the script selects Dono and disables Membro,
+                         clears it. A name with no pick is a new collective: the script selects Administrador and disables Membro,
                          and swaps the text of #role-hint to say why. The served HTML never disables a radio.
      The picker's handlers sit on the kind fieldset (change) and on the .field around the name (mouse, delegated to
      the suggestion buttons), because the box itself stays an empty div. The box comes right after the input, so the
@@ -54,9 +54,9 @@
     </div>
     <fieldset class="stack stack--sm" role="radiogroup" aria-describedby="role-hint{{with index .Errors "role"}} erro-role{{end}}"{{with index .Errors "role"}} aria-invalid="true"{{end}}>
       <legend class="label label--required">papel</legend>
-      <label class="radio-card"><input type="radio" name="role" value="owner"{{if eq (.Form.Get "role") "owner"}} checked{{end}} required><span class="uppercase-label">Dono</span></label>
+      <label class="radio-card"><input type="radio" name="role" value="owner"{{if eq (.Form.Get "role") "owner"}} checked{{end}} required><span class="uppercase-label">Administrador</span></label>
       <label class="radio-card"><input type="radio" name="role" value="member"{{if eq (.Form.Get "role") "member"}} checked{{end}} required :disabled="membroDisabled"><span class="uppercase-label">Membro</span></label>
-      <p class="hint" id="role-hint">quem cria um coletivo novo entra como dono</p>
+      <p class="hint" id="role-hint">quem cria um coletivo novo entra como administrador (master)</p>
       {{template "field-error" (dict "Errors" .Errors "Field" "role")}}
     </fieldset>
     </div>

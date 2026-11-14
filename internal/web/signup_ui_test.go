@@ -190,6 +190,8 @@ func TestSignupUIScript(t *testing.T) {
 	for _, want := range []string{
 		"Alpine.data('phoneMask'", "Alpine.data('passwordFields'", "Alpine.data('collectivePicker'",
 		`\p{Ll}`, `\p{Lu}`, `\p{Nd}`, `\p{L}`,
+		// The new-collective message names the role Administrador (master).
+		"quem cria um coletivo novo entra como administrador (master)",
 	} {
 		if !strings.Contains(js, want) {
 			t.Errorf("app.js lacks %q", want)

@@ -173,7 +173,7 @@ func TestConfirmEmail(t *testing.T) {
 				t.Errorf("text to %s lacks %q:\n%s", m.To, want, m.Text)
 			}
 		}
-		if line := confirmLine(t, m.Text, "Noite Verde"); line != "- Noite Verde · Coletivo · Dono · novo" {
+		if line := confirmLine(t, m.Text, "Noite Verde"); line != "- Noite Verde · Coletivo · Administrador · novo" {
 			t.Errorf("text to %s: line %q, want the new collective marked", m.To, line)
 		}
 		if line := confirmLine(t, m.Text, "Casa Aurora"); line != "- Casa Aurora · Produtora · Membro" {

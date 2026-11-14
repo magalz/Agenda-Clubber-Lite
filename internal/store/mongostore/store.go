@@ -91,12 +91,13 @@ func requireReplicaSet(hello bson.M) error {
 // context of a call, if there is one, so the same values serve WithTx.
 func (s *Store) Repos() domain.Repos {
 	return domain.Repos{
-		Users:       users{s},
-		Tokens:      tokens{s},
-		Sessions:    sessions{s},
-		Collectives: collectives{s},
-		Memberships: memberships{s},
-		Outbox:      outbox{s},
+		Users:        users{s},
+		Tokens:       tokens{s},
+		Sessions:     sessions{s},
+		Collectives:  collectives{s},
+		Memberships:  memberships{s},
+		Outbox:       outbox{s},
+		AuditEntries: auditEntries{s},
 	}
 }
 

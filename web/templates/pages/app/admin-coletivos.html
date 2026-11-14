@@ -1,0 +1,44 @@
+{{/* Coletivos do admin (/admin/coletivos), for the site admin. Data is a manageCollectivesPage: Items, one manageCollectiveRow for each
+     approved collective (ID, Name, Kind, EventsBlocked, Locked, Base; internal/web/routes_admin_manage.go), Notice, a status
+     above the list after the blocks were saved, and Alert, an alert for a refused save. The ?msg= code of the redirect that
+     follows a save picks the Notice text on the server; the URL never supplies text. A row shows the name, the kind and a badge
+     for each block that is on, and one form with the two blocks as checkboxes (checked while on), an optional reason and a save
+     button; a line under each checkbox says what it does. Saving what the collective already has changes and records nothing.
+     Base starts the ids of the row's reason field and hints, unique in the page (counted, never taken from the store).
+     The save is an ordinary post (no HTMX is needed); a refusal comes back to this page, with the list as it is now and Alert
+     set (422 for a reason that is not plain text, 403 for a collective that is not approved, 404 for an id that names nothing).
+     The id is a hidden field, never a part of the path. A box that is not sent is off.
+       POST /admin/coletivo/bloqueios  collective_id, events_blocked (1), locked (1), reason   set the two blocks
+     CSS: section-heading, stack, stack--sm, status, status--ok, status--error, item-list (the rows), badge, check, hint, label,
+     textarea, btn, btn--sm, btn--outline, empty, sr-only, admin-nav (components.css). */}}
+{{define "content"}}<div class="section-heading">
+  <h1 class="section-heading__title text-glow"><span class="section-heading__prompt" aria-hidden="true">~/ </span>admin/coletivos</h1>
+</div>
+<div class="stack stack--lg">
+  {{template "admin-nav" "coletivos"}}
+  {{with .Data.Notice}}<p class="status status--ok" role="status">{{.}}</p>{{end}}
+  {{with .Data.Alert}}<p class="status status--error" role="alert">{{.}}</p>{{end}}
+  {{if .Data.Items}}<ul class="item-list">
+    {{range .Data.Items}}<li class="item-list__item">
+      <div class="item-list__main">
+        <p class="item-list__title">{{.Name}}</p>
+        <p class="item-list__meta">{{.Kind}}</p>
+      </div>
+      {{if .EventsBlocked}}<span class="badge badge--warn item-list__status">eventos bloqueados</span>{{end}}
+      {{if .Locked}}<span class="badge badge--warn item-list__status">membros e nome congelados</span>{{end}}
+      <div class="item-list__actions">
+        <form method="post" action="/admin/coletivo/bloqueios" class="stack stack--sm">
+          <input type="hidden" name="collective_id" value="{{.ID}}">
+          <label class="check"><input type="checkbox" name="events_blocked" value="1"{{if .EventsBlocked}} checked{{end}} aria-describedby="{{.Base}}-eventos"> bloquear eventos</label>
+          <p class="hint" id="{{.Base}}-eventos">Administradores não podem criar nem editar eventos.</p>
+          <label class="check"><input type="checkbox" name="locked" value="1"{{if .Locked}} checked{{end}} aria-describedby="{{.Base}}-congelar"> congelar membros e nome</label>
+          <p class="hint" id="{{.Base}}-congelar">ninguém decide pedidos de entrada, promove, rebaixa nem renomeia, e novos pedidos de entrada são recusados.</p>
+          <label class="label" for="{{.Base}}-motivo">motivo (opcional)</label>
+          <textarea class="textarea" id="{{.Base}}-motivo" name="reason" maxlength="500"></textarea>
+          <button class="btn btn--outline btn--sm" type="submit">[→] SALVAR<span class="sr-only"> {{.Name}}</span></button>
+        </form>
+      </div>
+    </li>
+    {{end}}
+  </ul>{{else}}<div class="empty">nenhum coletivo aprovado</div>{{end}}
+</div>{{end}}

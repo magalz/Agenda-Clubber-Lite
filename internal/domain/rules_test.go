@@ -289,6 +289,60 @@ func TestOutboxMessageValidate(t *testing.T) {
 	})
 }
 
+func baseAuditEntry() AuditEntry {
+	return AuditEntry{
+		At: t0, Action: AuditCollectiveRenamed, ActorID: "u1", ActorName: "Ana",
+		UserID: "u2", UserName: "Bia", CollectiveID: "c1", CollectiveName: "Produtora Dois",
+		Detail: "Produtora Um -> Produtora Dois", Reason: "nome oficial",
+	}
+}
+
+func TestAuditEntryValidate(t *testing.T) {
+	cases := []check[AuditEntry]{
+		c[AuditEntry]("valid entry", nil),
+		c("entity ID is assigned by the backend", func(e *AuditEntry) { e.ID = "" }),
+		c("only the required fields", func(e *AuditEntry) {
+			*e = AuditEntry{At: t0, Action: AuditAccountApproved, ActorID: "u1"}
+		}),
+		c("an action about nobody and no collective", func(e *AuditEntry) {
+			e.UserID, e.UserName, e.CollectiveID, e.CollectiveName = "", "", "", ""
+		}),
+		c("snapshot IDs of deleted rows are not checked", func(e *AuditEntry) {
+			e.ActorID, e.UserID, e.CollectiveID = "gone-1", "gone-2", "gone-3"
+		}),
+
+		c("audit action unknown", func(e *AuditEntry) { e.Action = "login" }, "action"),
+		c("empty action", func(e *AuditEntry) { e.Action = "" }, "action"),
+		c("action in the wrong case", func(e *AuditEntry) { e.Action = "Account_Approved" }, "action"),
+
+		c("zero time", func(e *AuditEntry) { e.At = time.Time{} }, "at"),
+		c("missing actor", func(e *AuditEntry) { e.ActorID = "" }, "actor_id"),
+
+		c("actor name of 120 runes", func(e *AuditEntry) { e.ActorName = rep("ç", 120) }),
+		c("actor name of 121 runes", func(e *AuditEntry) { e.ActorName = rep("ç", 121) }, "actor_name"),
+		c("user name of 120 runes", func(e *AuditEntry) { e.UserName = rep("ç", 120) }),
+		c("user name of 121 runes", func(e *AuditEntry) { e.UserName = rep("ç", 121) }, "user_name"),
+		c("collective name of 80 runes", func(e *AuditEntry) { e.CollectiveName = rep("ç", 80) }),
+		c("collective name of 81 runes", func(e *AuditEntry) { e.CollectiveName = rep("ç", 81) }, "collective_name"),
+		c("detail of 500 runes", func(e *AuditEntry) { e.Detail = rep("ç", 500) }),
+		c("detail of 501 runes", func(e *AuditEntry) { e.Detail = rep("ç", 501) }, "detail"),
+		c("reason of 500 runes", func(e *AuditEntry) { e.Reason = rep("ç", 500) }),
+		c("reason of 501 runes", func(e *AuditEntry) { e.Reason = rep("ç", 501) }, "reason"),
+		c("detail of 500 characters", func(e *AuditEntry) { e.Detail = rep("x", 500) }),
+		c("reason of 501 characters", func(e *AuditEntry) { e.Reason = rep("x", 501) }, "reason"),
+
+		c("every failing field is reported", func(e *AuditEntry) {
+			e.Action, e.At, e.ActorID = "?", time.Time{}, ""
+			e.ActorName, e.UserName, e.CollectiveName = rep("x", 121), rep("x", 121), rep("x", 81)
+			e.Detail, e.Reason = rep("x", 501), rep("x", 501)
+		}, "action", "at", "actor_id", "actor_name", "user_name", "collective_name", "detail", "reason"),
+	}
+	for _, a := range allAuditActions {
+		cases = append(cases, c("action "+string(a), func(e *AuditEntry) { e.Action = a }))
+	}
+	runChecks(t, baseAuditEntry, AuditEntry.Validate, cases)
+}
+
 func TestFieldErrors(t *testing.T) {
 	var _ error = FieldErrors(nil)
 
@@ -433,6 +487,64 @@ func TestNameKey(t *testing.T) {
 			}
 			if again := NameKey(got); again != got {
 				t.Errorf("not idempotent: NameKey(%q) = %q", got, again)
+			}
+		})
+	}
+}
+
+func TestCleanCollectiveName(t *testing.T) {
+	const (
+		required = "campo obrigatório"
+		invalid  = "valor inválido"
+		control  = "não use quebras de linha nem caracteres de controle"
+		length   = "use de 2 a 80 caracteres"
+	)
+	if MsgControl != control {
+		t.Errorf("MsgControl = %q, want %q", MsgControl, control)
+	}
+
+	for _, tc := range []struct {
+		name, in string
+		want     string // the cleaned name, "" when there is a problem
+		problem  string
+	}{
+		{"plain name", "Coletivo Ação", "Coletivo Ação", ""},
+		{"trimmed", " \t Casa Dois \n", "Casa Dois", ""},
+		{"inside kept as typed", "  Coletivo   AÇÃO  ", "Coletivo   AÇÃO", ""},
+		{"decomposed accents kept", "Ação", "Ação", ""},
+		{"exactly 2 runes", "ab", "ab", ""},
+		{"exactly 2 runes with accents", "éé", "éé", ""},
+		{"exactly 80 runes", rep("a", 80), rep("a", 80), ""},
+		{"80 multibyte runes count as 80", rep("ç", 80), rep("ç", 80), ""},
+
+		{"empty", "", "", required},
+		{"only space", " \t\n ", "", required},
+		{"1 rune", "a", "", length},
+		{"1 multibyte rune", "é", "", length},
+		{"1 rune after trimming", "  a  ", "", length},
+		{"81 runes", rep("a", 81), "", length},
+		{"81 multibyte runes", rep("ç", 81), "", length},
+
+		{"invalid UTF-8", "ab\xffcd", "", invalid},
+		{"invalid UTF-8 wins over control", "\xff\x00", "", invalid},
+		{"only combining marks", "̃̃", "", invalid},
+
+		{"newline inside", "linha\noutra", "", control},
+		{"carriage return inside", "a\rb", "", control},
+		{"tab inside", "a\tb", "", control},
+		{"NUL inside", "ab\x00cd", "", control},
+		{"DEL inside", "ab\x7fcd", "", control},
+		{"C1 control inside", "ab\u0085cd", "", control},
+		{"control wins over length", "a\x00", "", control},
+		{"control wins over empty key", "̃\x00", "", control},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, problem := CleanCollectiveName(tc.in)
+			if got != tc.want || problem != tc.problem {
+				t.Errorf("CleanCollectiveName(%q) = (%q, %q), want (%q, %q)", tc.in, got, problem, tc.want, tc.problem)
+			}
+			if problem == "" && NameKey(got) == "" {
+				t.Errorf("accepted %q, which has no comparison key", tc.in)
 			}
 		})
 	}

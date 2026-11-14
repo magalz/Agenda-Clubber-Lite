@@ -119,7 +119,7 @@ func confirmKindLabel(k domain.CollectiveKind) string {
 
 func confirmRoleLabel(r domain.Role) string {
 	if r == domain.RoleOwner {
-		return "Dono"
+		return "Administrador"
 	}
 	return "Membro"
 }
