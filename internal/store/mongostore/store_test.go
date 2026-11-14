@@ -92,7 +92,7 @@ func TestRequireReplicaSet(t *testing.T) {
 
 // --- schema ---
 
-var collections = []string{"users", "tokens", "sessions", "collectives", "memberships", "outbox", "audit_entries"}
+var collections = []string{"users", "tokens", "sessions", "collectives", "memberships", "events", "outbox", "audit_entries"}
 
 // wantIndexes are the index names of each collection. There is no TTL index:
 // the contract says a backend never expires data on its own.
@@ -102,6 +102,7 @@ var wantIndexes = map[string][]string{
 	"sessions":      {"_id_", "user_id"},
 	"collectives":   {"_id_", "name_key_unique", "status_kind_name_key"},
 	"memberships":   {"_id_", "collective_id_status", "status_requested_at", "user_id_collective_id_unique"},
+	"events":        {"_id_", "collective_id_starts_at", "starts_at_id", "state_city_starts_at"},
 	"outbox":        {"_id_", "sent_at_gave_up_next_attempt_at"},
 	"audit_entries": {"_id_", "at_desc_id_desc"},
 }
@@ -331,6 +332,87 @@ func TestSchemaChecksAuditEntries(t *testing.T) {
 	for name, mutate := range bad {
 		d := rawAuditEntry()
 		d["_id"] = "bad: " + name
+		mutate(d)
+		if _, err := coll.InsertOne(t.Context(), d); !isValidationFailure(err) {
+			t.Errorf("insert with %s: error = %v, want a document validation failure", name, err)
+		}
+	}
+}
+
+func TestSchemaAcceptsTheEventAuditActions(t *testing.T) {
+	s := mongotest.New(t)
+	for _, a := range []domain.AuditAction{domain.AuditEventEdited, domain.AuditEventDeleted} {
+		d := rawAuditEntry()
+		d["_id"], d["action"] = "entry-"+string(a), string(a)
+		if _, err := s.DB().Collection("audit_entries").InsertOne(t.Context(), d); err != nil {
+			t.Errorf("insert an entry with the action %s: %v", a, err)
+		}
+	}
+}
+
+// rawEvent is a document the events validator accepts, with only the required
+// fields.
+func rawEvent() bson.M {
+	return bson.M{
+		"_id": bson.NewObjectID(), "collective_id": bson.NewObjectID(), "name": "Noite Verde",
+		"type": string(domain.EventTypeFesta), "starts_at": now, "duration_min": 240, "free": false,
+		"price_cents": int64(3000), "style": "Techno", "state": "CE", "city": "Fortaleza",
+		"created_at": now, "updated_at": now, "version": int64(1),
+	}
+}
+
+var requiredEventFields = []string{"collective_id", "name", "type", "starts_at", "duration_min", "free",
+	"price_cents", "style", "state", "city", "created_at", "updated_at", "version"}
+
+func TestSchemaChecksEvents(t *testing.T) {
+	s := mongotest.New(t)
+	coll := s.DB().Collection("events")
+
+	full := rawEvent()
+	for k, v := range map[string]any{"type_other": "x", "ticket_url": "https://example.com", "substyle": "x",
+		"style_other": "x", "venue": "x", "artists": "x", "description": "x",
+		"created_by": bson.NewObjectID(), "updated_by": bson.NewObjectID()} {
+		full[k] = v
+	}
+	if _, err := coll.InsertOne(t.Context(), full); err != nil {
+		t.Errorf("insert a complete event: %v", err)
+	}
+	if _, err := coll.InsertOne(t.Context(), rawEvent()); err != nil {
+		t.Errorf("insert an event with only the required fields: %v", err)
+	}
+	for _, typ := range []domain.EventType{domain.EventTypeRave, domain.EventTypeFestival, domain.EventTypeWorkshop,
+		domain.EventTypeFeira, domain.EventTypeOutros} {
+		d := rawEvent()
+		d["type"] = string(typ)
+		if _, err := coll.InsertOne(t.Context(), d); err != nil {
+			t.Errorf("insert an event of type %s: %v", typ, err)
+		}
+	}
+
+	bad := map[string]func(bson.M){
+		"an unknown type":     func(d bson.M) { d["type"] = "show" },
+		"a type in a capital": func(d bson.M) { d["type"] = "Festa" },
+		"a string _id":        func(d bson.M) { d["_id"] = "e1" },
+		"an unexpected field": func(d bson.M) { d["email"] = "ana@example.com" },
+		"a string starts_at":  func(d bson.M) { d["starts_at"] = "2026-11-12" },
+		"a string price":      func(d bson.M) { d["price_cents"] = "3000" },
+		"a double duration":   func(d bson.M) { d["duration_min"] = 240.5 },
+		"a string free":       func(d bson.M) { d["free"] = "yes" },
+		"a null created_by":   func(d bson.M) { d["created_by"] = nil },
+		"a null updated_by":   func(d bson.M) { d["updated_by"] = nil },
+		"a null venue":        func(d bson.M) { d["venue"] = nil },
+		"a string collective": func(d bson.M) { d["collective_id"] = bson.NewObjectID().Hex() },
+		"a string created_by": func(d bson.M) { d["created_by"] = bson.NewObjectID().Hex() },
+	}
+	for _, k := range requiredEventFields {
+		bad["no "+k] = func(d bson.M) { delete(d, k) }
+	}
+	for _, k := range []string{"name", "type_other", "ticket_url", "style", "substyle", "style_other", "state", "city",
+		"venue", "artists", "description"} {
+		bad["a non-string "+k] = func(d bson.M) { d[k] = 7 }
+	}
+	for name, mutate := range bad {
+		d := rawEvent()
 		mutate(d)
 		if _, err := coll.InsertOne(t.Context(), d); !isValidationFailure(err) {
 			t.Errorf("insert with %s: error = %v, want a document validation failure", name, err)

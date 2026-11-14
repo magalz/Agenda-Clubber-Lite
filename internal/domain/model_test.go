@@ -69,11 +69,19 @@ var allAuditActions = []AuditAction{
 	AuditCollectiveRenamed, AuditCollectiveBlocks,
 	AuditJoinRequested, AuditJoinAdminApproved, AuditJoinOwnerApproved, AuditJoinRejected,
 	AuditMemberPromoted, AuditMemberDemoted,
+	AuditEventEdited, AuditEventDeleted,
 }
 
 func TestAuditActionValid(t *testing.T) {
 	checkEnum(t, allAuditActions,
-		[]AuditAction{"", "login", "Account_Approved", "account_approved ", "collective_blocks", "join_approved"})
+		[]AuditAction{"", "login", "Account_Approved", "account_approved ", "collective_blocks", "join_approved",
+			"event_created", "Event_Edited", "event_deleted "})
+}
+
+func TestEventTypeValid(t *testing.T) {
+	checkEnum(t,
+		[]EventType{EventTypeFesta, EventTypeRave, EventTypeFestival, EventTypeWorkshop, EventTypeFeira, EventTypeOutros},
+		[]EventType{"", "show", "Festa", "festa ", "outro"})
 }
 
 // The stored values are part of every backend's data format; changing one
@@ -112,6 +120,15 @@ func TestEnumValuesAreStable(t *testing.T) {
 		{"join_rejected", string(AuditJoinRejected)},
 		{"member_promoted", string(AuditMemberPromoted)},
 		{"member_demoted", string(AuditMemberDemoted)},
+		{"event_edited", string(AuditEventEdited)},
+		{"event_deleted", string(AuditEventDeleted)},
+		{"festa", string(EventTypeFesta)},
+		{"rave", string(EventTypeRave)},
+		{"festival", string(EventTypeFestival)},
+		{"workshop", string(EventTypeWorkshop)},
+		{"feira", string(EventTypeFeira)},
+		{"outros", string(EventTypeOutros)},
+		{"outros", StyleOther},
 	} {
 		if tc.got != tc.want {
 			t.Errorf("constant value = %q, want %q", tc.got, tc.want)
