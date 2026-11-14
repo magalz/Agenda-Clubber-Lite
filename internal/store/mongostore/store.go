@@ -31,10 +31,6 @@ const serverSelectionTimeout = 10 * time.Second
 
 var _ domain.Store = (*Store)(nil)
 
-// errNotImplemented is what the methods that phase 3 adds return until the task
-// that owns each one replaces its stub.
-var errNotImplemented = errors.New("mongostore: not implemented")
-
 // Store is a domain.Store on one MongoDB database.
 type Store struct {
 	client *mongo.Client
