@@ -3,11 +3,7 @@ package approvals
 import (
 	"context"
 	"errors"
-	"fmt"
-	"strings"
 	"time"
-	"unicode"
-	"unicode/utf8"
 
 	"github.com/magalz/agenda-clubber-lite/internal/domain"
 	"github.com/magalz/agenda-clubber-lite/internal/mail"
@@ -20,7 +16,6 @@ import (
 const (
 	msgRole         = "escolha membro ou administrador"
 	msgKind         = "escolha coletivo ou produtora"
-	msgControl      = "não use quebras de linha nem caracteres de controle"
 	msgNoCollective = "coletivo não encontrado"
 	msgAlreadyIn    = "você já faz parte deste coletivo ou já pediu para entrar"
 	msgNameExists   = "já existe; peça para entrar"
@@ -105,7 +100,7 @@ func RequestJoin(ctx context.Context, store domain.Store, origin string, actor d
 // (the Master) and as its Administrador: a pending owner membership whose owner
 // side is the actor's own approval and whose admin side is open. It emails the
 // site admins (a link to the admin area under origin) and writes an audit entry,
-// in one transaction. The name is cleaned by cleanCollectiveName.
+// in one transaction. The name is cleaned by domain.CleanCollectiveName.
 //
 // It returns ErrNotAllowed when the actor has no active account (checked before
 // the input), and domain.FieldErrors for what the person can fix: the keys
@@ -117,7 +112,7 @@ func RequestCollective(ctx context.Context, store domain.Store, origin string, a
 		return err
 	}
 	var fe domain.FieldErrors
-	name, problem := cleanCollectiveName(name)
+	name, problem := domain.CleanCollectiveName(name)
 	if problem != "" {
 		fe.Add("name", problem)
 	}
@@ -152,10 +147,9 @@ func RequestCollective(ctx context.Context, store domain.Store, origin string, a
 		case err != nil:
 			return wrap("request collective: create collective", err)
 		}
-		at := now
 		m := domain.Membership{
 			UserID: actor.ID, CollectiveID: c.ID, Role: domain.RoleOwner, Status: domain.MembershipStatusPending,
-			OwnerApprovedBy: actor.ID, OwnerApprovedAt: &at, RequestedAt: now,
+			OwnerApprovedBy: actor.ID, OwnerApprovedAt: &now, RequestedAt: now,
 		}
 		if err := r.Memberships.Create(ctx, m); err != nil {
 			return wrap("request collective: create membership", err)
@@ -176,7 +170,7 @@ func RequestCollective(ctx context.Context, store domain.Store, origin string, a
 // of its approved Administradores. The new name applies at once. It emails the
 // site admins with both names (a link to the collectives under origin) and writes
 // an audit entry whose detail is "<old> → <new>", in one transaction. The name is
-// cleaned by cleanCollectiveName. A name that only differs in case or spacing is
+// cleaned by domain.CleanCollectiveName. A name that only differs in case or spacing is
 // a rename like any other; one exactly equal to the current name changes and
 // records nothing.
 //
@@ -190,7 +184,7 @@ func RenameCollective(ctx context.Context, store domain.Store, origin string, ac
 	if err := requireActive(actor); err != nil {
 		return err
 	}
-	name, problem := cleanCollectiveName(name)
+	name, problem := domain.CleanCollectiveName(name)
 	if problem != "" {
 		return domain.FieldErrors{"name": problem}
 	}
@@ -240,30 +234,4 @@ func requireActive(actor domain.User) error {
 		return ErrNotAllowed
 	}
 	return nil
-}
-
-// cleanCollectiveName trims name and checks it the way signup checks the name of
-// a new collective: valid UTF-8 without control characters (line breaks
-// included), domain.CollectiveNameMin to domain.CollectiveNameMax runes, and a
-// comparison key that is not empty (a name of only combining marks has none). It
-// returns the cleaned name and "", or "" and the pt-BR message for the field.
-// What is inside the name is kept as typed.
-//
-// internal/accounts has the same check for signup; this package does not import
-// it, so the few lines are repeated.
-func cleanCollectiveName(name string) (cleaned, problem string) {
-	name = strings.TrimSpace(name)
-	switch n := utf8.RuneCountInString(name); {
-	case !utf8.ValidString(name):
-		return "", domain.MsgInvalid
-	case strings.ContainsFunc(name, unicode.IsControl):
-		return "", msgControl
-	case n == 0:
-		return "", domain.MsgRequired
-	case n < domain.CollectiveNameMin || n > domain.CollectiveNameMax:
-		return "", fmt.Sprintf("use de %d a %d caracteres", domain.CollectiveNameMin, domain.CollectiveNameMax)
-	case domain.NameKey(name) == "":
-		return "", domain.MsgInvalid
-	}
-	return name, ""
 }

@@ -18,7 +18,7 @@ import (
 const SignupTokenTTL = 24 * time.Hour
 
 // More pt-BR messages shown next to a signup form field. The messages for a
-// missing value and for a length come from domain's wording.
+// missing value, a length and a control character come from domain's wording.
 const (
 	signupMsgPasswordMismatch = "as senhas não conferem"
 	signupMsgKind             = "escolha coletivo ou produtora"
@@ -26,7 +26,6 @@ const (
 	signupMsgPick             = "escolha um coletivo da lista"
 	signupMsgNameInUse        = "nome já em uso; escolha outro"
 	signupMsgNewAsOwner       = "quem cria um coletivo novo entra como administrador (master)"
-	signupMsgControl          = "não use quebras de linha nem caracteres de controle"
 )
 
 // SignupInput is the signup form as the person filled it in.
@@ -134,7 +133,7 @@ func signupValidate(in SignupInput) (signupFields, error) {
 	case !utf8.ValidString(f.name):
 		fe.Add("name", domain.MsgInvalid)
 	case strings.ContainsFunc(f.name, unicode.IsControl):
-		fe.Add("name", signupMsgControl)
+		fe.Add("name", domain.MsgControl)
 	default:
 		if msg := signupLengthProblem(f.name, domain.UserNameMin, domain.UserNameMax); msg != "" {
 			fe.Add("name", msg)
@@ -169,21 +168,11 @@ func signupValidate(in SignupInput) (signupFields, error) {
 	// A picked collective is looked up in the transaction; only a typed name is
 	// checked here.
 	if in.CollectiveID == "" {
-		f.collectiveName = strings.TrimSpace(in.CollectiveName)
-		switch {
-		case !utf8.ValidString(f.collectiveName):
-			fe.Add("collective", domain.MsgInvalid)
-		case strings.ContainsFunc(f.collectiveName, unicode.IsControl):
-			fe.Add("collective", signupMsgControl)
-		default:
-			if msg := signupLengthProblem(f.collectiveName, domain.CollectiveNameMin, domain.CollectiveNameMax); msg != "" {
-				fe.Add("collective", msg)
-				break
-			}
-			// A name of only combining marks has no comparison key to store.
-			if f.nameKey = domain.NameKey(f.collectiveName); f.nameKey == "" {
-				fe.Add("collective", domain.MsgInvalid)
-			}
+		cleaned, problem := domain.CleanCollectiveName(in.CollectiveName)
+		if problem != "" {
+			fe.Add("collective", problem)
+		} else {
+			f.collectiveName, f.nameKey = cleaned, domain.NameKey(cleaned)
 		}
 	}
 	return f, fe.Err()

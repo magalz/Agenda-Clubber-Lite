@@ -157,10 +157,28 @@ func NameKey(name string) string {
 	return strings.Join(strings.Fields(strings.Map(foldRune, strings.ToLower(name))), " ")
 }
 
-// CleanCollectiveName is the rule for a collective name typed in a form. RED
-// stub: the real body follows.
+// CleanCollectiveName is the rule for a collective name typed in a form, the
+// same for sign-up, a collective request and a rename. It trims the name and
+// checks, in this order: valid UTF-8, no control character (a line break
+// included), a length of CollectiveNameMin to CollectiveNameMax runes, and a
+// NameKey that is not empty (a name of only combining marks has none). It
+// returns the cleaned name and "", or "" and the pt-BR message for the field.
+// What is inside the name is kept as typed.
 func CleanCollectiveName(name string) (cleaned, problem string) {
-	return "", ""
+	name = strings.TrimSpace(name)
+	switch n := utf8.RuneCountInString(name); {
+	case !utf8.ValidString(name):
+		return "", MsgInvalid
+	case strings.ContainsFunc(name, unicode.IsControl):
+		return "", MsgControl
+	case n == 0:
+		return "", MsgRequired
+	case n < CollectiveNameMin || n > CollectiveNameMax:
+		return "", fmt.Sprintf("use de %d a %d caracteres", CollectiveNameMin, CollectiveNameMax)
+	case NameKey(name) == "":
+		return "", MsgInvalid
+	}
+	return name, ""
 }
 
 // foldRune maps a lowercase Portuguese letter with a diacritic to its plain
