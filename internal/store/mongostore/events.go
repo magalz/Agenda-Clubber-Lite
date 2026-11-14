@@ -67,7 +67,9 @@ func (r events) Create(ctx context.Context, e *domain.Event) error {
 	return nil
 }
 
-// ByID joins the event with its collective, as "collective", for the name.
+// ByID joins the event with its collective, as "collective", for the name. An
+// event whose collective is gone (the cascade of a delete is a later task, and a
+// concurrent create can leave one behind) is still read, with an empty name.
 func (r events) ByID(ctx context.Context, id string) (domain.EventView, error) {
 	oid, err := parseID(id)
 	if err != nil {
@@ -78,7 +80,7 @@ func (r events) ByID(ctx context.Context, id string) (domain.EventView, error) {
 		{{Key: "$lookup", Value: bson.M{
 			"from": colCollectives, "localField": "collective_id", "foreignField": "_id", "as": "collective",
 		}}},
-		{{Key: "$unwind", Value: "$collective"}},
+		{{Key: "$unwind", Value: bson.M{"path": "$collective", "preserveNullAndEmptyArrays": true}}},
 	})
 	if err != nil {
 		return domain.EventView{}, wrap("read event", err)
