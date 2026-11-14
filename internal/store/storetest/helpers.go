@@ -192,6 +192,30 @@ func newAuditEntry(mutate ...func(*domain.AuditEntry)) domain.AuditEntry {
 	return a
 }
 
+// newEvent is a valid paid event of the collective, created by the user at base
+// and never edited (no UpdatedBy), that starts 48 hours after base in Fortaleza:
+// the tests that need another time, place or style set their fields.
+func newEvent(collectiveID, createdBy string, mutate ...func(*domain.Event)) domain.Event {
+	ev := domain.Event{
+		CollectiveID: collectiveID,
+		Name:         "Noite Verde",
+		Type:         domain.EventTypeFesta,
+		StartsAt:     at(48 * time.Hour),
+		DurationMin:  240,
+		PriceCents:   3000,
+		Style:        "Techno",
+		State:        "CE",
+		City:         "Fortaleza",
+		CreatedBy:    createdBy,
+		CreatedAt:    base,
+		UpdatedAt:    base,
+	}
+	for _, f := range mutate {
+		f(&ev)
+	}
+	return ev
+}
+
 // --- fixtures stored through the repositories; a failure ends the subtest ---
 
 func (e env) user(name string, mutate ...func(*domain.User)) domain.User {
@@ -248,6 +272,13 @@ func (e env) auditEntry(mutate ...func(*domain.AuditEntry)) domain.AuditEntry {
 	a := newAuditEntry(mutate...)
 	noErr(e.t, "create audit entry "+string(a.Action), e.r.AuditEntries.Create(e.ctx, &a))
 	return a
+}
+
+func (e env) event(collectiveID, createdBy string, mutate ...func(*domain.Event)) domain.Event {
+	e.t.Helper()
+	ev := newEvent(collectiveID, createdBy, mutate...)
+	noErr(e.t, "create event "+ev.Name, e.r.Events.Create(e.ctx, &ev))
+	return ev
 }
 
 // --- assertions ---

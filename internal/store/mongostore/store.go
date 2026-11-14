@@ -96,6 +96,7 @@ func (s *Store) Repos() domain.Repos {
 		Sessions:     sessions{s},
 		Collectives:  collectives{s},
 		Memberships:  memberships{s},
+		Events:       events{s},
 		Outbox:       outbox{s},
 		AuditEntries: auditEntries{s},
 	}
