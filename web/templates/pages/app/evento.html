@@ -1,0 +1,13 @@
+{{/* An event's page (/eventos/:id), for any signed-in user. The calendar's sheet shows the same content (the event-detail
+     partial); this is the page a link, a redirect or a refused action lands on. Data is an eventDetailData, which the partial
+     documents; Notice is its page-only status, a fixed text that the ?msg= code of the redirect picks on the server (the URL
+     never supplies text).
+     CSS: section-heading, stack, status, status--ok (components.css), plus what the partial uses. */}}
+{{define "content"}}<div class="section-heading">
+  <h1 class="section-heading__title text-glow"><span class="section-heading__prompt" aria-hidden="true">~/ </span>evento</h1>
+  <p class="section-heading__sub"><a href="/">[←] calendário</a></p>
+</div>
+<div class="stack stack--lg">
+  {{with .Data.Notice}}<p class="status status--ok" role="status">{{.}}</p>{{end}}
+  {{template "event-detail" .Data}}
+</div>{{end}}

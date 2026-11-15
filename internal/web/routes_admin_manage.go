@@ -54,6 +54,8 @@ var auditLabels = map[domain.AuditAction]string{
 	domain.AuditJoinRejected:        "entrada recusada",
 	domain.AuditMemberPromoted:      "promovido a administrador",
 	domain.AuditMemberDemoted:       "rebaixado a membro",
+	domain.AuditEventEdited:         "evento editado pelo admin",
+	domain.AuditEventDeleted:        "evento excluído",
 }
 
 // auditActionLabel is the pt-BR label of an audit action; a value this code does
