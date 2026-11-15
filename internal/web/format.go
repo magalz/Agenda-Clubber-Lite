@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/magalz/agenda-clubber-lite/internal/catalog"
 	"github.com/magalz/agenda-clubber-lite/internal/domain"
 )
 
@@ -92,8 +93,24 @@ func fmtPrice(free bool, cents int64) string {
 	return fmt.Sprintf("R$ %s,%02d", b.String(), cents%100)
 }
 
-// fmtEventType is the label of an event's type. Stub until written.
-func fmtEventType(t domain.EventType, other string) string { return "" }
+// fmtEventType is the label of an event's type, as the badges show it: the text
+// the person typed for "Outros", or the type's pt-BR label from the catalog.
+func fmtEventType(t domain.EventType, other string) string {
+	if t == domain.EventTypeOutros && other != "" {
+		return other
+	}
+	return catalog.TypeLabel(t)
+}
 
-// fmtEventStyle is an event's style as shown. Stub until written.
-func fmtEventStyle(style, substyle, other string) string { return "" }
+// fmtEventStyle is an event's style as the pages show it: the text the person
+// typed for the style "outros", or the catalog's label followed by the substyle
+// after " · " when there is one.
+func fmtEventStyle(style, substyle, other string) string {
+	switch {
+	case style == domain.StyleOther && other != "":
+		return other
+	case substyle != "":
+		return style + " · " + substyle
+	}
+	return style
+}
