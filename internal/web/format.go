@@ -5,6 +5,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/magalz/agenda-clubber-lite/internal/domain"
 )
 
 // The pt-BR formatting the templates use. Every function takes a time.Time
@@ -89,3 +91,9 @@ func fmtPrice(free bool, cents int64) string {
 	}
 	return fmt.Sprintf("R$ %s,%02d", b.String(), cents%100)
 }
+
+// fmtEventType is the label of an event's type. Stub until written.
+func fmtEventType(t domain.EventType, other string) string { return "" }
+
+// fmtEventStyle is an event's style as shown. Stub until written.
+func fmtEventStyle(style, substyle, other string) string { return "" }

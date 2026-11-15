@@ -78,6 +78,9 @@ func NewRenderer(fsys fs.FS, assets *Assets, loc *time.Location, log *slog.Logge
 		"until":     func(start time.Time, durationMin int) string { return fmtUntil(start, durationMin, loc) },
 		"duration":  fmtDuration,
 		"price":     fmtPrice,
+
+		"eventType":  fmtEventType,
+		"eventStyle": fmtEventStyle,
 	}
 
 	// Glob only fails on a malformed pattern, and these are constants.
