@@ -123,6 +123,25 @@ func RunMemberships(t *testing.T, newStore NewStore) {
 			want := []domain.MembershipView{{Membership: m, CollectiveName: "Casa Azul", CollectiveKind: produtora, CollectiveStatus: cApproved}}
 			wantEqual(t, "ListByUser", normAll(e.views(ana.ID), normView), normAll(want, normView))
 		}},
+		{"ListByUser shows whether the collective has its events blocked", func(t *testing.T, e env) {
+			ana := e.user("ana")
+			blocked := e.collective("Coletivo Bloqueado", coletivo, cApproved, blockEvents)
+			open := e.collective("Coletivo Aberto", produtora, cApproved)
+			pending := e.collective("Coletivo Pendente", coletivo, cPending, blockEvents)
+			e.member(ana, blocked, roleOwner, mApproved)
+			e.member(ana, open, roleOwner, mApproved)
+			e.member(ana, pending, roleMember, mPending)
+
+			got := make(map[string]bool)
+			for _, v := range e.views(ana.ID) {
+				got[v.CollectiveName] = v.CollectiveEventsBlocked
+			}
+			wantEqual(t, "CollectiveEventsBlocked by collective", got, map[string]bool{
+				blocked.Name: true,
+				open.Name:    false,
+				pending.Name: true,
+			})
+		}},
 		{"create validates the membership", func(t *testing.T, e env) {
 			ana := e.user("ana")
 			c := e.collective("Casa Azul", coletivo, cApproved)

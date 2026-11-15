@@ -298,6 +298,27 @@ func RunCollectives(t *testing.T, newStore NewStore) {
 				t.Errorf("the other collective: %v", err)
 			}
 		}},
+		{"Delete removes the events of the collective and leaves those of the others", func(t *testing.T, e env) {
+			ana := e.user("ana")
+			c := e.collective("Casa Azul", coletivo, cApproved)
+			other := e.collective("Casa Verde", produtora, cApproved)
+			gone1 := e.event(c.ID, ana.ID, func(ev *domain.Event) { ev.Name = "Noite Azul" })
+			gone2 := e.event(c.ID, ana.ID, func(ev *domain.Event) { ev.Name = "Dia Azul" })
+			kept := e.event(other.ID, ana.ID, func(ev *domain.Event) { ev.Name = "Noite Verde" })
+
+			noErr(t, "Delete", e.r.Collectives.Delete(e.ctx, c.ID))
+
+			for _, ev := range []domain.Event{gone1, gone2} {
+				_, err := e.r.Events.ByID(e.ctx, ev.ID)
+				isErr(t, "ByID of the event "+ev.Name+" after Delete", err, domain.ErrNotFound)
+			}
+			got := e.eventView("ByID of the other collective's event", kept.ID)
+			wantEqual(t, "the other collective's event", normEvent(got.Event), normEvent(kept))
+			if got.CollectiveName != other.Name {
+				t.Errorf("CollectiveName = %q, want %q", got.CollectiveName, other.Name)
+			}
+			e.getUser(ana.ID)
+		}},
 		{"Delete frees the name key and leaves no memberships behind", func(t *testing.T, e env) {
 			ana := e.user("ana")
 			c := e.collective("Casa Azul", coletivo, cApproved)

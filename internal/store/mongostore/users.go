@@ -201,8 +201,9 @@ func (r users) ListAdminEmails(ctx context.Context) ([]string, error) {
 }
 
 // Delete removes the user, the user's sessions, tokens and memberships, and
-// clears every reference to the user, in one transaction (the caller's, when it
-// has one).
+// clears every reference to the user (the creator and editor of the events
+// included: the events stay), in one transaction (the caller's, when it has
+// one).
 func (r users) Delete(ctx context.Context, id string) error {
 	oid, err := parseID(id)
 	if err != nil {
@@ -227,6 +228,8 @@ func (r users) Delete(ctx context.Context, id string) error {
 			{colCollectives, "approved_by"},
 			{colMemberships, "admin_approved_by"},
 			{colMemberships, "owner_approved_by"},
+			{colEvents, "created_by"},
+			{colEvents, "updated_by"},
 		} {
 			if err := r.s.clearRef(ctx, ref.collection, ref.field, oid); err != nil {
 				return err

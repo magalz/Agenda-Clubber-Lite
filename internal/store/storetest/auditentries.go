@@ -64,6 +64,7 @@ func RunAuditEntries(t *testing.T, newStore NewStore) {
 				domain.AuditCollectiveRenamed, domain.AuditCollectiveBlocks,
 				domain.AuditJoinRequested, domain.AuditJoinAdminApproved, domain.AuditJoinOwnerApproved, domain.AuditJoinRejected,
 				domain.AuditMemberPromoted, domain.AuditMemberDemoted,
+				domain.AuditEventEdited, domain.AuditEventDeleted,
 			}
 			// The newest entry first, as List returns them.
 			var want []domain.AuditEntry
