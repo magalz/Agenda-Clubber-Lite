@@ -26,7 +26,7 @@ var navItems = []struct{ key, label, href string }{
 // renderHome renders the shipped app/home page through the App's renderer.
 func renderHome(t *testing.T, app *App, nav string, user *ViewUser) string {
 	t.Helper()
-	rec := renderPage(t, app.Render, "app/home", PageData{Title: "Calendário", Nav: nav, User: user})
+	rec := renderPage(t, app.Render, "app/home", PageData{Title: "Calendário", Nav: nav, User: user, Data: calHomeData()})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, body %q", rec.Code, rec.Body)
 	}
@@ -64,7 +64,7 @@ func wantAll(t *testing.T, what, got string, wants ...string) {
 // route.
 func TestAppShellLoggedOut(t *testing.T) {
 	app := newTestApp(t)
-	rec := renderPage(t, app.Render, "app/home", PageData{Title: "Calendário", Nav: "calendario"})
+	rec := renderPage(t, app.Render, "app/home", PageData{Title: "Calendário", Nav: "calendario", Data: calHomeData()})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", rec.Code)
 	}
@@ -129,8 +129,11 @@ func TestAppShellLoggedOut(t *testing.T) {
 		}
 	}
 
-	// The placeholder the calendar will replace.
-	wantAll(t, "home", body, `class="section-heading"`, `~/ `, "calendário", `class="empty"`, "o calendário chega na próxima fase")
+	// The calendar fills the page's content.
+	wantAll(t, "home", body, `class="section-heading"`, `~/ `, "calendário", `<table class="calendar__grid"`, `id="calendar-day"`)
+	if strings.Contains(body, "o calendário chega na próxima fase") {
+		t.Error("the page still shows the calendar placeholder")
+	}
 
 	if v := cspViolations(body); len(v) > 0 {
 		t.Errorf("%s in:\n%s", strings.Join(v, "; "), body)
