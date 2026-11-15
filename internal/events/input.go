@@ -249,52 +249,21 @@ func digits(s string) bool {
 	return s != "" && !strings.ContainsFunc(s, func(r rune) bool { return r < '0' || r > '9' })
 }
 
-// atoi parses s, which must be minLen to maxLen ASCII digits.
-func atoi(s string, minLen, maxLen int) (int, bool) {
-	if !digits(s) || len(s) < minLen || len(s) > maxLen {
-		return 0, false
-	}
-	n, err := strconv.Atoi(s)
-	return n, err == nil
-}
-
 // parseDate reads dd/mm/aaaa (d/m/aaaa too) or AAAA-MM-DD, a real calendar date,
 // and returns it as midnight UTC.
 func parseDate(s string) (time.Time, bool) {
-	var y, m, d int
-	var ok bool
-	if p := strings.Split(s, "/"); len(p) == 3 {
-		var dOK, mOK, yOK bool
-		d, dOK = atoi(p[0], 1, 2)
-		m, mOK = atoi(p[1], 1, 2)
-		y, yOK = atoi(p[2], 4, 4)
-		ok = dOK && mOK && yOK
-	} else if p := strings.Split(s, "-"); len(p) == 3 {
-		var dOK, mOK, yOK bool
-		y, yOK = atoi(p[0], 4, 4)
-		m, mOK = atoi(p[1], 2, 2)
-		d, dOK = atoi(p[2], 2, 2)
-		ok = dOK && mOK && yOK
+	for _, layout := range []string{"2/1/2006", "2006-01-02"} {
+		if t, err := time.Parse(layout, s); err == nil {
+			return t, true
+		}
 	}
-	if !ok {
-		return time.Time{}, false
-	}
-	t := time.Date(y, time.Month(m), d, 0, 0, 0, 0, time.UTC)
-	if t.Year() != y || int(t.Month()) != m || t.Day() != d { // 31/11 would roll over
-		return time.Time{}, false
-	}
-	return t, true
+	return time.Time{}, false
 }
 
 // parseClock reads HH:MM or H:MM, 00:00 to 23:59.
 func parseClock(s string) (hour, minute int, ok bool) {
-	p := strings.Split(s, ":")
-	if len(p) != 2 {
-		return 0, 0, false
-	}
-	hour, hOK := atoi(p[0], 1, 2)
-	minute, mOK := atoi(p[1], 2, 2)
-	return hour, minute, hOK && mOK && hour <= 23 && minute <= 59
+	t, err := time.Parse("15:04", s)
+	return t.Hour(), t.Minute(), err == nil
 }
 
 // parseBounded reads a count of 0 to max; an empty one counts as 0.
@@ -302,8 +271,11 @@ func parseBounded(s string, max int) (int, bool) {
 	if s == "" {
 		return 0, true
 	}
-	n, ok := atoi(s, 1, 2)
-	return n, ok && n <= max
+	if len(s) > 2 || !digits(s) {
+		return 0, false
+	}
+	n, _ := strconv.Atoi(s) // one or two digits
+	return n, n <= max
 }
 
 // parseVersion reads a positive integer.
