@@ -234,7 +234,8 @@ func TestAppShellMarksTheActiveItem(t *testing.T) {
 		})
 	}
 
-	if body := renderHome(t, app, "", user); strings.Contains(body, "aria-current") {
+	// The calendar marks today with aria-current="date", so only the page marker counts here.
+	if body := renderHome(t, app, "", user); strings.Contains(body, `aria-current="page"`) {
 		t.Error("a page without a Nav key marks an item as current")
 	}
 }

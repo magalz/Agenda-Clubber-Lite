@@ -1,0 +1,68 @@
+{{/* The month of the calendar: the month bar, the state/city filter and the grid. app/home includes it, and GET /calendario
+     answers with it alone. Data is a calendarView (internal/web/routes_calendar.go): Month (the first day), Key (AAAA-MM),
+     PrevHref, NextHref and TodayHref (the page of a month, with the filter kept), State (the state being filtered, "" for
+     todos), States and Cities (the options), Weeks (seven calendarDay each: the day, DayHref and a Chip for each event that
+     fits the cell), Truncated and Limit.
+     Everything works without JavaScript: the month links are plain links, the filter is a GET form to /, a chip links to
+     the event and the number of a day (and +N) to that day's list. A later script swaps this block (#calendar-month) in
+     place and fills #calendar-day, which stays empty until then.
+     Below 640px the grid is compact (the chips are hidden, a dot stands for each event); the number of the day is the link.
+     CSS: calendar, calendar__* (components.css). */}}
+{{define "calendar-month"}}<div class="calendar" id="calendar-month" data-month="{{.Key}}">
+  <nav class="calendar__nav" aria-label="mês">
+    <a class="btn btn--outline btn--sm" href="{{.PrevHref}}" rel="prev">[‹]<span class="sr-only"> mês anterior</span></a>
+    <h2 class="calendar__title" id="calendar-title">{{monthYear .Month}}</h2>
+    <a class="btn btn--outline btn--sm" href="{{.NextHref}}" rel="next">[›]<span class="sr-only"> próximo mês</span></a>
+    <a class="btn btn--ghost btn--sm calendar__today" href="{{.TodayHref}}">Hoje</a>
+  </nav>
+  <form class="calendar__filter" method="get" action="/">
+    <input type="hidden" name="mes" value="{{.Key}}">
+    <div class="field">
+      <label class="label" for="calendar-uf">estado</label>
+      <select class="select" id="calendar-uf" name="uf">
+        <option value="">todos</option>
+        {{range .States}}<option value="{{.Value}}"{{if .Selected}} selected{{end}}>{{.Label}}</option>
+        {{end}}
+      </select>
+    </div>
+    <div class="field">
+      <label class="label" for="calendar-cidade">cidade</label>
+      <select class="select" id="calendar-cidade" name="cidade"{{if not .State}} disabled aria-describedby="calendar-cidade-dica"{{end}}>
+        <option value="">todas</option>
+        {{range .Cities}}<option value="{{.Value}}"{{if .Selected}} selected{{end}}>{{.Label}}</option>
+        {{end}}
+      </select>
+      {{if not .State}}<p class="hint" id="calendar-cidade-dica">escolha um estado e filtre para escolher a cidade</p>{{end}}
+    </div>
+    <button class="btn btn--outline btn--sm" type="submit">[→] filtrar</button>
+  </form>
+  {{if .Truncated}}<p class="status status--warn" role="status">mostrando só os primeiros {{.Limit}} eventos deste mês</p>{{end}}
+  <table class="calendar__grid" aria-labelledby="calendar-title">
+    <thead>
+      <tr>
+        <th class="calendar__weekday" scope="col"><span aria-hidden="true">DOM</span><span class="sr-only">domingo</span></th>
+        <th class="calendar__weekday" scope="col"><span aria-hidden="true">SEG</span><span class="sr-only">segunda-feira</span></th>
+        <th class="calendar__weekday" scope="col"><span aria-hidden="true">TER</span><span class="sr-only">terça-feira</span></th>
+        <th class="calendar__weekday" scope="col"><span aria-hidden="true">QUA</span><span class="sr-only">quarta-feira</span></th>
+        <th class="calendar__weekday" scope="col"><span aria-hidden="true">QUI</span><span class="sr-only">quinta-feira</span></th>
+        <th class="calendar__weekday" scope="col"><span aria-hidden="true">SEX</span><span class="sr-only">sexta-feira</span></th>
+        <th class="calendar__weekday" scope="col"><span aria-hidden="true">SÁB</span><span class="sr-only">sábado</span></th>
+      </tr>
+    </thead>
+    <tbody>
+      {{range .Weeks}}<tr>
+        {{range .}}<td class="calendar__cell{{if not .InMonth}} calendar__cell--out{{end}}{{if .Today}} calendar__cell--today{{end}}{{if .Past}} calendar__cell--past{{end}}" data-day="{{.Key}}"{{if .Today}} aria-current="date"{{end}}>
+          <a class="calendar__daynum" href="{{.DayHref}}"><span aria-hidden="true">{{.Date.Day}}</span><span class="sr-only">{{dateLong .Date}}{{if .Today}}, hoje{{else if .Past}}, passado{{end}}{{with len .Events}}, {{.}} {{if eq . 1}}evento{{else}}eventos{{end}}{{end}}</span></a>
+          {{with .Chips}}<ul class="calendar__events">
+            {{range .}}<li><a class="calendar__chip" href="{{.Href}}" title="{{.Event.Name}} · {{clock .Event.StartsAt}}"><span class="calendar__chip-meta"><span class="calendar__chip-time">{{clock .Event.StartsAt}}</span><span class="badge calendar__chip-type">{{eventType .Event.Type .Event.TypeOther}}</span></span><span class="calendar__chip-name">{{.Event.Name}}</span></a></li>
+            {{end}}</ul>
+          <span class="calendar__dots" aria-hidden="true">{{range .}}<span class="calendar__dot"></span>{{end}}</span>{{end}}
+          {{if .More}}<a class="calendar__more" href="{{.DayHref}}">+{{.More}}<span class="sr-only"> {{if eq .More 1}}evento a mais{{else}}eventos a mais{{end}} neste dia</span></a>{{end}}
+        </td>
+        {{end}}
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+  <section class="calendar__day" id="calendar-day" aria-live="polite"></section>
+</div>{{end}}

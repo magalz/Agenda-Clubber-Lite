@@ -184,7 +184,7 @@ func TestCalendarShowsTheMonth(t *testing.T) {
 
 	// A Sunday-to-Saturday grid of whole weeks: 01/11 to 05/12.
 	head := regexp.MustCompile(`(?s)<thead>(.*?)</thead>`).FindString(body)
-	if n := strings.Count(head, "<th"); n != 7 {
+	if n := strings.Count(head, "<th "); n != 7 {
 		t.Errorf("%d column headers, want 7", n)
 	}
 	inOrder(t, head, ">DOM<", ">SEG<", ">TER<", ">QUA<", ">QUI<", ">SEX<", ">SÁB<")
@@ -192,7 +192,7 @@ func TestCalendarShowsTheMonth(t *testing.T) {
 	if len(days) != 35 || days[0][1] != "2026-11-01" || days[34][1] != "2026-12-05" {
 		t.Errorf("%d cells from %v to %v; want 35 from 2026-11-01 to 2026-12-05", len(days), days[0][1], days[len(days)-1][1])
 	}
-	if n := strings.Count(body, `<tr class="calendar__week"`); n != 5 {
+	if n := strings.Count(regexp.MustCompile(`(?s)<tbody>.*</tbody>`).FindString(body), "<tr>"); n != 5 {
 		t.Errorf("%d week rows, want 5", n)
 	}
 
@@ -605,7 +605,7 @@ func TestCalendarEscapesWhatItShows(t *testing.T) {
 	app := newTestApp(t)
 	v := calMonthView()
 	ev := domain.EventView{Event: domain.Event{ID: "a/b?c=d&e#f", Name: "x", Type: domain.EventTypeFesta, StartsAt: time.Date(2026, 11, 14, 22, 0, 0, 0, time.UTC)}}
-	day := &v.Weeks[2][6]
+	day := &v.Weeks[1][6] // Saturday 14/11
 	day.Events, day.Shown = []domain.EventView{ev}, []domain.EventView{ev}
 	cell := calCell(t, calRender(t, app, newCalendarView(v)), "2026-11-14")
 	chips := calChips(cell)
