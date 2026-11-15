@@ -157,10 +157,10 @@ type CollectiveOption struct {
 }
 
 // FormCollectives returns the collectives actor may create an event in, by name:
-// those where mayCreate says yes, which is an approved Administrador of an
-// approved collective whose events are not blocked. The site admin, who the
-// block never stops, also gets a blocked collective where the admin is an
-// approved Administrador.
+// an approved Administrador of an approved collective whose events are not
+// blocked. mayCreate decides the right; the block is checked here too because
+// mayCreate lets it pass for the site admin, and the form never offers a blocked
+// collective.
 func FormCollectives(ctx context.Context, s domain.Store, actor domain.User) ([]CollectiveOption, error) {
 	// ListByUser returns the memberships in ascending order of the collective's name.
 	memberships, err := s.Repos().Memberships.ListByUser(ctx, actor.ID)
@@ -171,7 +171,7 @@ func FormCollectives(ctx context.Context, s domain.Store, actor domain.User) ([]
 	for _, m := range memberships {
 		membership := m.Membership
 		c := domain.Collective{Status: m.CollectiveStatus, EventsBlocked: m.CollectiveEventsBlocked}
-		if mayCreate(actor, c, &membership) == nil {
+		if !m.CollectiveEventsBlocked && mayCreate(actor, c, &membership) == nil {
 			out = append(out, CollectiveOption{ID: m.CollectiveID, Name: m.CollectiveName})
 		}
 	}
