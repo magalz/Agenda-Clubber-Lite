@@ -13,9 +13,9 @@ import (
 
 // None of these tests needs the database: Form.Event reads no store.
 
-// validForm is a form that creates a valid event: a Festa on Sunday 15/11/2026,
+// inputForm is a form that creates a valid event: a Festa on Sunday 15/11/2026,
 // 22:00 in Fortaleza, for six hours, R$ 25,00, in Fortaleza/CE.
-func validForm() Form {
+func inputForm() Form {
 	return Form{
 		CollectiveID: "col-1",
 		Name:         "Noite de Teste",
@@ -36,8 +36,8 @@ func validForm() Form {
 	}
 }
 
-// validEvent is the event validForm turns into.
-func validEvent() domain.Event {
+// inputEvent is the event inputForm turns into.
+func inputEvent() domain.Event {
 	return domain.Event{
 		CollectiveID: "col-1",
 		Name:         "Noite de Teste",
@@ -56,10 +56,10 @@ func validEvent() domain.Event {
 	}
 }
 
-// prevEvent is a stored event to edit: the same Festa as validEvent, from
+// inputPrev is a stored event to edit: the same Festa as inputEvent, from
 // another collective, saved twice.
-func prevEvent() domain.Event {
-	e := validEvent()
+func inputPrev() domain.Event {
+	e := inputEvent()
 	e.ID = "ev-1"
 	e.CollectiveID = "col-prev"
 	e.CreatedBy = "user-1"
@@ -70,18 +70,18 @@ func prevEvent() domain.Event {
 	return e
 }
 
-// editForm is validForm as the edit page posts it back for prevEvent.
-func editForm() Form {
-	f := validForm()
+// inputEditForm is inputForm as the edit page posts it back for inputPrev.
+func inputEditForm() Form {
+	f := inputForm()
 	f.CollectiveID = "col-ignored"
 	f.Version = "3"
 	return f
 }
 
-// mustEvent turns the form into an event at testNow and fails the test on any
+// inputMustEvent turns the form into an event at testNow and fails the test on any
 // field error. It also checks the rule behind the whole file: what Event accepts
 // passes domain.Event.Validate, so the service never fails on user input.
-func mustEvent(t *testing.T, f Form, prev *domain.Event) domain.Event {
+func inputMustEvent(t *testing.T, f Form, prev *domain.Event) domain.Event {
 	t.Helper()
 	e, fe := f.Event(testNow, testLoc, prev)
 	if fe != nil {
@@ -98,11 +98,11 @@ func mustEvent(t *testing.T, f Form, prev *domain.Event) domain.Event {
 }
 
 func TestFormEventCreate(t *testing.T) {
-	got, fe := validForm().Event(testNow, testLoc, nil)
+	got, fe := inputForm().Event(testNow, testLoc, nil)
 	if fe != nil {
 		t.Fatalf("field errors: %v", fe)
 	}
-	want := validEvent()
+	want := inputEvent()
 	if got.StartsAt.Location() != time.UTC || !got.StartsAt.Equal(want.StartsAt) {
 		t.Errorf("StartsAt = %v, want %v (22:00 in Fortaleza, in UTC)", got.StartsAt, want.StartsAt)
 	}
@@ -110,13 +110,13 @@ func TestFormEventCreate(t *testing.T) {
 	if got != want {
 		t.Errorf("event =\n%+v\nwant\n%+v", got, want)
 	}
-	mustEvent(t, validForm(), nil)
+	inputMustEvent(t, inputForm(), nil)
 }
 
 func TestFormEventEditCopiesWhatTheFormNeverChanges(t *testing.T) {
-	prev := prevEvent()
-	got := mustEvent(t, editForm(), &prev)
-	want := validEvent()
+	prev := inputPrev()
+	got := inputMustEvent(t, inputEditForm(), &prev)
+	want := inputEvent()
 	want.ID, want.CollectiveID, want.CreatedBy, want.CreatedAt = prev.ID, prev.CollectiveID, prev.CreatedBy, prev.CreatedAt
 	want.Version = 3 // from the form; UpdatedBy and UpdatedAt stay zero: the service sets them
 	if got.StartsAt.Location() != time.UTC || !got.StartsAt.Equal(want.StartsAt) {
@@ -126,31 +126,31 @@ func TestFormEventEditCopiesWhatTheFormNeverChanges(t *testing.T) {
 	if got != want {
 		t.Errorf("event =\n%+v\nwant\n%+v", got, want)
 	}
-	if prev != prevEvent() {
+	if prev != inputPrev() {
 		t.Errorf("Event changed prev: %+v", prev)
 	}
 }
 
 func TestFormEventCreateIgnoresVersion(t *testing.T) {
-	f := validForm()
+	f := inputForm()
 	f.Version = "not a number"
-	if got := mustEvent(t, f, nil); got.Version != 0 {
+	if got := inputMustEvent(t, f, nil); got.Version != 0 {
 		t.Errorf("Version = %d, want 0 when creating", got.Version)
 	}
 }
 
 func TestFormEventVersion(t *testing.T) {
-	prev := prevEvent()
+	prev := inputPrev()
 	for _, v := range []string{"1", " 7 ", "9223372036854775807"} {
-		f := editForm()
+		f := inputEditForm()
 		f.Version = v
 		want, _ := strconv.ParseInt(strings.TrimSpace(v), 10, 64)
-		if got := mustEvent(t, f, &prev); got.Version != want {
+		if got := inputMustEvent(t, f, &prev); got.Version != want {
 			t.Errorf("Version %q parsed to %d, want %d", v, got.Version, want)
 		}
 	}
 	for _, v := range []string{"", " ", "0", "-1", "+3", "abc", "1.5", "3x", "9223372036854775808", "٣"} {
-		f := editForm()
+		f := inputEditForm()
 		f.Version = v
 		_, fe := f.Event(testNow, testLoc, &prev)
 		requireFieldErrors(t, fe, "version")
@@ -160,26 +160,26 @@ func TestFormEventVersion(t *testing.T) {
 	}
 }
 
-// formCase is a form that must fail with exactly one field error.
-type formCase struct {
+// inputCase is a form that must fail with exactly one field error.
+type inputCase struct {
 	name   string
 	mutate func(*Form)
 	key    string
 	msg    string // the exact message; empty means any non-empty one
 }
 
-// badValues makes one formCase for each value of the field key.
-func badValues(key string, set func(*Form, string), values ...string) []formCase {
-	var out []formCase
+// inputBadValues makes one inputCase for each value of the field key.
+func inputBadValues(key string, set func(*Form, string), values ...string) []inputCase {
+	var out []inputCase
 	for _, v := range values {
-		out = append(out, formCase{key + " " + strconv.Quote(v), func(f *Form) { set(f, v) }, key, ""})
+		out = append(out, inputCase{key + " " + strconv.Quote(v), func(f *Form) { set(f, v) }, key, ""})
 	}
 	return out
 }
 
 func TestFormEventFieldErrors(t *testing.T) {
 	line := strings.Repeat("a", 3000)
-	tests := []formCase{
+	tests := []inputCase{
 		{"collective missing", func(f *Form) { f.CollectiveID = "  " }, "collective_id", domain.MsgRequired},
 
 		{"name empty", func(f *Form) { f.Name = " \t " }, "name", domain.MsgRequired},
@@ -228,29 +228,29 @@ func TestFormEventFieldErrors(t *testing.T) {
 		{"description with a control character", func(f *Form) { f.Description = "a\x07b" }, "description", ""},
 		{"description not UTF-8", func(f *Form) { f.Description = "a\xffb" }, "description", domain.MsgInvalid},
 	}
-	tests = append(tests, badValues("date", func(f *Form, v string) { f.Date = v },
+	tests = append(tests, inputBadValues("date", func(f *Form, v string) { f.Date = v },
 		"31/11/2026", "29/02/2027", "00/12/2026", "15/00/2026", "15/13/2026", "15-11-2026", "2026/11/15",
 		"15/12/26", "2026-12-5", "2026-1-05", "15.12.2026", "amanhã", "15/12", "15/12/2026/1", "١٥/12/2026", "+5/12/2026")...)
-	tests = append(tests, badValues("time", func(f *Form, v string) { f.Time = v },
+	tests = append(tests, inputBadValues("time", func(f *Form, v string) { f.Time = v },
 		"24:00", "22:60", "22", "2200", "22:5", "ab:cd", "22:00:00", "-1:00", "22h00", "1:2:3", "+1:00", "٢٢:٠٠")...)
-	tests = append(tests, badValues("duration", func(f *Form, v string) { f.DurHours = v },
+	tests = append(tests, inputBadValues("duration", func(f *Form, v string) { f.DurHours = v },
 		"24", "-1", "abc", "1.5", "+1", "100", "٣")...)
-	tests = append(tests, badValues("duration", func(f *Form, v string) { f.DurMinutes = v },
+	tests = append(tests, inputBadValues("duration", func(f *Form, v string) { f.DurMinutes = v },
 		"60", "-1", "abc", "1.5", "+1", "100", "٣")...)
-	tests = append(tests, badValues("price", func(f *Form, v string) { f.Price = v },
+	tests = append(tests, inputBadValues("price", func(f *Form, v string) { f.Price = v },
 		"25.50", "1,234.56", "-5", "+25", "abc", "R$", "1.23", "12.34.567", ",50", "25,", "25,555", "1,2,3",
 		"0,00", "100000,00", "12.345.678", "1 234,56", "R$R$ 5", "25 reais", "٢٥", "99999999999999999999")...)
-	tests = append(tests, badValues("ticket_url", func(f *Form, v string) { f.TicketURL = v },
+	tests = append(tests, inputBadValues("ticket_url", func(f *Form, v string) { f.TicketURL = v },
 		"ftp://x.example", "x.example", "https://", "https:///caminho", "https://exa mple.com", "https://x.example/a b",
 		"javascript:alert(1)", "//x.example", "https://x.example/\na", "mailto:a@x.example")...)
-	tests = append(tests, badValues("style", func(f *Form, v string) { f.Style = v },
+	tests = append(tests, inputBadValues("style", func(f *Form, v string) { f.Style = v },
 		"Techno", "forró-xyz", "techno\nhouse", "Outros", "acid techno")...)
-	tests = append(tests, badValues("substyle", func(f *Form, v string) { f.Substyle = v },
+	tests = append(tests, inputBadValues("substyle", func(f *Form, v string) { f.Substyle = v },
 		"xyz", "Acid Techno", "techno")...)
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			f := validForm()
+			f := inputForm()
 			tc.mutate(&f)
 			_, fe := f.Event(testNow, testLoc, nil)
 			requireFieldErrors(t, fe, tc.key)
@@ -265,7 +265,7 @@ func TestFormEventEmptyForm(t *testing.T) {
 	_, fe := Form{}.Event(testNow, testLoc, nil)
 	requireFieldErrors(t, fe, "collective_id", "name", "type", "date", "time", "duration", "price", "style", "state", "city")
 
-	prev := prevEvent()
+	prev := inputPrev()
 	_, fe = Form{}.Event(testNow, testLoc, &prev)
 	requireFieldErrors(t, fe, "name", "type", "date", "time", "duration", "price", "style", "state", "city", "version")
 }
@@ -287,9 +287,9 @@ func TestFormEventDateAndTime(t *testing.T) {
 		{" 31/12/2026 ", " 7:05 ", local(2026, 12, 31, 7, 5)},
 	}
 	for _, tc := range tests {
-		f := validForm()
+		f := inputForm()
 		f.Date, f.Time = tc.date, tc.clock
-		got := mustEvent(t, f, nil).StartsAt
+		got := inputMustEvent(t, f, nil).StartsAt
 		if got.Location() != time.UTC || !got.Equal(tc.want) {
 			t.Errorf("date %q time %q: StartsAt = %v, want %v in UTC", tc.date, tc.clock, got, tc.want.UTC())
 		}
@@ -304,9 +304,9 @@ func TestFormEventDuration(t *testing.T) {
 		{"6", "0", 360}, {"", "30", 30}, {"6", "", 360}, {"0", "15", 15}, {"23", "59", 1439},
 		{"1", "30", 90}, {"01", "05", 65}, {" 2 ", " 10 ", 130},
 	} {
-		f := validForm()
+		f := inputForm()
 		f.DurHours, f.DurMinutes = tc.hours, tc.minutes
-		if got := mustEvent(t, f, nil).DurationMin; got != tc.want {
+		if got := inputMustEvent(t, f, nil).DurationMin; got != tc.want {
 			t.Errorf("hours %q minutes %q: DurationMin = %d, want %d", tc.hours, tc.minutes, got, tc.want)
 		}
 	}
@@ -321,9 +321,9 @@ func TestFormEventPrice(t *testing.T) {
 		{"25,50", 2550}, {"R$25", 2500}, {"  R$  25  ", 2500}, {"0,01", 1}, {"0,5", 50}, {"999", 99900},
 		{"1.000", 100000}, {"99.999,99", domain.EventPriceMax}, {"99999,99", domain.EventPriceMax}, {"007,1", 710},
 	} {
-		f := validForm()
+		f := inputForm()
 		f.Price = tc.price
-		got := mustEvent(t, f, nil)
+		got := inputMustEvent(t, f, nil)
 		if got.PriceCents != tc.want || got.Free {
 			t.Errorf("price %q: PriceCents = %d Free = %v, want %d, not free", tc.price, got.PriceCents, got.Free, tc.want)
 		}
@@ -332,9 +332,9 @@ func TestFormEventPrice(t *testing.T) {
 
 func TestFormEventFreeIgnoresThePrice(t *testing.T) {
 	for _, price := range []string{"", "25", "abc", "-5", "100.000,00"} {
-		f := validForm()
+		f := inputForm()
 		f.Free, f.Price = true, price
-		got := mustEvent(t, f, nil)
+		got := inputMustEvent(t, f, nil)
 		if !got.Free || got.PriceCents != 0 {
 			t.Errorf("free with price %q: Free = %v PriceCents = %d, want free and 0", price, got.Free, got.PriceCents)
 		}
@@ -349,9 +349,9 @@ func TestFormEventTicketURL(t *testing.T) {
 		{"http://localhost:8080/x", "http://localhost:8080/x"},
 		{"  https://x.example  ", "https://x.example"},
 	} {
-		f := validForm()
+		f := inputForm()
 		f.TicketURL = tc.in
-		if got := mustEvent(t, f, nil).TicketURL; got != tc.want {
+		if got := inputMustEvent(t, f, nil).TicketURL; got != tc.want {
 			t.Errorf("ticket_url %q = %q, want %q", tc.in, got, tc.want)
 		}
 	}
@@ -360,9 +360,9 @@ func TestFormEventTicketURL(t *testing.T) {
 func TestFormEventDateRule(t *testing.T) {
 	const past = "a data não pode ser anterior a hoje"
 	// 01/10/2026, 22:00 in Fortaleza, which is already 02/10 in UTC.
-	pastPrev := prevEvent()
+	pastPrev := inputPrev()
 	pastPrev.StartsAt = time.Date(2026, 10, 2, 1, 0, 0, 0, time.UTC)
-	futurePrev := prevEvent() // 15/11/2026
+	futurePrev := inputPrev() // 15/11/2026
 
 	tests := []struct {
 		name string
@@ -393,9 +393,9 @@ func TestFormEventDateRule(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			f := validForm()
+			f := inputForm()
 			if tc.prev != nil {
-				f = editForm()
+				f = inputEditForm()
 			}
 			f.Date = tc.date
 			f.Time = "08:00" // only the date matters, not the time of day
@@ -440,7 +440,7 @@ func TestFormEventPlace(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			f := validForm()
+			f := inputForm()
 			f.State, f.City = tc.state, tc.city
 			got, fe := f.Event(testNow, testLoc, nil)
 			if tc.want == nil {
@@ -460,15 +460,15 @@ func TestFormEventPlace(t *testing.T) {
 }
 
 func TestFormEventTextsAreTrimmedAndKeepTheirLineBreaks(t *testing.T) {
-	f := validForm()
+	f := inputForm()
 	f.CollectiveID = "  col-1  "
 	f.Name = "  Noite de Teste \t"
 	f.TicketURL = " https://ingressos.example/noite "
 	f.Venue = "\tGalpão 7  "
 	f.Artists = "\r\n  Ana\r\nBeto\rCaio\n\n"
 	f.Description = "  Linha 1\r\n\r\nLinha\t3\r\n"
-	got := mustEvent(t, f, nil)
-	want := validEvent()
+	got := inputMustEvent(t, f, nil)
+	want := inputEvent()
 	want.Artists = "Ana\nBeto\nCaio"
 	want.Description = "Linha 1\n\nLinha\t3"
 	got.StartsAt, want.StartsAt = time.Time{}, time.Time{}
@@ -528,9 +528,9 @@ func TestFormEventOutrosAndStaleTexts(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			f := validForm()
+			f := inputForm()
 			tc.mutate(&f)
-			got := mustEvent(t, f, nil)
+			got := inputMustEvent(t, f, nil)
 			if msg := tc.check(&got); msg != "" {
 				t.Errorf("%s; got %+v", msg, got)
 			}
@@ -543,21 +543,21 @@ func TestFormEventOutrosAndStaleTexts(t *testing.T) {
 func TestFormEventAcceptsEveryCatalogEntry(t *testing.T) {
 	for _, s := range catalog.Styles() {
 		for _, sub := range append([]string{""}, s.Substyles...) {
-			f := validForm()
+			f := inputForm()
 			f.Style, f.Substyle = s.Name, sub
-			mustEvent(t, f, nil)
+			inputMustEvent(t, f, nil)
 		}
 	}
 	for _, st := range catalog.States() {
 		for _, city := range catalog.Cities(st.Code) {
-			f := validForm()
+			f := inputForm()
 			f.State, f.City = st.Code, city
-			mustEvent(t, f, nil)
+			inputMustEvent(t, f, nil)
 		}
 	}
 	for _, typ := range catalog.Types() {
-		f := validForm()
+		f := inputForm()
 		f.Type, f.TypeOther = string(typ), "Sarau"
-		mustEvent(t, f, nil)
+		inputMustEvent(t, f, nil)
 	}
 }
