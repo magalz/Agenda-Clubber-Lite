@@ -420,6 +420,7 @@ func TestFormCollectives(t *testing.T) {
 	siteAdmin := insertUser(t, w.S, "admin2@agenda.test", func(u *domain.User) { u.IsAdmin = true })
 	insertMember(t, w.S, siteAdmin.ID, w.Delta.ID, domain.RoleOwner)
 	insertMember(t, w.S, siteAdmin.ID, w.Alfa.ID, domain.RoleMember)
+	insertMember(t, w.S, siteAdmin.ID, zeta.ID, domain.RoleOwner)
 	disabled := insertUser(t, w.S, "desligado@agenda.test", func(u *domain.User) { u.Status = domain.UserStatusDisabled })
 	insertMember(t, w.S, disabled.ID, w.Alfa.ID, domain.RoleOwner)
 
@@ -434,7 +435,9 @@ func TestFormCollectives(t *testing.T) {
 		{"Membro", w.Member, nil},
 		{"outsider", w.Outsider, nil},
 		{"site admin without membership", w.Admin, nil},
-		{"site admin as Administrador of a blocked collective", siteAdmin, []CollectiveOption{{w.Delta.ID, "Coletivo Delta"}}},
+		// mayCreate lets the block pass for the admin, but the form offers only
+		// unblocked collectives: Delta is blocked, Zeta is not.
+		{"site admin as Administrador of a blocked and an unblocked collective", siteAdmin, []CollectiveOption{{zeta.ID, "Zeta"}}},
 		{"disabled account", disabled, nil},
 	}
 	for _, tt := range tests {
