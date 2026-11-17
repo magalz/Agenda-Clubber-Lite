@@ -11,7 +11,7 @@
      city, venue, artists, description. A label with label--required is for a control with the required attribute, and a control
      with an error carries aria-invalid and aria-describedby to its erro-<field> message (the ef-aria template, which takes
      Errors, Field and, for a control that has a hint, Hint: the hint's id).
-     CSS: stack, stack--sm, field, label, label--required, hint, input, input--money, select, textarea, check
+     CSS: field, label, label--required, hint, input, input--money, select, textarea, check
      and the event-form__* classes (components.css, "Event form"). */}}
 {{define "ef-aria"}}{{$err := index .Errors .Field}}{{if $err}} aria-invalid="true"{{end}}{{if or .Hint $err}} aria-describedby="{{if .Hint}}{{.Hint}}{{end}}{{if and .Hint $err}} {{end}}{{if $err}}erro-{{.Field}}{{end}}"{{end}}{{end}}
 
@@ -91,12 +91,12 @@
     <div class="field">
       <label class="label" for="price">preço (R$)</label>
       <input class="input input--money" type="text" id="price" name="price" value="{{.Form.Get "price"}}" inputmode="decimal" placeholder="0,00" autocomplete="off"{{template "ef-aria" (dict "Errors" .Errors "Field" "price" "Hint" "dica-price")}}>
-      <p class="hint" id="dica-price">ex.: 25 ou 25,50. fica de fora se o evento for gratuito</p>
+      <p class="hint" id="dica-price">ex.: 25 ou 25,50. fica de fora se o evento for Free</p>
       {{template "field-error" (dict "Errors" .Errors "Field" "price")}}
     </div>
     <div class="field">
-      <span class="label">gratuito</span>
-      <label class="check" for="free"><input type="checkbox" id="free" name="free" value="on"{{if .Form.Get "free"}} checked{{end}}> evento gratuito</label>
+      <span class="label">ingresso</span>
+      <label class="check" for="free"><input type="checkbox" id="free" name="free" value="on"{{if .Form.Get "free"}} checked{{end}}> Free</label>
     </div>
   </div>
   <div class="field">
