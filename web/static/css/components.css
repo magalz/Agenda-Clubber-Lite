@@ -1109,10 +1109,6 @@
   font-size: var(--text-xs);
   line-height: var(--leading-xs);
   color: var(--foreground);
-  text-decoration: none;
-}
-.calendar__daynum:hover {
-  text-decoration: underline;
 }
 .calendar__cell--out .calendar__daynum,
 .calendar__cell--past .calendar__daynum {

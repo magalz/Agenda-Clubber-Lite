@@ -20,7 +20,7 @@
     <div class="field">
       <label class="label" for="calendar-uf">estado</label>
       <select class="select" id="calendar-uf" name="uf">
-        <option value="">todos</option>
+        <option value="">todos os estados</option>
         {{range .States}}<option value="{{.Value}}"{{if .Selected}} selected{{end}}>{{.Label}}</option>
         {{end}}
       </select>
@@ -28,7 +28,7 @@
     <div class="field">
       <label class="label" for="calendar-cidade">cidade</label>
       <select class="select" id="calendar-cidade" name="cidade"{{if not .State}} disabled aria-describedby="calendar-cidade-dica"{{end}}>
-        <option value="">todas</option>
+        <option value="">todas as cidades</option>
         {{range .Cities}}<option value="{{.Value}}"{{if .Selected}} selected{{end}}>{{.Label}}</option>
         {{end}}
       </select>
