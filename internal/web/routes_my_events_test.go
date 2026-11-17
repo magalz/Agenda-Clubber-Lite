@@ -19,7 +19,7 @@ const (
 	mineReadOnlyBlock  = "eventos bloqueados pelo admin"
 	mineReadOnlyOther  = "só leitura"
 	mineNoUpcoming     = "nenhum evento próximo"
-	minePastOnly       = "nenhum evento anterior"
+	mineNoPast         = "nenhum evento anterior"
 	mineEmpty          = "nenhum evento nos seus coletivos ainda"
 	mineCreateLink     = "[→] criar evento"
 )
@@ -259,7 +259,7 @@ func TestMineSplitsUpcomingAndPast(t *testing.T) {
 			t.Errorf("%q, which has not ended, is under Anteriores", n)
 		}
 	}
-	for _, absent := range []string{mineNoUpcoming, minePastOnly, mineEmpty} {
+	for _, absent := range []string{mineNoUpcoming, mineNoPast, mineEmpty} {
 		if strings.Contains(upcoming+past, absent) {
 			t.Errorf("a page with both sections full says %q", absent)
 		}
@@ -271,8 +271,8 @@ func TestMineSplitsUpcomingAndPast(t *testing.T) {
 		upcoming, past := mineSections(t, mineGet(t, w, w.Owner))
 		wantAll(t, "Próximos", upcoming, mineNoUpcoming)
 		mineWantOrder(t, "Anteriores", past, "Antes Antigo")
-		if strings.Contains(past, minePastOnly) {
-			t.Errorf("Anteriores has a row and says %q", minePastOnly)
+		if strings.Contains(past, mineNoPast) {
+			t.Errorf("Anteriores has a row and says %q", mineNoPast)
 		}
 	})
 	t.Run("only upcoming events", func(t *testing.T) {
@@ -280,7 +280,7 @@ func TestMineSplitsUpcomingAndPast(t *testing.T) {
 		mineEvent(t, w, w.Alfa, "Depois Perto", mineStart(14, 22), 360)
 		upcoming, past := mineSections(t, mineGet(t, w, w.Owner))
 		mineWantOrder(t, "Próximos", upcoming, "Depois Perto")
-		wantAll(t, "Anteriores", past, minePastOnly)
+		wantAll(t, "Anteriores", past, mineNoPast)
 		if strings.Contains(upcoming, mineNoUpcoming) {
 			t.Errorf("Próximos has a row and says %q", mineNoUpcoming)
 		}
