@@ -1,0 +1,28 @@
+{{/* The event form page: /eventos/novo creates an event, /eventos/:id/editar changes one. It is a plain form that posts to
+     itself and works without JavaScript; the field markup is the event-fields partial, which documents the ids and names.
+     Data is an eventFormPage: Edit (editing, not creating), Action (where the form posts), CancelHref, Alert (the reason a
+     refusal gives: a block of the collective's events, or an edit that raced another) with AlertHref (the link to the
+     event as it is now, set when the edit raced another), and what the partial takes. On an edit the hidden "version" is
+     the one the person is editing from, and its error (a version that is not a number) shows above the form.
+     [→] CRIAR or SALVAR saves; [↻] ATUALIZAR LISTAS posts the form back with the cities of the chosen state and the
+     substyles of the chosen style filled in, and saves nothing. It comes second, so Enter submits the primary button.
+     CSS: section-heading, stack, status, status--error, cluster, btn, btn--solid, btn--outline, btn--ghost, hint, field-error
+     (components.css), and the event-form* classes ("Event form"). */}}
+{{define "content"}}<div class="section-heading">
+  <h1 class="section-heading__title text-glow"><span class="section-heading__prompt" aria-hidden="true">~/ </span>{{if .Data.Edit}}editar evento{{else}}criar evento{{end}}</h1>
+  <p class="section-heading__sub">{{if .Data.Edit}}o que mudar aqui vale para todos{{else}}o evento aparece no calendário assim que for salvo{{end}}</p>
+</div>
+<div class="stack stack--lg">
+  {{with .Data.Alert}}<p class="status status--error" role="alert">{{.}}{{with $.Data.AlertHref}} <a href="{{.}}">[→] ver o evento atual</a>{{end}}</p>{{end}}
+  {{if .Data.Edit}}{{template "field-error" (dict "Errors" .Errors "Field" "version")}}{{end}}
+  <form class="event-form stack stack--lg" method="post" action="{{.Data.Action}}">
+    {{if .Data.Edit}}<input type="hidden" name="version" value="{{.Form.Get "version"}}">
+    {{end}}{{template "event-fields" .}}
+    <div class="cluster event-form__actions">
+      <button class="btn btn--solid" type="submit">[→] {{if .Data.Edit}}SALVAR{{else}}CRIAR{{end}}</button>
+      <button class="btn btn--outline" type="submit" name="acao" value="atualizar" formnovalidate>[↻] ATUALIZAR LISTAS</button>
+      <a class="btn btn--ghost" href="{{.Data.CancelHref}}">Cancelar</a>
+    </div>
+    <p class="hint">depois de mudar o estado ou o estilo, use ATUALIZAR LISTAS para carregar as cidades e os subestilos. nada é salvo nesse passo.</p>
+  </form>
+</div>{{end}}

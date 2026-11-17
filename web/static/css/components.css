@@ -1339,6 +1339,73 @@ body:has(dialog.sheet:modal) {
   }
 }
 
+/* ==== Event form ====
+   The create and edit page (pages/app/evento-form, partials/event-fields). The form is a stack of fieldsets:
+     <form class="event-form stack stack--lg">
+       <fieldset class="event-form__section"><legend class="event-form__title">…</legend> .field … </fieldset>
+       .event-form__row: two .field side by side from 640px (one column below)
+       <fieldset class="event-form__group"><legend class="label label--required">…</legend>
+         <div class="event-form__duration">two .field</div> .field-error </fieldset>
+       .event-form__static: the read-only collective of an event being edited
+       <div class="cluster event-form__actions"> the buttons </div>
+   A fieldset has no border of its own in a group; a section has the 1px line. */
+.event-form {
+  max-width: var(--w-form);
+}
+.event-form__section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-width: 0;
+  margin: 0;
+  padding: var(--space-4);
+  border: 1px solid var(--color-line);
+}
+.event-form__title {
+  padding-inline: var(--space-2);
+  font-size: var(--text-xs);
+  line-height: var(--leading-xs);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--accent-text);
+}
+.event-form__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-4);
+}
+@media (min-width: 640px) {
+  .event-form__row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+.event-form__group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.event-form__duration {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+}
+.event-form__duration > .field {
+  flex: 1 1 8rem;
+}
+.event-form__static {
+  min-height: 2.5rem;
+  padding: var(--space-2) 0;
+  font-family: var(--font-display);
+  font-weight: 700;
+}
+.event-form__actions {
+  align-items: center;
+}
+
 /* ==== Footer ==== */
 .footer {
   display: flex;
