@@ -40,7 +40,7 @@ type calendarChip struct {
 // data in a template.
 type calendarDay struct {
 	events.GridDay
-	DayHref string
+	DayHref string // the day's list, with the filter kept
 	Chips   []calendarChip
 }
 
@@ -74,7 +74,7 @@ func newCalendarView(v events.MonthView) calendarView {
 	}
 	for i, week := range v.Weeks {
 		for j, day := range week {
-			d := calendarDay{GridDay: day, DayHref: "/eventos/dia?" + url.Values{"data": {day.Key}}.Encode()}
+			d := calendarDay{GridDay: day, DayHref: calendarDayHref(day.Key, v.Filter)}
 			for _, e := range day.Shown {
 				d.Chips = append(d.Chips, calendarChip{Href: "/eventos/" + url.PathEscape(e.ID), Event: e.Event})
 			}
@@ -84,16 +84,27 @@ func newCalendarView(v events.MonthView) calendarView {
 	return out
 }
 
-// calendarHref is the page of a month with the filter kept.
-func calendarHref(month string, filter domain.Place) string {
-	q := url.Values{"mes": {month}}
+// calendarQuery encodes the query of a link of the calendar: the keys it adds
+// and the place the grid filters by (uf and cidade), when it does. Every link
+// that leaves the grid builds its query here, so none of them can drop the filter.
+func calendarQuery(filter domain.Place, q url.Values) string {
 	if filter.State != "" {
 		q.Set("uf", filter.State)
 	}
 	if filter.City != "" {
 		q.Set("cidade", filter.City)
 	}
-	return "/?" + q.Encode()
+	return q.Encode()
+}
+
+// calendarHref is the page of a month with the filter kept.
+func calendarHref(month string, filter domain.Place) string {
+	return "/?" + calendarQuery(filter, url.Values{"mes": {month}})
+}
+
+// calendarDayHref is the list of a day's events with the filter kept.
+func calendarDayHref(day string, filter domain.Place) string {
+	return "/eventos/dia?" + calendarQuery(filter, url.Values{"data": {day}})
 }
 
 // calendarStates are the states that have events, in the catalog's order, plus
