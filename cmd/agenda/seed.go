@@ -18,7 +18,8 @@ import (
 const (
 	devOrigin         = "http://localhost:8120" // the link's origin when APP_ORIGIN is unset
 	devEmailDomain    = "@agenda.test"
-	devPreviousPrefix = "Anterior-" // the previous password of senha-vencida is this and SEED_PASSWORD
+	devPreviousPrefix = "Anterior-"         // the previous password of senha-vencida is this and SEED_PASSWORD
+	devDefaultTZ      = "America/Fortaleza" // APP_TZ when it is unset, as in internal/config
 	oneDay            = 24 * time.Hour
 )
 
@@ -83,6 +84,79 @@ var devMemberships = []struct {
 	{"delta", "Coletivo Delta", domain.RoleOwner, domain.MembershipStatusApproved, "admin", "delta"},
 }
 
+// devEvent is a sample event: the collective it is in, the account that made it
+// (the Administrador of that collective) and its content, which has no ID, dates or
+// creator yet. The day and the time of its start are in APP_TZ: day is the number
+// of days after today (negative: before) or, with nextMonth, the day of the month
+// after this one. A day is a few days out, so that the calendar has events before
+// and after today without the table going stale.
+type devEvent struct {
+	collective, creator string
+	day, hour, minute   int
+	nextMonth           bool
+	domain.Event
+}
+
+// devEvents are the sample events, each one a case the pages have to handle. A
+// collective and a name identify an event, so a name is used once in a collective.
+// The Alfa and Beta events were made by their Administrador; the one in Delta, whose
+// events the admin blocked, is stored as it would have been before the block.
+// Together they have: events earlier this month, later this month and next month; a
+// day with three events (two in Fortaleza and one in Recife); a free event; a type
+// and a style the organizer named; an event that ends after midnight; and an event
+// with a ticket link, a venue and artists on several lines.
+var devEvents = []devEvent{
+	{collective: "Coletivo Alfa", creator: "dono", day: -8, hour: 22, Event: domain.Event{
+		Name: "Warm Up Techno", Type: domain.EventTypeFesta, DurationMin: 300, PriceCents: 2500,
+		Style: "techno", Substyle: "acid techno", State: "CE", City: "Fortaleza", Venue: "Galpão 12",
+		Description: "Aquecimento para a temporada, com a pista toda de techno."}},
+	{collective: "Coletivo Alfa", creator: "dono", day: 3, hour: 22, Event: domain.Event{
+		Name: "Rave Litoral", Type: domain.EventTypeRave, DurationMin: 480, PriceCents: 6000,
+		Style: "trance", Substyle: "goa trance", State: "CE", City: "Fortaleza", Venue: "Praia do Futuro"}},
+	{collective: "Coletivo Alfa", creator: "dono", day: 3, hour: 21, Event: domain.Event{
+		Name: "Noite House Recife", Type: domain.EventTypeFesta, DurationMin: 360, PriceCents: 3500,
+		Style: "house", Substyle: "afro house", State: "PE", City: "Recife", Venue: "Rua da Moeda"}},
+	{collective: "Coletivo Alfa", creator: "dono", day: 10, hour: 21, Event: domain.Event{
+		Name: "Baile do Brega Funk", Type: domain.EventTypeFesta, DurationMin: 300, PriceCents: 2000,
+		Style: "funk carioca", Substyle: "brega funk", State: "PE", City: "Olinda"}},
+	{collective: "Coletivo Alfa", creator: "dono", day: 8, hour: 23, minute: 30, Event: domain.Event{
+		Name: "After Hours Subsolo", Type: domain.EventTypeFesta, DurationMin: 390, PriceCents: 4500,
+		Style: "techno", Substyle: "minimal techno", State: "CE", City: "Fortaleza", Venue: "Subsolo"}},
+	{collective: "Coletivo Alfa", creator: "dono", nextMonth: true, day: 6, hour: 21, Event: domain.Event{
+		Name: "Baile de Forró Eletrônico", Type: domain.EventTypeFesta, DurationMin: 360, PriceCents: 1500,
+		Style: domain.StyleOther, StyleOther: "Forró eletrônico", State: "PE", City: "Caruaru", Venue: "Parque de Eventos"}},
+	{collective: "Produtora Beta", creator: "dono", day: -3, hour: 17, Event: domain.Event{
+		Name: "Sarau na Praça", Type: domain.EventTypeOutros, TypeOther: "Sarau", DurationMin: 180, PriceCents: 1000,
+		Style: "música brasileira", Substyle: "bossa nova", State: "CE", City: "Sobral"}},
+	{collective: "Produtora Beta", creator: "dono", day: 3, hour: 23, Event: domain.Event{
+		Name: "Pista Drum and Bass", Type: domain.EventTypeFesta, DurationMin: 300, PriceCents: 3000,
+		Style: "drum and bass", Substyle: "neurofunk", State: "CE", City: "Fortaleza", Venue: "Galpão 12"}},
+	{collective: "Produtora Beta", creator: "dono", day: 6, hour: 14, Event: domain.Event{
+		Name: "Oficina de Discotecagem", Type: domain.EventTypeWorkshop, DurationMin: 180, Free: true,
+		Style: "house", State: "CE", City: "Fortaleza", Venue: "Casa Coletiva",
+		Description: "Aula aberta de mixagem com dois toca-discos. Traga seus fones."}},
+	{collective: "Produtora Beta", creator: "dono", nextMonth: true, day: 12, hour: 16, Event: domain.Event{
+		Name: "Festival Nordeste Eletrônico", Type: domain.EventTypeFestival, DurationMin: 600, PriceCents: 8000,
+		TicketURL: "https://ingressos.example.com/festival-nordeste",
+		Style:     "techno", State: "CE", City: "Fortaleza", Venue: "Arena Central",
+		Artists:     "Nina Ferraz\nDJ Corisco\nColetivo Maré (live)\nLuz do Norte b2b Vento Sul",
+		Description: "Dois palcos, feira de discos e comida de rua."}},
+	{collective: "Coletivo Delta", creator: "delta", day: 5, hour: 20, Event: domain.Event{
+		Name: "Noite Ambient no Terraço", Type: domain.EventTypeFesta, DurationMin: 240, PriceCents: 2000,
+		Style: "ambient", Substyle: "dark ambient", State: "CE", City: "Fortaleza", Venue: "Terraço Delta"}},
+}
+
+// startsAt is the start of the event, in UTC, for a run at now: day and time are
+// read in loc. time.Date carries a month past December into the next year, and a
+// day past the end of the month into the next month.
+func (d devEvent) startsAt(now time.Time, loc *time.Location) time.Time {
+	year, month, today := now.In(loc).Date()
+	if d.nextMonth {
+		return time.Date(year, month+1, d.day, d.hour, d.minute, 0, 0, loc).UTC()
+	}
+	return time.Date(year, month, today+d.day, d.hour, d.minute, 0, 0, loc).UTC()
+}
+
 func devEmail(local string) string { return local + devEmailDomain }
 
 // seedPlan is what a run writes with. The hashes are made before the transaction
@@ -112,12 +186,13 @@ func (s *seedResult) record(what string, created bool) {
 	s.lines = append(s.lines, what+": "+state)
 }
 
-// seedDev fills a development database with sample accounts and collectives.
-// It runs only with APP_ENV=dev and SEED_PASSWORD set, and is safe to run again:
-// a record that is already there is left as it is. Every record is written in one
-// transaction, so a failed run leaves nothing half done. It reads the MongoDB
-// settings, APP_ORIGIN (for the confirmation link), APP_ENV and SEED_PASSWORD.
-// Neither the password nor the database URI reaches an output.
+// seedDev fills a development database with sample accounts, collectives and
+// events. It runs only with APP_ENV=dev and SEED_PASSWORD set, and is safe to run
+// again: a record that is already there is left as it is, an event's date included.
+// Every record is written in one transaction, so a failed run leaves nothing half
+// done. It reads the MongoDB settings, APP_ORIGIN (for the confirmation link),
+// APP_TZ (the zone of the events' dates), APP_ENV and SEED_PASSWORD. Neither the
+// password nor the database URI reaches an output.
 func seedDev(ctx context.Context, getenv func(string) string, stdout, stderr io.Writer) int {
 	fail := func(format string, args ...any) int {
 		fmt.Fprintf(stderr, "agenda: seed-dev: "+format+"\n", args...)
@@ -136,6 +211,15 @@ func seedDev(ctx context.Context, getenv func(string) string, stdout, stderr io.
 		}
 	}
 
+	tz := strings.TrimSpace(getenv("APP_TZ"))
+	if tz == "" {
+		tz = devDefaultTZ
+	}
+	loc, err := time.LoadLocation(tz)
+	if err != nil {
+		return fail("APP_TZ: unknown IANA time zone")
+	}
+
 	cfg, err := config.LoadMongo(getenv)
 	if err != nil {
 		return fail("%v", err)
@@ -150,7 +234,7 @@ func seedDev(ctx context.Context, getenv func(string) string, stdout, stderr io.
 		}
 	}()
 
-	plan := seedPlan{now: time.Now().UTC().Truncate(time.Millisecond), origin: devOrigin}
+	plan := seedPlan{now: time.Now().UTC().Truncate(time.Millisecond), loc: loc, origin: devOrigin}
 	if origin := strings.TrimRight(strings.TrimSpace(getenv("APP_ORIGIN")), "/"); origin != "" {
 		plan.origin = origin
 	}
@@ -260,6 +344,34 @@ func seedRecords(ctx context.Context, r domain.Repos, p seedPlan) (seedResult, e
 			m.DecidedAt = &decidedAt
 		}
 		if err := r.Memberships.Create(ctx, m); err != nil {
+			return seedResult{}, err
+		}
+		res.record(what, true)
+	}
+
+	// An event is found by its collective and its name. The list of a collective is
+	// read once: the events made here have other names, so it stays right.
+	listed := map[string][]domain.EventView{}
+	for _, want := range devEvents {
+		what := fmt.Sprintf("event %s in %s", want.Name, want.collective)
+		collectiveID := collectiveIDs[want.collective]
+		have, read := listed[collectiveID]
+		if !read {
+			var err error
+			if have, err = r.Events.ListByCollectives(ctx, []string{collectiveID}, domain.ListLimitMax); err != nil {
+				return seedResult{}, err
+			}
+			listed[collectiveID] = have
+		}
+		if slices.ContainsFunc(have, func(v domain.EventView) bool { return v.Name == want.Name }) {
+			res.record(what, false)
+			continue
+		}
+		e := want.Event
+		e.CollectiveID, e.StartsAt = collectiveID, want.startsAt(p.now, p.loc)
+		e.CreatedBy, e.UpdatedBy = userIDs[want.creator], userIDs[want.creator]
+		e.CreatedAt, e.UpdatedAt = p.now, p.now
+		if err := r.Events.Create(ctx, &e); err != nil {
 			return seedResult{}, err
 		}
 		res.record(what, true)
