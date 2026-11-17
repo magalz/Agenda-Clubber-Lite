@@ -20,13 +20,16 @@ var eventNotices = map[string]string{
 
 // eventDetailData is the Data of app/evento and the dot of the event-detail
 // partial: the event with the viewer's rights (events.Detail), its ticket link
-// when it is a safe one, and what the answer carries. Notice is the status above
-// the page, which only the page shows. Alert is the reason a refused deletion
-// gives. BlockedNote says to tell an Administrador why the event is read-only:
-// the admin blocked the collective's events.
+// when it is a safe one, the paths of its edit page and deletion, and what the
+// answer carries. Notice is the status above the page, which only the page shows.
+// Alert is the reason a refused deletion gives. BlockedNote says to tell an
+// Administrador why the event is read-only: the admin blocked the collective's
+// events.
 type eventDetailData struct {
 	events.DetailView
 	TicketHref  string
+	EditURL     string
+	DeleteURL   string
 	BlockedNote bool
 	Notice      string
 	Alert       string
@@ -110,7 +113,14 @@ func (a *App) eventRender(c *gin.Context, u domain.User, id string, status int, 
 		c.String(http.StatusInternalServerError, "erro interno")
 		return
 	}
-	data := eventDetailData{DetailView: view, TicketHref: ticketHref(view.TicketURL), Notice: notice, Alert: alert}
+	data := eventDetailData{
+		DetailView: view,
+		TicketHref: ticketHref(view.TicketURL),
+		EditURL:    eventURL(view.ID, "editar"),
+		DeleteURL:  eventURL(view.ID, "excluir"),
+		Notice:     notice,
+		Alert:      alert,
+	}
 	// The admin may always edit, so a blocked event the viewer may not edit is an
 	// Administrador's to be told about (a Membro or a stranger cannot edit it
 	// either way). An alert already says the same.
@@ -132,9 +142,11 @@ func (a *App) eventRender(c *gin.Context, u domain.User, id string, status int, 
 	a.page(c, status, "app/evento", PageData{Title: view.Name, Nav: "calendario", Data: data})
 }
 
-// eventURL is the path of an event's page for action ("editar", "excluir"); the
-// stub of its RED test.
-func eventURL(id, action string) string { return "" }
+// eventURL is the path of an event's page for action ("editar", "excluir"). The
+// ID is opaque, so it goes in as one escaped path segment.
+func eventURL(id, action string) string {
+	return "/eventos/" + url.PathEscape(id) + "/" + action
+}
 
 // ticketHref is the ticket link of an event, or "" when it is not an http or
 // https link with a host. The store refuses any other, so this is the second
