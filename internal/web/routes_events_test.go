@@ -115,9 +115,9 @@ func TestEvdDetailPageShowsTheEvent(t *testing.T) {
 		`>Noite Verde</h2>`,
 		`id="evento-titulo"`,
 		`>Festa</span>`, `>techno</span>`,
-		`sábado, 14/11/2026`, `22:00`, `até 04:00 (&#43;1)`,
+		`sábado, 14/11/2026 · 22:00, até 04:00 (&#43;1)`,
 		`6h`, `R$ 25,00`,
-		`Coletivo Alfa`, `Fortaleza`, `CE`, `Casa da Praia`,
+		`Coletivo Alfa`, `Fortaleza/CE`, `Casa da Praia`,
 		`DJ Um`, `DJ Dois`, `Primeira linha`, `Segunda linha`,
 	)
 	// The sidebar marks the calendar, which the page came from.
@@ -141,6 +141,20 @@ func TestEvdDetailPageShowsTheEvent(t *testing.T) {
 		if strings.Contains(body, absent) {
 			t.Errorf("an event with no optional field shows %q", absent)
 		}
+	}
+}
+
+// An event whose type or style the organizer named shows that text, not "outros".
+func TestEvdDetailShowsTheTypeAndStyleTheOrganizerNamed(t *testing.T) {
+	e := newEvdEnv(t)
+	ev := e.full(t, func(ev *domain.Event) {
+		ev.Type, ev.TypeOther = domain.EventTypeOutros, "Sarau"
+		ev.Style, ev.StyleOther = domain.StyleOther, "Forró eletrônico"
+	})
+	body := evdOK(t, "owner", e.get(e.Owner, "/eventos/"+ev.ID))
+	wantAll(t, "the page", body, `>Sarau</span>`, `>Forró eletrônico</span>`)
+	if strings.Contains(body, ">outros<") || strings.Contains(body, ">Outros<") {
+		t.Error("the page shows the word outros instead of the text the organizer typed")
 	}
 }
 
@@ -210,6 +224,21 @@ func TestEvdTicketLink(t *testing.T) {
 	none := e.full(t, func(ev *domain.Event) { ev.TicketURL = "" })
 	if body := evdOK(t, "event with no link", e.get(e.Owner, "/eventos/"+none.ID)); strings.Contains(body, "INGRESSOS") {
 		t.Error("an event with no ticket link shows an INGRESSOS link")
+	}
+}
+
+// The links to an event's pages carry its ID as one escaped path segment: an
+// opaque ID never changes the path it ends up in.
+func TestEvdEventURL(t *testing.T) {
+	for _, tc := range []struct{ id, action, want string }{
+		{"65f0c0ffee65f0c0ffee0001", "editar", "/eventos/65f0c0ffee65f0c0ffee0001/editar"},
+		{"65f0c0ffee65f0c0ffee0001", "excluir", "/eventos/65f0c0ffee65f0c0ffee0001/excluir"},
+		{"a/b?c#d e", "editar", "/eventos/a%2Fb%3Fc%23d%20e/editar"},
+		{"../x", "excluir", "/eventos/..%2Fx/excluir"},
+	} {
+		if got := eventURL(tc.id, tc.action); got != tc.want {
+			t.Errorf("eventURL(%q, %q) = %q, want %q", tc.id, tc.action, got, tc.want)
+		}
 	}
 }
 
@@ -377,6 +406,20 @@ func TestEvdDeleteByAnAdministrador(t *testing.T) {
 	}
 	if !e.exists(t, other.ID) {
 		t.Error("another event went with it")
+	}
+	// One entry in the audit log, by the Administrador who deleted it.
+	entries, err := e.Store.Repos().AuditEntries.List(context.Background(), 50)
+	if err != nil {
+		t.Fatalf("list the audit log: %v", err)
+	}
+	var deleted []domain.AuditEntry
+	for _, en := range entries {
+		if en.Action == domain.AuditEventDeleted {
+			deleted = append(deleted, en)
+		}
+	}
+	if len(deleted) != 1 || deleted[0].ActorID != e.Owner.ID || deleted[0].CollectiveID != e.Alfa.ID {
+		t.Errorf("event_deleted entries = %+v, want one by the Administrador in Alfa", deleted)
 	}
 	// The page is gone, and the admin's history says who did what.
 	evdWantUnregistered(t, "GET after the delete", e.get(e.Owner, "/eventos/"+ev.ID), e.get(e.Owner, "/eventos-que-nao-existe"))

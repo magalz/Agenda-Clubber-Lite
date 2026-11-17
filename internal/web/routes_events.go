@@ -132,6 +132,10 @@ func (a *App) eventRender(c *gin.Context, u domain.User, id string, status int, 
 	a.page(c, status, "app/evento", PageData{Title: view.Name, Nav: "calendario", Data: data})
 }
 
+// eventURL is the path of an event's page for action ("editar", "excluir"); the
+// stub of its RED test.
+func eventURL(id, action string) string { return "" }
+
 // ticketHref is the ticket link of an event, or "" when it is not an http or
 // https link with a host. The store refuses any other, so this is the second
 // check, at the place where the link becomes an href.
