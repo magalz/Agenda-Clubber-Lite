@@ -353,3 +353,6 @@ func ticketURLProblem(s string) string {
 	}
 	return ""
 }
+
+// FormOf fills the form with e as the edit page shows it. Stub until written.
+func FormOf(e domain.Event, loc *time.Location) Form { return Form{} }
