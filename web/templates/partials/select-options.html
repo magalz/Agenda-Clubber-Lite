@@ -1,0 +1,7 @@
+{{/* select-options: the <option> lines of a select, one on each line, with no wrapper. Data is a []calendarOption
+     (internal/web/routes_calendar.go): Value, Label and Selected. The event form uses it inside its city and substyle
+     selects, and GET /opcoes/cidades and /opcoes/subestilos (internal/web/routes_options.go) answer with it alone, for the
+     HTMX swap that refills a select when the state or the style changes; both come from the same builders, so they never
+     differ. Values and labels are escaped by html/template. */}}
+{{define "select-options"}}{{range .}}<option value="{{.Value}}"{{if .Selected}} selected{{end}}>{{.Label}}</option>
+{{end}}{{end}}

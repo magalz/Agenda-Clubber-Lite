@@ -2,7 +2,9 @@
      PageData: {{template "event-fields" .}}. .Form holds the values (url.Values), .Errors the messages by field, and .Data is
      an eventFormPage: Edit (the event already exists: the collective is shown, not chosen), CollectiveName (edit),
      Collectives (the collectives the person may create in), and the options of the selects: Types, States, Cities (those of
-     the chosen state), Styles and Substyles (those of the chosen style). Each option has Value, Label and Selected.
+     the chosen state), Styles and Substyles (those of the chosen style). Each option has Value, Label and Selected. The
+     city and substyle selects print theirs with the select-options partial, which GET /opcoes/cidades and /opcoes/subestilos
+     answer with too.
      Everything works as a plain post with no JavaScript. The cities and the substyles depend on the state and the style: the
      person changes those and presses the form's ATUALIZAR LISTAS button, which posts the form back with the lists filled in
      (nothing is saved). Later enhancements (the date and duration widgets, the cascades) bind to the ids and names below.
@@ -120,8 +122,7 @@
     <div class="field">
       <label class="label" for="substyle">subestilo</label>
       <select class="select" id="substyle" name="substyle"{{template "ef-aria" (dict "Errors" .Errors "Field" "substyle")}}>
-        {{range .Data.Substyles}}<option value="{{.Value}}"{{if .Selected}} selected{{end}}>{{.Label}}</option>
-        {{end}}
+        {{template "select-options" .Data.Substyles}}
       </select>
       {{template "field-error" (dict "Errors" .Errors "Field" "substyle")}}
     </div>
@@ -148,8 +149,7 @@
     <div class="field">
       <label class="label label--required" for="city">cidade</label>
       <select class="select" id="city" name="city" required{{template "ef-aria" (dict "Errors" .Errors "Field" "city")}}>
-        {{range .Data.Cities}}<option value="{{.Value}}"{{if .Selected}} selected{{end}}>{{.Label}}</option>
-        {{end}}
+        {{template "select-options" .Data.Cities}}
       </select>
       {{template "field-error" (dict "Errors" .Errors "Field" "city")}}
     </div>

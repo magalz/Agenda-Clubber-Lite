@@ -274,8 +274,9 @@ func (a *App) eventFormRender(c *gin.Context, status int, title, nav string, pag
 }
 
 // fillLists sets the options of the selects, with the one f holds selected. The
-// cities are those of f's state and the substyles those of its style; with none
-// chosen (or an unknown one) each list has only its empty option.
+// cities are those of f's state and the substyles those of its style, from
+// cityOptions and substyleOptions (routes_options.go), which GET /opcoes/... answer
+// with too; with none chosen (or an unknown one) each list has only its empty option.
 func (p *eventFormPage) fillLists(f events.Form) {
 	p.Types = []calendarOption{{Label: "escolha o tipo"}}
 	for _, t := range catalog.Types() {
@@ -287,14 +288,7 @@ func (p *eventFormPage) fillLists(f events.Form) {
 		p.States = append(p.States, calendarOption{Value: s.Code, Label: s.Name + " (" + s.Code + ")", Selected: s.Code == f.State})
 	}
 
-	if cities := catalog.Cities(f.State); len(cities) > 0 {
-		p.Cities = []calendarOption{{Label: "escolha a cidade"}}
-		for _, city := range cities {
-			p.Cities = append(p.Cities, calendarOption{Value: city, Label: city, Selected: city == f.City})
-		}
-	} else {
-		p.Cities = []calendarOption{{Label: "escolha o estado primeiro"}}
-	}
+	p.Cities = cityOptions(f.State, f.City)
 
 	p.Styles = []calendarOption{{Label: "escolha o estilo"}}
 	for _, s := range catalog.Styles() {
@@ -302,14 +296,7 @@ func (p *eventFormPage) fillLists(f events.Form) {
 	}
 	p.Styles = append(p.Styles, calendarOption{Value: domain.StyleOther, Label: "Outros", Selected: f.Style == domain.StyleOther})
 
-	p.Substyles = []calendarOption{{Label: "sem subestilo"}}
-	// A catalog style with no substyles of its own (pop) still takes outros, and its
-	// Substyles is empty but not nil; only an unknown style or outros gives nil.
-	if subs := catalog.Substyles(f.Style); subs != nil {
-		for _, s := range append(subs, domain.StyleOther) {
-			p.Substyles = append(p.Substyles, calendarOption{Value: s, Label: s, Selected: s == f.Substyle})
-		}
-	}
+	p.Substyles = substyleOptions(f.Style, f.Substyle)
 }
 
 // eventFormFields maps the form's field names to the fields of f that hold their
