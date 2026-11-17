@@ -234,6 +234,17 @@ func TestEvfNewPage(t *testing.T) {
 	wantAll(t, "minutes", evfInput(t, body, "duration_minutes"), `type="number"`, `min="0"`, `max="59"`)
 	wantAll(t, "price", evfInput(t, body, "price"), `id="price"`, `inputmode="decimal"`, `placeholder="0,00"`, `input--money`)
 	wantAll(t, "free", evfInput(t, body, "free"), `id="free"`, `type="checkbox"`)
+	// The checkbox reads "Free", the word the event page shows for a free event.
+	freeLabel := regexp.MustCompile(`(?s)<label\b[^>]*\bfor="free"[^>]*>(.*?)</label>`).FindStringSubmatch(body)
+	if freeLabel == nil {
+		t.Fatal("no <label for=\"free\"> in the page")
+	}
+	if got := strings.TrimSpace(regexp.MustCompile(`<[^>]*>`).ReplaceAllString(freeLabel[1], "")); got != "Free" {
+		t.Errorf("label of free = %q, want %q", got, "Free")
+	}
+	if strings.Contains(body, "gratuito") {
+		t.Error("the page calls a free event gratuito, but the event page calls it Free")
+	}
 	wantAll(t, "ticket_url", evfInput(t, body, "ticket_url"), `type="url"`)
 	for _, id := range []string{"style", "substyle", "state", "city"} {
 		wantAll(t, id, evfSelect(t, body, id), `id="`+id+`"`)
