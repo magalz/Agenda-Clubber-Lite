@@ -145,14 +145,14 @@ Who does what:
 
 - **Create**: an approved Administrador of an approved collective, from "Criar Evento". The form offers only the collectives the person may create in. The Admin creates events only as an Administrador of the collective.
 - **Edit and delete**: any approved Administrador of the event's collective, or the Admin. A Membro only reads.
-- **The event block**: while the Admin blocks a collective's events ("bloquear eventos"), its Administradores can neither create, edit nor delete them (the page says why, with a 409). The Admin can still edit and delete them, and create one only if the Admin is an Administrador of that collective. The events already there stay on the calendar.
+- **The event block**: while the Admin blocks a collective's events ("bloquear eventos"), its Administradores can neither create, edit nor delete them (the page says why, with a 409). The Admin can still edit and delete them. The form never offers a blocked collective, the Admin's included. The events already there stay on the calendar.
 - **Editing twice**: an edit carries the version it read. If someone else saved first, nothing is saved: the form comes back (409) with what the person typed and a link to the event as it is now, and saving again is a deliberate choice.
 
 The form asks for the name, the type, the date and start time, the duration (under 24 hours), the price or Free, the style, the state and the city, and, if the organizer wants, a ticket link (http or https), the substyle, the venue, the artists (one per line) and a description. A type or a style of Outros asks for a name. The cities depend on the state and the substyles on the style; the form works without JavaScript, with a button that refreshes the lists. A new event cannot start before today. An event that ends after midnight belongs to the day it starts.
 
 The pages:
 
-- **Meus Eventos** (`/meus-eventos`): the events of every collective where the person has an approved membership, a Membro included. "Próximos" are those that have not ended, "Anteriores" the ones that have. A row the person cannot edit says why: "só leitura (Membro)", or "eventos bloqueados pelo admin".
+- **Meus Eventos** (`/meus-eventos`): the events of every collective where the person has an approved membership, a Membro included. "Próximos" are those that have not ended, "Anteriores" the ones that have. A row the person cannot edit says why: "só leitura (Membro)", "eventos bloqueados pelo admin", or just "só leitura" (an Administrador of a collective that is not approved).
 - **Analisar Data** (`/eventos/dia?data=dd/mm/aaaa`, or `AAAA-MM-DD`): the events already on a day, from every collective and by start time, so a collective sees the clashes before it picks a date. It takes the same state and city filter, and `?destaque_uf=` and `?destaque_cidade=` put the events of one city first, with the badge "mesma cidade". A date that does not parse gets a message (422) and no list; a request from HTMX gets only the list.
 - **The city filter**: the calendar and the day list can be restricted to a state and, within it, a city (`?uf=` and `?cidade=`). The selects offer only the places that have events, and every link of the calendar keeps the filter. A state or city that is not in the catalog means "todos".
 
