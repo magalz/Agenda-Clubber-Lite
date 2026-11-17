@@ -7,14 +7,23 @@
      answer with too.
      Everything works as a plain post with no JavaScript. The cities and the substyles depend on the state and the style: the
      person changes those and presses the form's ATUALIZAR LISTAS button, which posts the form back with the lists filled in
-     (nothing is saved). Later enhancements (the date and duration widgets, the cascades) bind to the ids and names below.
+     (nothing is saved). The widgets below enhance that form with JavaScript and add no field: the posted names and values
+     are the same, and every control a script adds is x-cloak (or hidden), so without the script the form is as it was.
+     Each is an Alpine component of web/static/js/app.js that wraps the inputs it drives:
+     - datePicker (the date's .field): a [▦] button opens a month popup that writes dd/mm/aaaa into #date. The root carries
+       data-today (today in APP_TZ, AAAA-MM-DD: .Data.Today) and, editing, data-keep (the event's own day, which stays
+       valid when it is past: .Data.Keep). Days before data-today are not offered, except data-keep.
+     - timeSpinner (the time's .field) and durationSpinner (the duration fieldset): ▲▼ buttons (data-step, in minutes) and
+       the Up/Down keys step the values; a typed value out of range is refused and the .field-status line says so.
+     - moneyInput (the price and Free row): #price takes digits as cents and shows them as BRL; Free clears and disables it.
+     Later enhancements (the cascades) bind to the ids and names below.
      Fields (id = name): collective_id (create only), name, type, type_other, date (dd/mm/aaaa), time (HH:MM), duration_hours
      and duration_minutes (errors of both under "duration"), price, free, ticket_url, style, style_other, substyle, state,
      city, venue, artists, description. A label with label--required is for a control with the required attribute, and a control
      with an error carries aria-invalid and aria-describedby to its erro-<field> message (the ef-aria template, which takes
      Errors, Field and, for a control that has a hint, Hint: the hint's id).
-     CSS: field, label, label--required, hint, input, input--money, select, textarea, check
-     and the event-form__* classes (components.css, "Event form"). */}}
+     CSS: field, label, label--required, hint, input, input--money, input-group, select, textarea, check, btn, spinner*,
+     field-status, date-picker* and the event-form__* classes (components.css, "Event form" and "Event form widgets"). */}}
 {{define "ef-aria"}}{{$err := index .Errors .Field}}{{if $err}} aria-invalid="true"{{end}}{{if or .Hint $err}} aria-describedby="{{if .Hint}}{{.Hint}}{{end}}{{if and .Hint $err}} {{end}}{{if $err}}erro-{{.Field}}{{end}}"{{end}}{{end}}
 
 {{define "event-fields"}}<fieldset class="event-form__section">
@@ -60,40 +69,83 @@
 <fieldset class="event-form__section">
   <legend class="event-form__title">quando</legend>
   <div class="event-form__row">
-    <div class="field">
+    <div class="field date-picker" x-data="datePicker" data-today="{{.Data.Today}}"{{with .Data.Keep}} data-keep="{{.}}"{{end}} @keydown="onKeydown" @click="onClick" @click.outside="onOutside" @focusin.window="onOutside" @input="onInput">
       <label class="label label--required" for="date">data</label>
-      <input class="input" type="text" id="date" name="date" value="{{.Form.Get "date"}}" inputmode="numeric" placeholder="dd/mm/aaaa" autocomplete="off" required{{template "ef-aria" (dict "Errors" .Errors "Field" "date")}}>
+      <div class="input-group">
+        <input class="input" type="text" id="date" name="date" value="{{.Form.Get "date"}}" inputmode="numeric" placeholder="dd/mm/aaaa" autocomplete="off" required{{template "ef-aria" (dict "Errors" .Errors "Field" "date")}}>
+        <button class="btn btn--ghost btn--sm date-picker__toggle" type="button" aria-label="escolher data" aria-haspopup="dialog" aria-controls="date-picker-popup" aria-expanded="false" :aria-expanded="expanded" @click="toggle" x-cloak>[▦]</button>
+      </div>
+      <div class="date-picker__popup" id="date-picker-popup" role="dialog" aria-label="escolher data" hidden :hidden="closed">
+        <div class="date-picker__head">
+          <button class="date-picker__nav" type="button" data-nav="-1" aria-label="mês anterior">‹</button>
+          <span class="date-picker__title" aria-live="polite" x-text="title"></span>
+          <button class="date-picker__nav" type="button" data-nav="1" aria-label="próximo mês">›</button>
+        </div>
+        <div class="date-picker__grid"></div>
+      </div>
       {{template "field-error" (dict "Errors" .Errors "Field" "date")}}
     </div>
-    <div class="field">
+    <div class="field" x-data="timeSpinner" @keydown="onKeydown" @input="onInput" @change="onChange" @click="onClick">
       <label class="label label--required" for="time">hora de início</label>
-      <input class="input" type="text" id="time" name="time" value="{{.Form.Get "time"}}" inputmode="numeric" placeholder="HH:MM" autocomplete="off" required{{template "ef-aria" (dict "Errors" .Errors "Field" "time")}}>
+      <div class="spinner spinner--wide">
+        <input class="input" type="text" id="time" name="time" value="{{.Form.Get "time"}}" inputmode="numeric" placeholder="HH:MM" autocomplete="off" required{{template "ef-aria" (dict "Errors" .Errors "Field" "time")}}>
+        <span class="spinner__btns" x-cloak>
+          <button class="spinner__btn" type="button" data-step="60" aria-label="aumentar hora">▲</button>
+          <button class="spinner__btn" type="button" data-step="-60" aria-label="diminuir hora">▼</button>
+        </span>
+        <span class="spinner__unit" x-cloak>h</span>
+        <span class="spinner__btns" x-cloak>
+          <button class="spinner__btn" type="button" data-step="1" aria-label="aumentar minuto">▲</button>
+          <button class="spinner__btn" type="button" data-step="-1" aria-label="diminuir minuto">▼</button>
+        </span>
+        <span class="spinner__unit" x-cloak>min</span>
+      </div>
+      <p class="field-status" aria-live="polite" x-text="message"></p>
       {{template "field-error" (dict "Errors" .Errors "Field" "time")}}
     </div>
   </div>
-  <fieldset class="event-form__group">
+  <fieldset class="event-form__group" x-data="durationSpinner" @keydown="onKeydown" @input="onInput" @change="onChange" @click="onClick">
     <legend class="label label--required">duração</legend>
     <div class="event-form__duration">
       <div class="field">
         <label class="label label--required" for="duration_hours">horas</label>
-        <input class="input" type="number" id="duration_hours" name="duration_hours" value="{{.Form.Get "duration_hours"}}" min="0" max="23" inputmode="numeric" required{{template "ef-aria" (dict "Errors" .Errors "Field" "duration")}}>
+        <div class="spinner spinner--wide">
+          <input class="input" type="number" id="duration_hours" name="duration_hours" value="{{.Form.Get "duration_hours"}}" min="0" max="23" inputmode="numeric" required{{template "ef-aria" (dict "Errors" .Errors "Field" "duration")}}>
+          <span class="spinner__btns" x-cloak>
+            <button class="spinner__btn" type="button" data-step="60" aria-label="aumentar horas">▲</button>
+            <button class="spinner__btn" type="button" data-step="-60" aria-label="diminuir horas">▼</button>
+          </span>
+          <span class="spinner__unit" x-cloak>h</span>
+        </div>
       </div>
       <div class="field">
         <label class="label" for="duration_minutes">minutos</label>
-        <input class="input" type="number" id="duration_minutes" name="duration_minutes" value="{{.Form.Get "duration_minutes"}}" min="0" max="59" inputmode="numeric"{{template "ef-aria" (dict "Errors" .Errors "Field" "duration")}}>
+        <div class="spinner spinner--wide">
+          <input class="input" type="number" id="duration_minutes" name="duration_minutes" value="{{.Form.Get "duration_minutes"}}" min="0" max="59" inputmode="numeric"{{template "ef-aria" (dict "Errors" .Errors "Field" "duration")}}>
+          <span class="spinner__btns" x-cloak>
+            <button class="spinner__btn" type="button" data-step="1" aria-label="aumentar minutos">▲</button>
+            <button class="spinner__btn" type="button" data-step="-1" aria-label="diminuir minutos">▼</button>
+          </span>
+          <span class="spinner__unit" x-cloak>min</span>
+        </div>
       </div>
     </div>
+    <p class="field-status" aria-live="polite" x-text="message"></p>
     {{template "field-error" (dict "Errors" .Errors "Field" "duration")}}
   </fieldset>
 </fieldset>
 
 <fieldset class="event-form__section">
   <legend class="event-form__title">entrada</legend>
-  <div class="event-form__row">
+  <div class="event-form__row" x-data="moneyInput" @input="onInput" @change="onChange">
     <div class="field">
       <label class="label" for="price">preço (R$)</label>
-      <input class="input input--money" type="text" id="price" name="price" value="{{.Form.Get "price"}}" inputmode="decimal" placeholder="0,00" autocomplete="off"{{template "ef-aria" (dict "Errors" .Errors "Field" "price" "Hint" "dica-price")}}>
+      <div class="input-group">
+        <span class="input-group__prefix" aria-hidden="true" x-cloak>R$</span>
+        <input class="input input--money" type="text" id="price" name="price" value="{{.Form.Get "price"}}" inputmode="decimal" placeholder="0,00" autocomplete="off"{{template "ef-aria" (dict "Errors" .Errors "Field" "price" "Hint" "dica-price")}}>
+      </div>
       <p class="hint" id="dica-price">ex.: 25 ou 25,50. fica de fora se o evento for Free</p>
+      <p class="field-status" aria-live="polite" x-text="message"></p>
       {{template "field-error" (dict "Errors" .Errors "Field" "price")}}
     </div>
     <div class="field">

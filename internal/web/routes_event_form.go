@@ -23,13 +23,16 @@ import (
 // partial: where the form posts and cancels to, the event's collective (editing)
 // or the collectives to choose from (creating), the options of its selects, and
 // the alert a refusal puts above it. AlertHref, set when the edit raced another,
-// links to the event as it is now.
+// links to the event as it is now. Today (every form) and Keep (editing: the day
+// the event is on) are days in APP_TZ as AAAA-MM-DD, for the date picker, which
+// disables the days before Today except Keep (events.Form: schedule).
 type eventFormPage struct {
 	Edit             bool
 	Action           string
 	CancelHref       string
 	CollectiveName   string
 	Alert, AlertHref string
+	Today, Keep      string
 	Collectives      []calendarOption
 	Types            []calendarOption
 	States           []calendarOption
@@ -263,12 +266,17 @@ func (a *App) eventEditRender(c *gin.Context, view events.DetailView, status int
 		CollectiveName: view.CollectiveName,
 		Alert:          alert,
 		AlertHref:      alertHref,
+		Keep:           view.Event.StartsAt.In(a.Cfg.Location).Format(pickerDay),
 	}
 	a.eventFormRender(c, status, "Editar Evento", "calendario", page, f, errs)
 }
 
-// eventFormRender fills the lists of page for f's state and style and renders it.
+// pickerDay is the layout of the days the date picker reads (data-today, data-keep).
+const pickerDay = "2006-01-02"
+
+// eventFormRender fills the lists and today's date of page for f's state and style and renders it.
 func (a *App) eventFormRender(c *gin.Context, status int, title, nav string, page eventFormPage, f events.Form, errs domain.FieldErrors) {
+	page.Today = a.Now().In(a.Cfg.Location).Format(pickerDay)
 	page.fillLists(f)
 	a.page(c, status, "app/evento-form", PageData{Title: title, Nav: nav, Form: eventFormValues(f), Errors: errs, Data: page})
 }
