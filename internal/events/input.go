@@ -354,5 +354,50 @@ func ticketURLProblem(s string) string {
 	return ""
 }
 
-// FormOf fills the form with e as the edit page shows it. Stub until written.
-func FormOf(e domain.Event, loc *time.Location) Form { return Form{} }
+// FormOf fills the form with e, as the edit page shows it before the person
+// changes anything: the date as dd/mm/aaaa and the time as HH:MM in loc, the
+// duration in hours and minutes, the price as "1.234,56" (empty when the event
+// is free) and the version. It is the inverse of Event: with prev = &e,
+// FormOf(e, loc).Event gives e's fields back, a past date included.
+func FormOf(e domain.Event, loc *time.Location) Form {
+	start := e.StartsAt.In(loc)
+	f := Form{
+		CollectiveID: e.CollectiveID,
+		Name:         e.Name,
+		Type:         string(e.Type),
+		TypeOther:    e.TypeOther,
+		Date:         start.Format("02/01/2006"),
+		Time:         start.Format("15:04"),
+		DurHours:     strconv.Itoa(e.DurationMin / 60),
+		DurMinutes:   strconv.Itoa(e.DurationMin % 60),
+		Free:         e.Free,
+		TicketURL:    e.TicketURL,
+		Style:        e.Style,
+		Substyle:     e.Substyle,
+		StyleOther:   e.StyleOther,
+		State:        e.State,
+		City:         e.City,
+		Venue:        e.Venue,
+		Artists:      e.Artists,
+		Description:  e.Description,
+		Version:      strconv.FormatInt(e.Version, 10),
+	}
+	if !e.Free {
+		f.Price = formatCents(e.PriceCents)
+	}
+	return f
+}
+
+// formatCents writes a price in cents the way the price field reads it back:
+// "1.234,56", "0,50".
+func formatCents(cents int64) string {
+	reais := strconv.FormatInt(cents/100, 10)
+	var b strings.Builder
+	for i, r := range reais {
+		if i > 0 && (len(reais)-i)%3 == 0 {
+			b.WriteByte('.')
+		}
+		b.WriteRune(r)
+	}
+	return fmt.Sprintf("%s,%02d", b.String(), cents%100)
+}
