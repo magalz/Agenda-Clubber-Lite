@@ -50,6 +50,8 @@ var mngActionLabels = []struct {
 	{domain.AuditJoinRejected, "entrada recusada"},
 	{domain.AuditMemberPromoted, "promovido a administrador"},
 	{domain.AuditMemberDemoted, "rebaixado a membro"},
+	{domain.AuditEventEdited, "evento editado pelo admin"},
+	{domain.AuditEventDeleted, "evento excluído"},
 }
 
 // mngWorld is the admin (Admin Geral) plus four accounts and five collectives.

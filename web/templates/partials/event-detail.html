@@ -1,0 +1,45 @@
+{{/* The content of an event: the answer to an HTMX GET /eventos/:id (the calendar's sheet) and the body of the event page.
+     Data is an eventDetailData: the event (Name, Type, TypeOther, StartsAt, DurationMin, Free, PriceCents, Style, Substyle,
+     StyleOther, State, City, Venue, Artists, Description, CollectiveName), CanEdit and CanDelete (the same people),
+     EditURL and DeleteURL (the escaped paths of the edit page and of the deletion), Blocked (the collective's events are
+     blocked), TicketHref (an http or https link, or empty), BlockedNote (tell an Administrador why the event is read-only)
+     and Alert (the reason a refused deletion gives; it replaces the note).
+     Everything the people wrote is escaped by html/template and shown with its line breaks (.text-pre-line); the ticket link
+     is the only link from user data, and carries the rel and target the project requires. The delete form is inside a
+     collapsed <details> that asks for the confirmation, and it posts with no JavaScript.
+     CSS: stack, stack--sm, status, status--error, status--warn, cluster, badge, badge--accent, text-sm, muted,
+     uppercase-label, btn, btn--solid, btn--outline, btn--danger, btn--sm, reason-form (components.css), text-pre-line. */}}
+{{define "event-detail"}}<article class="stack" aria-labelledby="evento-titulo">
+  {{with .Alert}}<p class="status status--error" role="alert">{{.}}</p>{{end}}
+  {{if .BlockedNote}}<p class="status status--warn" role="status">o admin bloqueou os eventos deste coletivo: este evento não pode ser editado nem excluído por enquanto.</p>{{end}}
+  <h2 class="sheet__title" id="evento-titulo">{{.Name}}</h2>
+  <div class="cluster">
+    <span class="badge badge--accent">{{eventType .Type .TypeOther}}</span>
+    <span class="badge">{{eventStyle .Style .Substyle .StyleOther}}</span>
+  </div>
+  <p class="text-sm">{{dateLong .StartsAt}} · {{clock .StartsAt}}, {{until .StartsAt .DurationMin}}</p>
+  <p class="text-sm muted">duração: <span>{{duration .DurationMin}}</span> · entrada: <span>{{price .Free .PriceCents}}</span></p>
+  <p class="text-sm">{{.CollectiveName}} · {{.City}}/{{.State}}</p>
+  {{with .Venue}}<p class="text-sm">local: {{.}}</p>{{end}}
+  {{with .TicketHref}}<div class="cluster">
+    <a class="btn btn--outline btn--sm" href="{{.}}" rel="noopener noreferrer nofollow ugc" target="_blank">[→] INGRESSOS</a>
+  </div>{{end}}
+  {{with .Artists}}<section class="stack stack--sm" aria-labelledby="evento-artistas">
+    <h3 class="uppercase-label muted" id="evento-artistas">artistas</h3>
+    <p class="text-pre-line">{{.}}</p>
+  </section>{{end}}
+  {{with .Description}}<section class="stack stack--sm" aria-labelledby="evento-descricao">
+    <h3 class="uppercase-label muted" id="evento-descricao">sobre</h3>
+    <p class="text-pre-line">{{.}}</p>
+  </section>{{end}}
+  {{if .CanEdit}}<div class="cluster">
+    <a class="btn btn--solid btn--sm" href="{{.EditURL}}">[→] EDITAR</a>
+  </div>{{end}}
+  {{if .CanDelete}}<details class="reason-form">
+    <summary>[✕] excluir evento</summary>
+    <p>isto apaga o evento para todos. não dá para desfazer.</p>
+    <form method="post" action="{{.DeleteURL}}">
+      <button class="btn btn--danger btn--sm" type="submit">[✕] EXCLUIR EVENTO</button>
+    </form>
+  </details>{{end}}
+</article>{{end}}
