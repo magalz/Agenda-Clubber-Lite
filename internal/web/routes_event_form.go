@@ -303,7 +303,9 @@ func (p *eventFormPage) fillLists(f events.Form) {
 	p.Styles = append(p.Styles, calendarOption{Value: domain.StyleOther, Label: "Outros", Selected: f.Style == domain.StyleOther})
 
 	p.Substyles = []calendarOption{{Label: "sem subestilo"}}
-	if subs := catalog.Substyles(f.Style); len(subs) > 0 {
+	// A catalog style with no substyles of its own (pop) still takes outros, and its
+	// Substyles is empty but not nil; only an unknown style or outros gives nil.
+	if subs := catalog.Substyles(f.Style); subs != nil {
 		for _, s := range append(subs, domain.StyleOther) {
 			p.Substyles = append(p.Substyles, calendarOption{Value: s, Label: s, Selected: s == f.Substyle})
 		}
