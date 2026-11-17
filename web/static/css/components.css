@@ -52,6 +52,10 @@
   letter-spacing: var(--tracking-label);
   text-transform: uppercase;
 }
+/* Text a person typed on several lines (a description): the line breaks stay, and long lines still wrap. */
+.text-pre-line {
+  white-space: pre-line;
+}
 
 /* ==== App shell ====
    Markup the layout template follows (the drawer rules below hang on it):
@@ -1001,6 +1005,223 @@
   margin-top: var(--space-1);
   font-size: var(--text-sm);
   color: var(--color-muted);
+}
+
+/* ==== Calendar ====
+   The month calendar (partials/calendar-month.html): the page of GET / and the whole answer of GET /calendario.
+   <div class="calendar" id="calendar-month" data-month="AAAA-MM">
+     <nav class="calendar__nav"><a class="btn ..." rel="prev">[‹]</a> <h2 class="calendar__title" id="calendar-title"> <a class="btn ..." rel="next">[›]</a>
+       <a class="btn btn--ghost btn--sm calendar__today">Hoje</a></nav>
+     <form class="calendar__filter" method="get" action="/"><div class="field">label + select</div> ... <button class="btn ...">[→] filtrar</button>
+       <p class="hint calendar__filter-hint" id="calendar-cidade-dica"> (only with no state: the describedby of the disabled city select)</form>
+     <table class="calendar__grid" aria-labelledby="calendar-title">
+       <thead><tr><th class="calendar__weekday" scope="col">DOM ...</th></tr></thead>
+       <tbody><tr><td class="calendar__cell [calendar__cell--out] [calendar__cell--today] [calendar__cell--past]" data-day="AAAA-MM-DD">
+         <a class="calendar__daynum"><span aria-hidden="true">14</span><span class="sr-only">sábado, 14/11/2026, 1 evento</span></a>
+         <ul class="calendar__events"><li><a class="calendar__chip"><span class="calendar__chip-meta"><span class="calendar__chip-time"> <span class="badge calendar__chip-type"></span>
+           <span class="calendar__chip-name"></a></li></ul>
+         <span class="calendar__dots" aria-hidden="true"><span class="calendar__dot"></span></span>
+         <a class="calendar__more">+N</a></td></tr></tbody></table>
+     <section class="calendar__day" id="calendar-day" aria-live="polite"></section>
+   </div>
+   Below 640px the grid is compact: low cells, no chips and no +N, one dot for each event, and the number of the day is the
+   link to that day's list. From 640px each cell lists its chips. Today has a 2px accent outline, past days and the days of
+   the neighbouring months (--out) have a muted number, and a past chip a dashed left border. The day list stays hidden
+   while it is empty (a script fills it). */
+.calendar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.calendar__nav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+.calendar__title {
+  min-width: 8rem;
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  line-height: var(--leading-lg);
+  font-weight: 700;
+  letter-spacing: var(--tracking-label);
+  text-align: center;
+}
+.calendar__today {
+  margin-inline-start: auto;
+}
+
+.calendar__filter {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-3);
+}
+.calendar__filter .field {
+  flex: 1 1 10rem;
+  max-width: 16rem;
+}
+.calendar__filter-hint {
+  flex: 1 0 100%;
+  margin: 0;
+}
+
+.calendar__grid {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+}
+.calendar__weekday {
+  padding: var(--space-1) 0;
+  border: 1px solid var(--color-line);
+  font-size: var(--text-2xs);
+  font-weight: 400;
+  letter-spacing: var(--tracking-label);
+  text-align: center;
+  color: var(--color-muted);
+}
+.calendar__cell {
+  height: 3.5rem;
+  padding: var(--space-0-5);
+  border: 1px solid var(--color-line);
+  vertical-align: top;
+  background-color: var(--color-bg-elev);
+}
+.calendar__cell--out {
+  background-color: transparent;
+}
+.calendar__cell--past {
+  background-color: var(--color-bg);
+}
+.calendar__cell--today {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.calendar__daynum {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.5rem;
+  min-height: 1.5rem;
+  font-size: var(--text-xs);
+  line-height: var(--leading-xs);
+  color: var(--foreground);
+}
+.calendar__cell--out .calendar__daynum,
+.calendar__cell--past .calendar__daynum {
+  color: var(--color-muted);
+}
+.calendar__cell--today .calendar__daynum {
+  font-weight: 700;
+  color: var(--accent-text);
+}
+
+/* Compact grid: the chips and +N are for 640px and up. */
+.calendar__events {
+  display: none;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.calendar__chip {
+  display: block;
+  min-height: 1.5rem;
+  padding: var(--space-0-5) var(--space-1);
+  border: 1px solid var(--color-line);
+  border-left: 2px solid var(--accent);
+  background-color: var(--color-surface);
+  font-size: var(--text-xs);
+  line-height: var(--leading-xs);
+  color: var(--foreground);
+  text-decoration: none;
+  overflow: hidden;
+}
+.calendar__chip:hover {
+  border-color: var(--accent);
+}
+.calendar__chip:hover .calendar__chip-name {
+  text-decoration: underline;
+}
+.calendar__cell--past .calendar__chip {
+  border-left: 2px dashed var(--color-control);
+  color: var(--color-muted);
+}
+.calendar__chip-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+}
+.calendar__chip-time {
+  font-size: var(--text-2xs);
+  color: var(--color-muted);
+}
+.calendar__chip-type {
+  display: block;
+  min-width: 0;
+  padding: 0 var(--space-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.calendar__chip-name {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.calendar__more {
+  display: none;
+  min-height: 1.5rem;
+  align-items: center;
+  padding: 0 var(--space-1);
+  font-size: var(--text-xs);
+  color: var(--accent-text);
+}
+
+.calendar__dots {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-0-5);
+  padding: 0 var(--space-0-5);
+}
+.calendar__dot {
+  width: 0.375rem;
+  height: 0.375rem;
+  border-radius: 50%;
+  background-color: var(--accent);
+}
+
+@media (min-width: 640px) {
+  .calendar__cell {
+    height: 7.5rem;
+    padding: var(--space-1);
+  }
+  .calendar__events {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-0-5);
+    margin-top: var(--space-1);
+  }
+  .calendar__more {
+    display: inline-flex;
+    margin-top: var(--space-0-5);
+  }
+  .calendar__dots {
+    display: none;
+  }
+}
+
+.calendar__day {
+  padding: var(--space-4);
+  border: 1px solid var(--color-line);
+  background-color: var(--color-bg-elev);
+}
+.calendar__day:empty {
+  display: none;
 }
 
 /* ==== Sheet ====

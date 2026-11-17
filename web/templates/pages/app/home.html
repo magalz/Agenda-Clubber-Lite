@@ -1,5 +1,12 @@
-{{/* Placeholder until the calendar page replaces it. */}}
+{{/* The calendar (GET /), for every signed-in person. Data is a calendarView (internal/web/routes_calendar.go): Notice, a
+     status above the month after an action elsewhere (the ?msg= code picks its text on the server; the URL never supplies
+     text), and what partials/calendar-month.html shows. The page reads ?mes=AAAA-MM, ?uf= and ?cidade=; GET /calendario
+     answers the same query with the month alone.
+     CSS: section-heading, stack, status, status--ok (components.css). */}}
 {{define "content"}}<div class="section-heading">
   <h1 class="section-heading__title text-glow"><span class="section-heading__prompt" aria-hidden="true">~/ </span>calendário</h1>
 </div>
-<div class="empty">o calendário chega na próxima fase</div>{{end}}
+{{with .Data}}<div class="stack stack--lg">
+  {{with .Notice}}<p class="status status--ok" role="status">{{.}}</p>{{end}}
+  {{template "calendar-month" .}}
+</div>{{end}}{{end}}
