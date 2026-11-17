@@ -339,6 +339,56 @@ func TestCalendarListsEachDayInOrderAndCapsTheCell(t *testing.T) {
 	}
 }
 
+// The links of a day (its number and +N) open that day's list with the filter of
+// the grid, so the counts of the grid and of the list agree. The filter is the
+// one the page applied: a city of another state is dropped, as it is in the grid.
+func TestCalendarDayLinksKeepTheFilter(t *testing.T) {
+	e := newCalEnv(t)
+	for _, h := range []int{10, 12, 14, 16, 18} {
+		e.event(t, "Ev "+string(rune('0'+h/10))+string(rune('0'+h%10)), e.at(time.November, 21, h))
+	}
+
+	tests := []struct {
+		name, query string
+		keep        url.Values // what follows data= in each link
+		more        bool       // the 21st still has events beyond the cell
+	}{
+		{"no filter", "", url.Values{}, true},
+		{"a state", "?uf=CE", url.Values{"uf": {"CE"}}, true},
+		{"a state and a city", "?uf=CE&cidade=Fortaleza", url.Values{"uf": {"CE"}, "cidade": {"Fortaleza"}}, true},
+		{"a state with no events", "?uf=PE", url.Values{"uf": {"PE"}}, false},
+		{"a city of another state", "?uf=PE&cidade=Fortaleza", url.Values{"uf": {"PE"}}, false},
+		{"an unknown state", "?uf=XX&cidade=Fortaleza", url.Values{}, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			body := e.body(t, "/"+tt.query)
+			links := map[string]*url.URL{
+				"the number of the 21st": calHref(t, calCell(t, body, "2026-11-21"), "<"),
+				"the number of the 23rd": calHref(t, calCell(t, body, "2026-11-23"), "<"),
+			}
+			if tt.more {
+				links["+2"] = calHref(t, calCell(t, body, "2026-11-21"), "+2")
+			} else if strings.Contains(calCell(t, body, "2026-11-21"), "calendar__more") {
+				t.Errorf("the 21st shows +N under %s", tt.query)
+			}
+			for name, u := range links {
+				day := "2026-11-23"
+				if strings.Contains(name, "21st") || name == "+2" {
+					day = "2026-11-21"
+				}
+				want := url.Values{"data": {day}}
+				for k, v := range tt.keep {
+					want[k] = v
+				}
+				if u.Path != "/eventos/dia" || u.RawQuery != want.Encode() {
+					t.Errorf("%s links to %q, want /eventos/dia?%s", name, u, want.Encode())
+				}
+			}
+		})
+	}
+}
+
 func TestCalendarFilter(t *testing.T) {
 	e := newCalEnv(t)
 	e.event(t, "Noite Verde", e.at(time.November, 14, 22))
@@ -346,26 +396,28 @@ func TestCalendarFilter(t *testing.T) {
 	e.event(t, "Recife Rave", e.at(time.November, 16, 20), calPlace("PE", "Recife"))
 	all := []string{"Noite Verde", "Recife Rave", "Sobral Fest"}
 
+	both, withSP := []string{"CE", "PE"}, []string{"CE", "PE", "SP"}
 	tests := []struct {
 		name, query string
 		have        []string
-		state, city string // the options marked selected ("" is todos)
+		state, city string   // the options marked selected ("" is todos)
+		states      []string // the state options: the states with events, and the one being filtered
 		cities      []string
 	}{
-		{"todos by default", "", all, "", "", nil},
-		{"a state", "?uf=CE", []string{"Noite Verde", "Sobral Fest"}, "CE", "", []string{"Fortaleza", "Sobral"}},
-		{"a state and a city", "?uf=CE&cidade=Sobral", []string{"Sobral Fest"}, "CE", "Sobral", []string{"Fortaleza", "Sobral"}},
-		{"another state", "?uf=PE", []string{"Recife Rave"}, "PE", "", []string{"Recife"}},
-		{"a state with no events", "?uf=SP", nil, "SP", "", nil},
-		{"an unknown state", "?uf=XX", all, "", "", nil},
-		{"a lowercase state", "?uf=ce", all, "", "", nil},
-		{"a state that is an operator", "?uf=%24ne", all, "", "", nil},
-		{"a city with no state", "?cidade=Sobral", all, "", "", nil},
-		{"a city of another state", "?uf=PE&cidade=Sobral", []string{"Recife Rave"}, "PE", "", []string{"Recife"}},
-		{"an unknown city", "?uf=CE&cidade=Atlantis", []string{"Noite Verde", "Sobral Fest"}, "CE", "", []string{"Fortaleza", "Sobral"}},
-		{"a city that is an operator", "?uf=CE&cidade=%24ne", []string{"Noite Verde", "Sobral Fest"}, "CE", "", []string{"Fortaleza", "Sobral"}},
-		{"a city in another case", "?uf=CE&cidade=sobral", []string{"Noite Verde", "Sobral Fest"}, "CE", "", []string{"Fortaleza", "Sobral"}},
-		{"a state key that is not uf", "?uf%5B%24ne%5D=", all, "", "", nil},
+		{"todos by default", "", all, "", "", both, nil},
+		{"a state", "?uf=CE", []string{"Noite Verde", "Sobral Fest"}, "CE", "", both, []string{"Fortaleza", "Sobral"}},
+		{"a state and a city", "?uf=CE&cidade=Sobral", []string{"Sobral Fest"}, "CE", "Sobral", both, []string{"Fortaleza", "Sobral"}},
+		{"another state", "?uf=PE", []string{"Recife Rave"}, "PE", "", both, []string{"Recife"}},
+		{"a state with no events", "?uf=SP", nil, "SP", "", withSP, nil},
+		{"an unknown state", "?uf=XX", all, "", "", both, nil},
+		{"a lowercase state", "?uf=ce", all, "", "", both, nil},
+		{"a state that is an operator", "?uf=%24ne", all, "", "", both, nil},
+		{"a city with no state", "?cidade=Sobral", all, "", "", both, nil},
+		{"a city of another state", "?uf=PE&cidade=Sobral", []string{"Recife Rave"}, "PE", "", both, []string{"Recife"}},
+		{"an unknown city", "?uf=CE&cidade=Atlantis", []string{"Noite Verde", "Sobral Fest"}, "CE", "", both, []string{"Fortaleza", "Sobral"}},
+		{"a city that is an operator", "?uf=CE&cidade=%24ne", []string{"Noite Verde", "Sobral Fest"}, "CE", "", both, []string{"Fortaleza", "Sobral"}},
+		{"a city in another case", "?uf=CE&cidade=sobral", []string{"Noite Verde", "Sobral Fest"}, "CE", "", both, []string{"Fortaleza", "Sobral"}},
+		{"a state key that is not uf", "?uf%5B%24ne%5D=", all, "", "", both, nil},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -382,9 +434,12 @@ func TestCalendarFilter(t *testing.T) {
 			state := regexp.MustCompile(`(?s)<select [^>]*name="uf".*?</select>`).FindString(form)
 			city := regexp.MustCompile(`(?s)<select [^>]*name="cidade".*?</select>`).FindString(form)
 
-			// The state options: todos first, then the states that have events (the
-			// state being filtered is kept, so the select shows what the grid shows).
-			wantAll(t, "state options", state, `<option value="">todos</option>`, `value="CE"`, `value="PE"`)
+			// The state options: todos first, then exactly the states that have events
+			// (the state being filtered is kept, so the select shows what the grid shows).
+			wantAll(t, "state options", state, `<option value="">todos</option>`)
+			if got := calOptions(state); !slices.Equal(got, tt.states) {
+				t.Errorf("state options = %q, want %q", got, tt.states)
+			}
 			if got := calSelected(state); got != tt.state {
 				t.Errorf("selected state = %q, want %q", got, tt.state)
 			}
@@ -458,6 +513,47 @@ func TestCalendarLinksKeepTheFilterAndTheMonth(t *testing.T) {
 	body = e.body(t, "/")
 	if got := calHref(t, body, "[›]"); got.RawQuery != "mes=2026-12" {
 		t.Errorf("[›] without a filter links to %q, want /?mes=2026-12", got)
+	}
+}
+
+// Everyone signed in sees every event: the calendar does not depend on who asks,
+// not on a membership and not on the admin flag.
+func TestCalendarEveryoneSignedInSeesEveryEvent(t *testing.T) {
+	e := newCalEnv(t)
+	alfa := e.event(t, "Do Alfa", e.at(time.November, 14, 22))
+	// Delta is a collective the Membro, the Admin and the Outsider do not belong to.
+	delta := evEvent(t, e.Store, e.Delta.ID, e.Owner.ID, func(ev *domain.Event) {
+		ev.Name, ev.StartsAt = "Do Delta", e.at(time.November, 15, 20)
+	})
+	wantNames := []string{"Do Alfa", "Do Delta"}
+	wantLinks := []string{"/eventos/" + alfa.ID, "/eventos/" + delta.ID}
+
+	for _, who := range []struct {
+		name string
+		user domain.User
+	}{{"admin", e.Admin}, {"owner", e.Owner}, {"member", e.Member}, {"outsider", e.Outsider}} {
+		t.Run(who.name, func(t *testing.T) {
+			rec := serve(e.r, http.MethodGet, "/", withCookie(e.Cookie[who.user.ID]))
+			if rec.Code != http.StatusOK {
+				t.Fatalf("GET /: %d %q; want 200", rec.Code, rec.Body)
+			}
+			body := rec.Body.String()
+			if got := calNames(body); !slices.Equal(got, wantNames) {
+				t.Errorf("events = %q, want %q", got, wantNames)
+			}
+			var links []string
+			for _, chip := range calChips(body) {
+				links = append(links, calAttrURL(t, chip, "href").Path)
+			}
+			if !slices.Equal(links, wantLinks) {
+				t.Errorf("chip links = %q, want %q", links, wantLinks)
+			}
+			// The month swap answers the same.
+			rec = serve(e.r, http.MethodGet, "/calendario", withCookie(e.Cookie[who.user.ID]))
+			if got := calNames(rec.Body.String()); rec.Code != http.StatusOK || !slices.Equal(got, wantNames) {
+				t.Errorf("GET /calendario: %d, events %q; want 200 and %q", rec.Code, got, wantNames)
+			}
+		})
 	}
 }
 
