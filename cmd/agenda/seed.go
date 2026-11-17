@@ -89,6 +89,7 @@ func devEmail(local string) string { return local + devEmailDomain }
 // opens: they are slow, and the transaction may run again.
 type seedPlan struct {
 	now                time.Time
+	loc                *time.Location // APP_TZ: the zone the sample events' dates and times are in
 	origin             string
 	hash, previousHash string // of SEED_PASSWORD, and of devPreviousPrefix and SEED_PASSWORD
 }

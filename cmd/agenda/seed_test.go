@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"reflect"
 	"slices"
 	"strings"
@@ -13,6 +14,7 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 
 	"github.com/magalz/agenda-clubber-lite/internal/auth"
+	"github.com/magalz/agenda-clubber-lite/internal/catalog"
 	"github.com/magalz/agenda-clubber-lite/internal/domain"
 )
 
@@ -45,7 +47,7 @@ func docCounts(t *testing.T, env []string) map[string]int64 {
 	}
 	defer func() { _ = client.Disconnect(ctx) }()
 	counts := map[string]int64{}
-	for _, name := range []string{"collectives", "memberships", "outbox", "sessions", "tokens", "users"} {
+	for _, name := range []string{"collectives", "events", "memberships", "outbox", "sessions", "tokens", "users"} {
 		n, err := client.Database(get("MONGO_DB")).Collection(name).CountDocuments(ctx, bson.M{})
 		if err != nil {
 			t.Fatalf("count the documents of %s: %v", name, err)
@@ -86,6 +88,62 @@ func seedCollectivesByName(t *testing.T, store domain.Store) map[string]domain.C
 	return got
 }
 
+// seedEvents are the sample events: the collective each is in, the local part of
+// the account that made it (the Administrador of that collective) and its name.
+var seedEvents = []struct{ collective, creator, name string }{
+	{"Coletivo Alfa", "dono", "Warm Up Techno"},
+	{"Coletivo Alfa", "dono", "Rave Litoral"},
+	{"Coletivo Alfa", "dono", "Noite House Recife"},
+	{"Coletivo Alfa", "dono", "Baile do Brega Funk"},
+	{"Coletivo Alfa", "dono", "After Hours Subsolo"},
+	{"Coletivo Alfa", "dono", "Baile de Forró Eletrônico"},
+	{"Produtora Beta", "dono", "Sarau na Praça"},
+	{"Produtora Beta", "dono", "Pista Drum and Bass"},
+	{"Produtora Beta", "dono", "Oficina de Discotecagem"},
+	{"Produtora Beta", "dono", "Festival Nordeste Eletrônico"},
+	{"Coletivo Delta", "delta", "Noite Ambient no Terraço"},
+}
+
+// seedRecordCount is how many records a first run creates: the accounts, the
+// collectives, the 7 memberships and the events.
+var seedRecordCount = len(seedLocals) + len(seedCollectives) + 7 + len(seedEvents)
+
+// seedEventsByName reads the sample events, by name, from the lists of the sample
+// collectives.
+func seedEventsByName(t *testing.T, store domain.Store) map[string]domain.EventView {
+	t.Helper()
+	got := map[string]domain.EventView{}
+	for _, c := range seedCollectivesByName(t, store) {
+		list, err := store.Repos().Events.ListByCollectives(t.Context(), []string{c.ID}, domain.ListLimitMax)
+		if err != nil {
+			t.Fatalf("list the events of %s: %v", c.Name, err)
+		}
+		for _, v := range list {
+			if _, dup := got[v.Name]; dup {
+				t.Errorf("two sample events are named %q", v.Name)
+			}
+			got[v.Name] = v
+		}
+	}
+	return got
+}
+
+// seedAt runs the records pass of seed-dev on store with a clock and a zone of the
+// test's choosing, inside one transaction as seed-dev does.
+func seedAt(t *testing.T, store domain.Store, now time.Time, loc *time.Location) seedResult {
+	t.Helper()
+	plan := seedPlan{now: now.UTC(), loc: loc, origin: devOrigin, hash: "hash", previousHash: "previous-hash"}
+	var res seedResult
+	err := store.WithTx(t.Context(), func(ctx context.Context, r domain.Repos) (err error) {
+		res, err = seedRecords(ctx, r, plan)
+		return err
+	})
+	if err != nil {
+		t.Fatalf("seed at %v: %v", now, err)
+	}
+	return res
+}
+
 // wantWithin fails unless got lies in [lo, hi].
 func wantWithin(t *testing.T, name string, got *time.Time, lo, hi time.Time) {
 	t.Helper()
@@ -104,7 +162,7 @@ func seedLines(state string) []string {
 	for _, local := range seedLocals {
 		lines = append(lines, "user "+seedEmail(local)+": "+state)
 	}
-	return append(lines,
+	lines = append(lines,
 		"collective Coletivo Alfa: "+state,
 		"collective Produtora Beta: "+state,
 		"collective Coletivo Gama: "+state,
@@ -117,6 +175,10 @@ func seedLines(state string) []string {
 		"membership pedido@agenda.test in Produtora Beta: "+state,
 		"membership delta@agenda.test in Coletivo Delta: "+state,
 	)
+	for _, e := range seedEvents {
+		lines = append(lines, "event "+e.name+" in "+e.collective+": "+state)
+	}
+	return lines
 }
 
 func wantLines(t *testing.T, stdout string, lines []string) {
@@ -160,6 +222,7 @@ func TestSeedDevRefuses(t *testing.T) {
 		{"no password", []string{"APP_ENV", "dev"}, "SEED_PASSWORD is not set"},
 		{"a blank password", []string{"APP_ENV", "dev", "SEED_PASSWORD", "   "}, "SEED_PASSWORD does not meet the rules"},
 		{"a weak password", []string{"APP_ENV", "dev", "SEED_PASSWORD", "qwerty"}, "SEED_PASSWORD does not meet the rules"},
+		{"an unknown time zone", []string{"APP_ENV", "dev", "SEED_PASSWORD", seedPassword, "APP_TZ", "Mars/Base"}, "APP_TZ"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			code, stdout, stderr := runCmd(t, slices.Concat(tc.vars, env), "", "seed-dev")
@@ -191,8 +254,8 @@ func TestSeedDevCreatesTheSampleData(t *testing.T) {
 		t.Fatalf("exit code = %d, stderr = %q; want 0 and nothing on stderr", code, stderr)
 	}
 	wantLines(t, stdout, seedLines("created"))
-	if !strings.Contains(stdout, "21 created, 0 existing") {
-		t.Errorf("stdout has no summary of 21 created records:\n%s", stdout)
+	if want := fmt.Sprintf("%d created, 0 existing", seedRecordCount); !strings.Contains(stdout, want) {
+		t.Errorf("stdout has no summary of %q:\n%s", want, stdout)
 	}
 
 	// Nothing the run prints may unlock an account or the database.
@@ -412,9 +475,215 @@ func TestSeedDevCreatesTheSampleData(t *testing.T) {
 	}
 
 	// One confirmation token: novo-coletivo has already confirmed its e-mail.
-	want := map[string]int64{"collectives": 4, "memberships": 7, "outbox": 0, "sessions": 0, "tokens": 1, "users": 10}
+	want := map[string]int64{"collectives": 4, "events": int64(len(seedEvents)), "memberships": 7, "outbox": 0, "sessions": 0, "tokens": 1, "users": 10}
 	if got := docCounts(t, env); !reflect.DeepEqual(got, want) {
 		t.Errorf("documents per collection = %v, want %v", got, want)
+	}
+}
+
+// localDay is the calendar day of t in loc, as AAAA-MM-DD, which sorts as it reads.
+func localDay(t time.Time, loc *time.Location) string { return t.In(loc).Format("2006-01-02") }
+
+// wantLateAfterMidnight fails unless e starts at 22:00 or later in loc and ends on
+// a later day there.
+func wantLateAfterMidnight(t *testing.T, e domain.EventView, loc *time.Location) {
+	t.Helper()
+	start := e.StartsAt.In(loc)
+	end := e.StartsAt.Add(time.Duration(e.DurationMin) * time.Minute)
+	if start.Hour() < 22 || localDay(end, loc) <= localDay(start, loc) {
+		t.Errorf("%s starts at %v and ends at %v in %v; want a start at 22:00 or later and an end on the next day", e.Name, start, end.In(loc), loc)
+	}
+}
+
+// Every sample event is a valid event of its collective, made by that collective's
+// Administrador, with a style and a city from the catalog; together they show the
+// cases the calendar, Analisar Data and the event page have to handle.
+func TestSeedDevCreatesTheSampleEvents(t *testing.T) {
+	env := mongoEnv(t)
+	if code, _, stderr := runCmd(t, seedEnv(env), "", "seed-dev"); code != 0 {
+		t.Fatalf("exit code = %d, stderr = %q; want 0", code, stderr)
+	}
+	store := openTestStore(t, env)
+	users := seedUsers(t, store)
+	collectives := seedCollectivesByName(t, store)
+	got := seedEventsByName(t, store)
+	if len(got) != len(seedEvents) { // the collective that waits for the admin has none
+		t.Errorf("%d sample events, want %d", len(got), len(seedEvents))
+	}
+	for _, want := range seedEvents {
+		e, ok := got[want.name]
+		if !ok {
+			t.Errorf("there is no event %q", want.name)
+			continue
+		}
+		if e.CollectiveID != collectives[want.collective].ID || e.CollectiveName != want.collective {
+			t.Errorf("%s: in the collective %q (%s), want %s", want.name, e.CollectiveName, e.CollectiveID, want.collective)
+		}
+		if creator := users[want.creator].ID; e.CreatedBy != creator || e.UpdatedBy != creator {
+			t.Errorf("%s: created by %q and updated by %q, want %s (%s)", want.name, e.CreatedBy, e.UpdatedBy, want.creator, creator)
+		}
+		if err := e.Event.Validate(); err != nil {
+			t.Errorf("%s is not a valid event: %v", want.name, err)
+		}
+		if !catalog.ValidStyle(e.Style, e.Substyle) {
+			t.Errorf("%s: the style %q with the substyle %q is not in the catalog", want.name, e.Style, e.Substyle)
+		}
+		if !catalog.ValidCity(e.State, e.City) {
+			t.Errorf("%s: %q is not a city of %q in the catalog", want.name, e.City, e.State)
+		}
+	}
+
+	// only returns the event called name, and fails unless it is the only one that
+	// match selects.
+	only := func(what, name string, match func(domain.EventView) bool) domain.EventView {
+		t.Helper()
+		var names []string
+		for n, e := range got {
+			if match(e) {
+				names = append(names, n)
+			}
+		}
+		slices.Sort(names)
+		if !slices.Equal(names, []string{name}) {
+			t.Errorf("the events %s are %q, want only %q", what, names, name)
+		}
+		return got[name]
+	}
+	only("with no ticket price", "Oficina de Discotecagem", func(e domain.EventView) bool { return e.Free })
+	if e := only("of type outros", "Sarau na Praça", func(e domain.EventView) bool { return e.Type == domain.EventTypeOutros }); e.TypeOther != "Sarau" {
+		t.Errorf("%s: type other = %q, want Sarau", e.Name, e.TypeOther)
+	}
+	if e := only("of style outros", "Baile de Forró Eletrônico", func(e domain.EventView) bool { return e.Style == domain.StyleOther }); e.StyleOther != "Forró eletrônico" || e.Substyle != "" {
+		t.Errorf("%s: style other = %q, substyle = %q; want Forró eletrônico and none", e.Name, e.StyleOther, e.Substyle)
+	}
+	festival := got["Festival Nordeste Eletrônico"]
+	if !strings.HasPrefix(festival.TicketURL, "https://") || festival.Venue == "" || strings.Count(festival.Artists, "\n") < 2 {
+		t.Errorf("%s: ticket link = %q, venue = %q, artists = %q; want an https link, a venue and artists on several lines", festival.Name, festival.TicketURL, festival.Venue, festival.Artists)
+	}
+	// Coletivo Delta, whose events the admin blocked, has one: its Administrador
+	// made it, and it was stored directly.
+	if e := got["Noite Ambient no Terraço"]; !collectives["Coletivo Delta"].EventsBlocked || e.CollectiveName != "Coletivo Delta" {
+		t.Errorf("%s: in %q, whose events blocked = %v; want Coletivo Delta, blocked", e.Name, e.CollectiveName, collectives["Coletivo Delta"].EventsBlocked)
+	}
+}
+
+// The times of the sample events are in APP_TZ: the late one starts at 22:00 or
+// later there, and ends the next day.
+func TestSeedDevSampleEventsUseAppTZ(t *testing.T) {
+	env := mongoEnv(t)
+	if code, _, stderr := runCmd(t, seedEnv(env, "APP_TZ", "Asia/Tokyo"), "", "seed-dev"); code != 0 {
+		t.Fatalf("exit code = %d, stderr = %q; want 0", code, stderr)
+	}
+	tokyo, err := time.LoadLocation("Asia/Tokyo")
+	if err != nil {
+		t.Fatalf("load Asia/Tokyo: %v", err)
+	}
+	wantLateAfterMidnight(t, seedEventsByName(t, openTestStore(t, env))["After Hours Subsolo"], tokyo)
+}
+
+// The dates of the sample events are computed from the clock, in the zone of
+// APP_TZ: made at another time they fall on other days, and the calendar has
+// events before and after that day, this month and the next. One day has the
+// three events of a clash. A later run leaves them where they were.
+func TestSeedDevSampleEventDatesFollowNow(t *testing.T) {
+	zone := func(name string) *time.Location {
+		loc, err := time.LoadLocation(name)
+		if err != nil {
+			t.Fatalf("load %s: %v", name, err)
+		}
+		return loc
+	}
+	fortaleza, tokyo := zone("America/Fortaleza"), zone("Asia/Tokyo")
+	clocks := []struct {
+		name string
+		now  time.Time
+		loc  *time.Location
+	}{
+		{"march", time.Date(2026, time.March, 15, 10, 30, 0, 0, fortaleza), fortaleza},
+		{"august", time.Date(2026, time.August, 15, 18, 45, 0, 0, fortaleza), fortaleza},
+		{"december in Tokyo", time.Date(2026, time.December, 15, 9, 0, 0, 0, tokyo), tokyo},
+	}
+	starts := make([]map[string]time.Time, len(clocks))
+	for i, c := range clocks {
+		t.Run(c.name, func(t *testing.T) {
+			store := openTestStore(t, mongoEnv(t))
+			if res := seedAt(t, store, c.now, c.loc); res.created != seedRecordCount {
+				t.Errorf("created %d records, want %d", res.created, seedRecordCount)
+			}
+			events := seedEventsByName(t, store)
+			month := func(day time.Time) string { return day.In(c.loc).Format("2006-01") }
+			this, next := month(c.now), month(time.Date(c.now.Year(), c.now.Month()+1, 1, 0, 0, 0, 0, c.loc))
+
+			var earlier, later, ahead int
+			byDay := map[string][]domain.EventView{}
+			starts[i] = map[string]time.Time{}
+			for name, e := range events {
+				starts[i][name] = e.StartsAt
+				byDay[localDay(e.StartsAt, c.loc)] = append(byDay[localDay(e.StartsAt, c.loc)], e)
+				switch {
+				case month(e.StartsAt) == this && e.StartsAt.Before(c.now):
+					earlier++
+				case month(e.StartsAt) == this:
+					later++
+				case month(e.StartsAt) == next:
+					ahead++
+				default:
+					t.Errorf("%s starts at %v, in neither this month nor the next", name, e.StartsAt.In(c.loc))
+				}
+			}
+			if earlier == 0 || later == 0 || ahead == 0 {
+				t.Errorf("%d events earlier this month, %d later this month and %d next month, want some of each", earlier, later, ahead)
+			}
+
+			// Analisar Data: one day with two events in Fortaleza and one in Recife.
+			var busy []string
+			for day, list := range byDay {
+				if len(list) > 1 {
+					busy = append(busy, day)
+				}
+			}
+			if len(busy) != 1 || len(byDay[busy[0]]) != 3 {
+				t.Fatalf("the days with several events are %v, want one day with 3 events", busy)
+			}
+			clash, err := time.ParseInLocation("2006-01-02", busy[0], c.loc)
+			if err != nil {
+				t.Fatalf("parse %s: %v", busy[0], err)
+			}
+			today := time.Date(c.now.Year(), c.now.Month(), c.now.Day(), 0, 0, 0, 0, c.loc)
+			if n := int(clash.Sub(today) / (24 * time.Hour)); n < 2 || n > 5 {
+				t.Errorf("the clash is %d days from today, want a few (2 to 5)", n)
+			}
+			var places []string
+			for _, e := range byDay[busy[0]] {
+				places = append(places, e.City+"/"+e.State)
+			}
+			slices.Sort(places)
+			if want := []string{"Fortaleza/CE", "Fortaleza/CE", "Recife/PE"}; !slices.Equal(places, want) {
+				t.Errorf("the events of the clash day are in %v, want %v", places, want)
+			}
+			day, err := store.Repos().Events.ListBetween(t.Context(), domain.EventFilter{From: clash.UTC(), To: clash.AddDate(0, 0, 1).UTC()}, 10)
+			if err != nil || len(day) != 3 {
+				t.Errorf("ListBetween(the clash day) = %d events, %v; want 3", len(day), err)
+			}
+
+			wantLateAfterMidnight(t, events["After Hours Subsolo"], c.loc)
+
+			// A run on a later day finds every record and moves none.
+			again := seedAt(t, store, c.now.Add(10*24*time.Hour), c.loc)
+			if again.created != 0 || again.existing != seedRecordCount {
+				t.Errorf("a later run: %d created, %d existing; want 0 and %d", again.created, again.existing, seedRecordCount)
+			}
+			if after := seedEventsByName(t, store); !reflect.DeepEqual(after, events) {
+				t.Errorf("a later run changed an event:\nbefore %+v\nafter  %+v", events, after)
+			}
+		})
+	}
+	for name, first := range starts[0] {
+		for i := 1; i < len(starts); i++ {
+			if other, ok := starts[i][name]; ok && other.Sub(first).Abs() < 60*24*time.Hour {
+				t.Errorf("%s starts at %v and at %v for clocks months apart: its date does not follow the clock", name, first, other)
+			}
+		}
 	}
 }
 
@@ -427,6 +696,7 @@ func TestSeedDevSecondRunChangesNothing(t *testing.T) {
 	store := openTestStore(t, env)
 	usersBefore := seedUsers(t, store)
 	collectivesBefore := seedCollectivesByName(t, store)
+	eventsBefore := seedEventsByName(t, store)
 	countsBefore := docCounts(t, env)
 	historyBefore, err := store.Repos().Users.RecentPasswordHashes(t.Context(), usersBefore["senha-vencida"].ID)
 	if err != nil {
@@ -441,8 +711,8 @@ func TestSeedDevSecondRunChangesNothing(t *testing.T) {
 	if strings.Contains(stdout, ": created") || strings.Contains(stdout, "/confirmar") {
 		t.Errorf("the second run created something or printed a link:\n%s", stdout)
 	}
-	if !strings.Contains(stdout, "0 created, 21 existing") {
-		t.Errorf("stdout has no summary of 21 existing records:\n%s", stdout)
+	if want := fmt.Sprintf("0 created, %d existing", seedRecordCount); !strings.Contains(stdout, want) {
+		t.Errorf("stdout has no summary of %q:\n%s", want, stdout)
 	}
 	wantNone(t, map[string]string{
 		"the seed password": seedPassword, "the previous password": "Anterior-" + seedPassword,
@@ -457,6 +727,9 @@ func TestSeedDevSecondRunChangesNothing(t *testing.T) {
 	}
 	if collectivesAfter := seedCollectivesByName(t, store); !reflect.DeepEqual(collectivesAfter, collectivesBefore) {
 		t.Errorf("the second run changed a collective:\nbefore %+v\nafter  %+v", collectivesBefore, collectivesAfter)
+	}
+	if eventsAfter := seedEventsByName(t, store); !reflect.DeepEqual(eventsAfter, eventsBefore) {
+		t.Errorf("the second run changed an event:\nbefore %+v\nafter  %+v", eventsBefore, eventsAfter)
 	}
 	historyAfter, err := store.Repos().Users.RecentPasswordHashes(t.Context(), usersBefore["senha-vencida"].ID)
 	if err != nil || !slices.Equal(historyAfter, historyBefore) {
@@ -480,8 +753,8 @@ func TestSeedDevKeepsAnExistingAccount(t *testing.T) {
 	lines := seedLines("created")
 	lines[0] = "user admin@agenda.test: exists"
 	wantLines(t, stdout, lines)
-	if !strings.Contains(stdout, "20 created, 1 existing") {
-		t.Errorf("stdout has no summary of 20 created and 1 existing record:\n%s", stdout)
+	if want := fmt.Sprintf("%d created, 1 existing", seedRecordCount-1); !strings.Contains(stdout, want) {
+		t.Errorf("stdout has no summary of %q:\n%s", want, stdout)
 	}
 	linkIn(t, stdout, "http://localhost:8120/confirmar?token=")
 
