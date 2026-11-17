@@ -361,9 +361,3 @@ func eventFormValues(f events.Form) url.Values {
 	}
 	return v
 }
-
-// eventPath is the path of an event's page. The ID is opaque, so it goes in as one
-// escaped path segment.
-func eventPath(id string) string {
-	return "/eventos/" + url.PathEscape(id)
-}

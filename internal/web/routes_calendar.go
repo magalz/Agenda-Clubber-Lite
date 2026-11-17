@@ -76,7 +76,7 @@ func newCalendarView(v events.MonthView) calendarView {
 		for j, day := range week {
 			d := calendarDay{GridDay: day, DayHref: calendarDayHref(day.Key, v.Filter)}
 			for _, e := range day.Shown {
-				d.Chips = append(d.Chips, calendarChip{Href: "/eventos/" + url.PathEscape(e.ID), Event: e.Event})
+				d.Chips = append(d.Chips, calendarChip{Href: eventPath(e.ID), Event: e.Event})
 			}
 			out.Weeks[i][j] = d
 		}

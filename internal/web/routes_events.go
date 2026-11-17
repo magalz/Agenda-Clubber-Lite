@@ -134,7 +134,13 @@ func (a *App) eventRender(c *gin.Context, u domain.User, id string, status int, 
 // eventURL is the path of an event's page for action ("editar", "excluir"). The
 // ID is opaque, so it goes in as one escaped path segment.
 func eventURL(id, action string) string {
-	return "/eventos/" + url.PathEscape(id) + "/" + action
+	return eventPath(id) + "/" + action
+}
+
+// eventPath is the path of an event's page, with the ID escaped. Every link to an
+// event is built here, so a change of the route changes every link.
+func eventPath(id string) string {
+	return "/eventos/" + url.PathEscape(id)
 }
 
 // ticketHref is the ticket link of an event, or "" when it is not an http or

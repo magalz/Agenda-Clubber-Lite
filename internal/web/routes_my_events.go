@@ -2,7 +2,6 @@ package web
 
 import (
 	"net/http"
-	"net/url"
 
 	"github.com/gin-gonic/gin"
 
@@ -73,7 +72,7 @@ func myEventRows(items []events.MineItem) []myEventRow {
 		rows[i] = myEventRow{
 			MineItem:  it,
 			RoleLabel: approvals.RoleLabel(it.Role),
-			Href:      "/eventos/" + url.PathEscape(it.ID),
+			Href:      eventPath(it.ID),
 			EditURL:   eventURL(it.ID, "editar"),
 			Note:      myEventsNote(it),
 		}
