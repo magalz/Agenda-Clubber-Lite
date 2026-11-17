@@ -32,7 +32,8 @@ internal/store/mongostore/   the MongoDB implementation of the domain interfaces
 internal/store/mongotest/    mongotest.New(t): an isolated test database on MONGO_TEST_URI
 internal/auth/         password policy/hash/history/expiry, sessions, rate limiting
 internal/approvals/    the approval flows as service functions (store, actor, time; one WithTx for each write); imports only internal/domain and internal/mail
-internal/catalog/      music styles (embedded JSON) and event types
+internal/catalog/      music styles and IBGE states/cities from CircuitoNE (embedded JSON, one copy, pinned to git blobs, LF through .gitattributes) and event types
+internal/events/       the event flows as service functions (input parsing, writes, reads, the month grid); imports only internal/domain and internal/catalog
 internal/mail/         SMTP sender, outbox worker, email templates
 internal/web/          App (dependencies), router, middleware, render, handlers
 web/embed.go           package web: go:embed of static/ and templates/
@@ -50,7 +51,7 @@ Dependency rule: for data access, business code (accounts, approvals, events, `i
 | `APP_ENV` | `prod` | `dev` enables dev-only routes/commands and relaxes nothing security-related except the `Secure` cookie requirement on plain http localhost |
 | `APP_ADDR` | `:8120` | listen address |
 | `APP_ORIGIN` | (required) | e.g. `https://agenda.magalz.space`; used for the Origin check and absolute links in emails |
-| `APP_TZ` | `America/Fortaleza` | IANA zone; `time/tzdata` is embedded |
+| `APP_TZ` | `America/Fortaleza` | IANA zone; `time/tzdata` is embedded. `seed-dev` reads it too: the sample events' dates and times are in this zone |
 | `MONGO_URI` | (required) | secret (it may carry credentials; never printed or logged). `mongodb://` only (the driver refuses `directConnection` with `mongodb+srv://`), a single-node replica set, and it must carry `directConnection=true` (checked at startup) |
 | `MONGO_DB` | `agenda` | database name: 1 to 38 letters, digits, `_` or `-` |
 | `TRUSTED_PROXY_CIDRS` | empty | comma-separated CIDRs whose `CF-Connecting-IP` header is trusted |
@@ -110,10 +111,18 @@ Tokens are defined once in `web/static/css/tokens.css`; every other stylesheet u
 - CSS class names live in `web/static/css/components.css` (section comments list them and their markup contracts: wordmark, drawer, checklist `sr-only` state, `required` on `.label--required` controls). Use `.field-error` and `.spinner*` (not `.error` / `.spinner-input`).
 - The itsaplan commit hook only accepts the message (trailers included) through `-m` arguments, not `-F file`.
 - Roles and who approves what are in the README ("Approvals"). The labels: stored role `owner` is shown as Administrador, `member` as Membro, the creator of a collective (`Collective.CreatedBy`) is its Master, and `User.IsAdmin` is the Admin. The stored values never change; `approvals.RoleLabel` maps them to the labels.
-- Collectives are serialized through the store: an operation that depends on a collective's state (a join decision, a role change, a rename, a join request, a change of the blocks) runs in `Store.WithTx`, reads the collective there and writes it back with `Collectives.Update`, which always writes, so two such transactions on one collective conflict and one retries. The generic `Update` methods (`Collectives.Update`, `Memberships.Update`) are called only inside `WithTx`, after a read in that same transaction.
+- Collectives are serialized through the store: an operation that depends on a collective's state (a join decision, a role change, a rename, a join request, a change of the blocks, an event's creation, edit or deletion) runs in `Store.WithTx`, reads the collective there and writes it back with `Collectives.Update`, which always writes, so two such transactions on one collective conflict and one retries. The generic `Update` methods (`Collectives.Update`, `Memberships.Update`) are called only inside `WithTx`, after a read in that same transaction.
 - The audit log keeps IDs and name snapshots, never an email address. Its references are not checked on write and never cleared or changed when a user or collective is deleted.
 - In `/admin` the IDs a POST acts on travel in hidden form fields.
 - A collective's page (`/coletivo/<id>`) answers anyone who may not see it (a stranger, a Membro, the Admin, or everyone while the collective is not approved) exactly like a path that does not exist.
+- The catalog lists exist once, in `internal/catalog`. Never copy them to `web/static`: the browser gets the lists from Go routes.
+- Events: times are stored in UTC and the day of an event is its start date in `APP_TZ`, so one that ends after midnight stays on the day it starts. A new event cannot start before today; an edit may keep a past date.
+- An event edit is versioned: the form carries the version it read, `Events.Update` saves only when it still matches, and a stale one is `ErrChanged`, answered 409.
+- Who may create, edit and delete events is the table in `internal/events/events.go`. `mayCreate` and `mayEdit` (`internal/events/permissions.go`) are the only place it is coded; the write flows and the views that decide which buttons to show both call them.
+- The audit log records every deletion of an event, and an edit only when the admin made it in a collective where the admin is not an approved Administrador. Creations and an Administrador's own edits are not recorded. The detail of an entry is the event's name and its start date in `APP_TZ`.
+- The dependent selects (the cities of a state, the substyles of a style) are `<option>` fragments served by `/opcoes/*`. The Go builders (`cityOptions`, `substyleOptions`) and the `select-options` partial that make them also render the event form's own lists, so the two cannot differ. The form works without JavaScript.
+- Every link to an event is built with `eventPath` or `eventURL`: the ID is escaped there, and a change of the route changes every link.
+- A page the person may not see, or that does not exist (an unknown event, a collective's page), is answered by `answerNotFound`, the same as a path no route serves. Handlers of authed routes get the user from `signedInUser`.
 
 ## Testing and checks
 
