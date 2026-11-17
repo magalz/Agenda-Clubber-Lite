@@ -97,9 +97,9 @@ The sample events are made by the Administrador of their collective (`dono`, and
 |---|---|---|---|
 | Warm Up Techno | Coletivo Alfa | 8 days before, 22:00 | a past event, with a venue and a description |
 | Sarau na Praça | Produtora Beta | 3 days before, 17:00 | type Outros, named "Sarau"; Sobral/CE |
-| Rave Litoral | Coletivo Alfa | 3 days after, 22:00 | Fortaleza/CE; one of the three events of that day |
-| Pista Drum and Bass | Produtora Beta | 3 days after, 23:00 | Fortaleza/CE; the second of that day, so [Analisar Data](#events-and-calendar) lists two events in Fortaleza and one in Recife |
-| Noite House Recife | Coletivo Alfa | 3 days after, 21:00 | Recife/PE; the third of that day |
+| Noite House Recife | Coletivo Alfa | 3 days after, 21:00 | Recife/PE; one of the three events of that day, so [Analisar Data](#events-and-calendar) lists two events in Fortaleza and one in Recife |
+| Rave Litoral | Coletivo Alfa | 3 days after, 22:00 | Fortaleza/CE; the same day |
+| Pista Drum and Bass | Produtora Beta | 3 days after, 23:00 | Fortaleza/CE; the same day |
 | Noite Ambient no Terraço | Coletivo Delta | 5 days after, 20:00 | an event of a collective whose events are blocked |
 | Oficina de Discotecagem | Produtora Beta | 6 days after, 14:00 | a Free workshop |
 | After Hours Subsolo | Coletivo Alfa | 8 days after, 23:30 | starts late and ends at 06:00 the next day |
@@ -145,7 +145,7 @@ Who does what:
 
 - **Create**: an approved Administrador of an approved collective, from "Criar Evento". The form offers only the collectives the person may create in. The Admin creates events only as an Administrador of the collective.
 - **Edit and delete**: any approved Administrador of the event's collective, or the Admin. A Membro only reads.
-- **The event block**: while the Admin blocks a collective's events ("bloquear eventos"), its Administradores can neither create, edit nor delete them (the page says why, with a 409); the Admin still can. The events already there stay on the calendar.
+- **The event block**: while the Admin blocks a collective's events ("bloquear eventos"), its Administradores can neither create, edit nor delete them (the page says why, with a 409). The Admin can still edit and delete them, and create one only if the Admin is an Administrador of that collective. The events already there stay on the calendar.
 - **Editing twice**: an edit carries the version it read. If someone else saved first, nothing is saved: the form comes back (409) with what the person typed and a link to the event as it is now, and saving again is a deliberate choice.
 
 The form asks for the name, the type, the date and start time, the duration (under 24 hours), the price or Free, the style, the state and the city, and, if the organizer wants, a ticket link (http or https), the substyle, the venue, the artists (one per line) and a description. A type or a style of Outros asks for a name. The cities depend on the state and the substyles on the style; the form works without JavaScript, with a button that refreshes the lists. A new event cannot start before today. An event that ends after midnight belongs to the day it starts.
