@@ -539,6 +539,14 @@ func TestEvfEditPage(t *testing.T) {
 	wantAll(t, "free", evfInput(t, body, "free"), `checked`)
 	wantAll(t, "price", evfInput(t, body, "price"), `value=""`)
 
+	// A catalog style with no substyles of its own still takes the substyle outros, so the
+	// select must offer it: saving the form unchanged must not drop it.
+	pop := e.full(t, func(ev *domain.Event) { ev.Style, ev.Substyle = "pop", "outros" })
+	body = evdOK(t, "style without substyles", e.get(e.Owner, "/eventos/"+pop.ID+"/editar"))
+	if subs, got := evfOptions(evfSelect(t, body, "substyle")); !slices.Equal(subs, []string{"", "outros"}) || got != "outros" {
+		t.Errorf("substyle options = %q, selected %q; want the empty one and outros, outros selected", subs, got)
+	}
+
 	// The admin edits an event of a collective they are no Administrador of, blocked or not.
 	delta := evEvent(t, e.Store, e.Delta.ID, e.Owner.ID)
 	evdOK(t, "admin on Alfa", e.get(e.Admin, "/eventos/"+ev.ID+"/editar"))
