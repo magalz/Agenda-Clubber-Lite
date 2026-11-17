@@ -139,7 +139,7 @@ func (a *App) adminManageRoutes(admin *gin.RouterGroup) {
 // adminAccounts lists the active and the blocked accounts. Only the fixed text a
 // known ?msg= code stands for is shown.
 func (a *App) adminAccounts(c *gin.Context) {
-	u, ok := a.adminUser(c)
+	u, ok := a.signedInUser(c, "admin")
 	if !ok {
 		return
 	}
@@ -205,7 +205,7 @@ func (a *App) adminUnblockAccount(c *gin.Context) {
 // adminCollectives lists the approved collectives with their blocks. Only the
 // fixed text a known ?msg= code stands for is shown.
 func (a *App) adminCollectives(c *gin.Context) {
-	u, ok := a.adminUser(c)
+	u, ok := a.signedInUser(c, "admin")
 	if !ok {
 		return
 	}
@@ -243,7 +243,7 @@ func (a *App) adminSetBlocks(c *gin.Context) {
 
 // adminHistory lists the latest audit entries, newest first.
 func (a *App) adminHistory(c *gin.Context) {
-	u, ok := a.adminUser(c)
+	u, ok := a.signedInUser(c, "admin")
 	if !ok {
 		return
 	}

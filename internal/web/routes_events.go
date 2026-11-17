@@ -47,7 +47,7 @@ func (a *App) eventRoutes(public, authed *gin.RouterGroup) {
 // every event. An unknown or malformed ID is the 404 of a path no route serves.
 // Only the fixed text a known ?msg= code stands for is shown.
 func (a *App) eventShow(c *gin.Context) {
-	u, ok := a.eventsUser(c)
+	u, ok := a.signedInUser(c, "events")
 	if !ok {
 		return
 	}
@@ -62,7 +62,7 @@ func (a *App) eventShow(c *gin.Context) {
 // the reason as its alert. The log names the person and the error, never the
 // event's text.
 func (a *App) eventDelete(c *gin.Context) {
-	u, ok := a.eventsUser(c)
+	u, ok := a.signedInUser(c, "events")
 	if !ok {
 		return
 	}
@@ -84,17 +84,6 @@ func (a *App) eventDelete(c *gin.Context) {
 	default:
 		a.eventRender(c, u, id, status, "", msg)
 	}
-}
-
-// eventsUser returns the signed-in user. An authed route always has one, so its
-// absence is a logged 500.
-func (a *App) eventsUser(c *gin.Context) (domain.User, bool) {
-	u, ok := a.currentUser(c)
-	if !ok {
-		a.Log.Error("events: no signed-in user on an authed route")
-		c.String(http.StatusInternalServerError, "erro interno")
-	}
-	return u, ok
 }
 
 // eventRender answers with the event, read afresh for u: the event-detail partial

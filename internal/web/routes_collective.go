@@ -90,7 +90,7 @@ func (a *App) collectiveRoutes(public, authed *gin.RouterGroup) {
 // collectiveShow is the page: the members, the requests to decide and the rename
 // form. Only the fixed text a known ?msg= code stands for is shown.
 func (a *App) collectiveShow(c *gin.Context) {
-	u, ok := a.collectivesUser(c)
+	u, ok := a.signedInUser(c, "collective")
 	if !ok {
 		return
 	}
@@ -113,7 +113,7 @@ func (a *App) collectiveShow(c *gin.Context) {
 // never what was typed.
 func (a *App) collectiveAct(logMsg, code, selfCode string, limited bool, do func(context.Context, domain.User, string, url.Values, time.Time) error) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		u, ok := a.collectivesUser(c)
+		u, ok := a.signedInUser(c, "collective")
 		if !ok {
 			return
 		}

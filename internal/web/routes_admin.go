@@ -102,17 +102,6 @@ func (a *App) adminRoutes(admin *gin.RouterGroup) {
 	admin.POST("/pedido/recusar", a.adminRejectJoin)
 }
 
-// adminUser is the signed-in admin. requireAdmin guarantees there is one, so a
-// miss is a bug: it is logged and answered with a 500.
-func (a *App) adminUser(c *gin.Context) (domain.User, bool) {
-	u, ok := a.currentUser(c)
-	if !ok {
-		a.Log.Error("admin: no signed-in user on an admin route")
-		c.String(http.StatusInternalServerError, "erro interno")
-	}
-	return u, ok
-}
-
 // adminRender answers with the queue as it is now, plus what the answer carries (a
 // notice or an alert). A queue that cannot be read is a logged 500.
 func (a *App) adminRender(c *gin.Context, u domain.User, status int, notice, alert string) {
@@ -173,7 +162,7 @@ func (a *App) adminCards(queue []approvals.PersonCard) []adminCard {
 // adminShow lists the people who wait for the admin, and what they ask for. Only
 // the fixed text a known ?msg= code stands for is shown.
 func (a *App) adminShow(c *gin.Context) {
-	u, ok := a.adminUser(c)
+	u, ok := a.signedInUser(c, "admin")
 	if !ok {
 		return
 	}
@@ -191,7 +180,7 @@ func (a *App) adminShow(c *gin.Context) {
 func (a *App) adminDecide(c *gin.Context, action, back, code string,
 	render func(c *gin.Context, u domain.User, status int, notice, alert string),
 	do func(ctx context.Context, actor domain.User, form url.Values, now time.Time) error) {
-	u, ok := a.adminUser(c)
+	u, ok := a.signedInUser(c, "admin")
 	if !ok {
 		return
 	}

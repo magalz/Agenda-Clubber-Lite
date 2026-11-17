@@ -49,17 +49,6 @@ func (a *App) passwordRoutes(public, authed *gin.RouterGroup) {
 	authed.POST("/senha/verificar", a.changeCheck)
 }
 
-// changeUser is the signed-in person. The authed group guarantees there is one,
-// so a miss is a bug: it is logged and answered with a 500.
-func (a *App) changeUser(c *gin.Context) (domain.User, bool) {
-	u, ok := a.currentUser(c)
-	if !ok {
-		a.Log.Error("change password: no signed-in user on an authed route")
-		c.String(http.StatusInternalServerError, "erro interno")
-	}
-	return u, ok
-}
-
 // changePageUser is the signed-in person as the change pages show them: without
 // the expiry warning. The banner links here, so on this page it would only point
 // at itself, and after the change it would still warn, because the session's user
@@ -83,7 +72,7 @@ func (a *App) changeFormData(c *gin.Context, u domain.User, message string) Page
 }
 
 func (a *App) changeShow(c *gin.Context) {
-	u, ok := a.changeUser(c)
+	u, ok := a.signedInUser(c, "change password")
 	if !ok {
 		return
 	}
@@ -96,7 +85,7 @@ func (a *App) changeShow(c *gin.Context) {
 // quickly. The person's other sessions end and this one stays, which is why the
 // answer sets no cookie. No password reaches the page or the logs.
 func (a *App) changeSubmit(c *gin.Context) {
-	u, ok := a.changeUser(c)
+	u, ok := a.signedInUser(c, "change password")
 	if !ok {
 		return
 	}
@@ -135,7 +124,7 @@ func (a *App) changeSubmit(c *gin.Context) {
 // 429 with an empty body, which htmx does not swap either: the item on the page
 // stays as it was.
 func (a *App) changeCheck(c *gin.Context) {
-	u, ok := a.changeUser(c)
+	u, ok := a.signedInUser(c, "change password")
 	if !ok {
 		return
 	}
