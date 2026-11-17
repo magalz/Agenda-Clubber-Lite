@@ -1,0 +1,49 @@
+{{/* Meus Eventos (/meus-eventos), for a signed-in person: the events of every collective where they have an approved
+     membership, Administrador or Membro. Data is a myEventsPage: Upcoming (the events that have not ended, by start time,
+     one in progress included) and Past (the ended ones, latest first), each a list of myEventRow: the event (Name, Type,
+     TypeOther, StartsAt, City, State, CollectiveName), Role, RoleLabel (Administrador or Membro), Href (the event's page),
+     EditURL (its edit page), CanEdit and Note, the reason a row the person may not edit is read-only. The edit link is
+     shown only when CanEdit; its accessible name carries the event's name.
+     With no row in either list the page shows the empty state, and the way to create an event when .User.CanCreateEvents;
+     otherwise both headings are shown and a section with no row says so.
+     CSS: section-heading, stack, item-list (the rows), badge, badge--accent, empty, uppercase-label, muted, text-sm,
+     sr-only (components.css). */}}
+{{define "my-event-row"}}<li class="item-list__item">
+  <div class="item-list__main">
+    <p class="item-list__title"><a href="{{.Href}}">{{.Name}}</a></p>
+    <p class="item-list__meta">{{dateLong .StartsAt}} · {{clock .StartsAt}}</p>
+    <p class="item-list__meta">{{.CollectiveName}} · {{.City}}/{{.State}} · {{.RoleLabel}}</p>
+  </div>
+  <span class="badge badge--accent item-list__status">{{eventType .Type .TypeOther}}</span>
+  <div class="item-list__actions">
+    {{if .CanEdit}}<a href="{{.EditURL}}">[→] editar<span class="sr-only"> {{.Name}}</span></a>{{else}}<span class="muted text-sm">{{.Note}}</span>{{end}}
+  </div>
+</li>{{end}}
+{{define "content"}}<div class="section-heading">
+  <h1 class="section-heading__title text-glow"><span class="section-heading__prompt" aria-hidden="true">~/ </span>meus eventos</h1>
+</div>
+<div class="stack stack--lg">
+  {{if or .Data.Upcoming .Data.Past}}
+  <section class="stack" aria-labelledby="proximos-titulo">
+    <h2 class="uppercase-label" id="proximos-titulo">Próximos</h2>
+    {{if .Data.Upcoming}}<ul class="item-list">
+      {{range .Data.Upcoming}}{{template "my-event-row" .}}
+      {{end}}
+    </ul>
+    {{else}}<p class="muted text-sm">nenhum evento próximo</p>
+    {{end}}
+  </section>
+  <section class="stack" aria-labelledby="anteriores-titulo">
+    <h2 class="uppercase-label" id="anteriores-titulo">Anteriores</h2>
+    {{if .Data.Past}}<ul class="item-list">
+      {{range .Data.Past}}{{template "my-event-row" .}}
+      {{end}}
+    </ul>
+    {{else}}<p class="muted text-sm">nenhum evento anterior</p>
+    {{end}}
+  </section>
+  {{else}}<div class="empty">nenhum evento nos seus coletivos ainda</div>
+  {{if and .User .User.CanCreateEvents}}<p><a href="/eventos/novo">[→] criar evento</a></p>
+  {{end}}
+  {{end}}
+</div>{{end}}
