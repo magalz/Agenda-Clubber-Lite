@@ -397,8 +397,16 @@ func TestCalendarFilter(t *testing.T) {
 				if !strings.Contains(calOpenTag(city), "disabled") {
 					t.Errorf("the city select is enabled with no state: %s", city)
 				}
-			} else if strings.Contains(calOpenTag(city), "disabled") {
-				t.Errorf("the city select is disabled for state %s", tt.state)
+				// The hint that says why is a row of the form of its own, and the select points at it.
+				wantAll(t, "city hint", form, `aria-describedby="calendar-cidade-dica"`, `class="hint calendar__filter-hint" id="calendar-cidade-dica"`)
+				inOrder(t, form, "</select>", "</button>", `id="calendar-cidade-dica"`)
+			} else {
+				if strings.Contains(calOpenTag(city), "disabled") {
+					t.Errorf("the city select is disabled for state %s", tt.state)
+				}
+				if strings.Contains(form, "calendar-cidade-dica") {
+					t.Errorf("the hint about choosing a state shows with state %s", tt.state)
+				}
 			}
 			if got := calOptions(city); !slices.Equal(got, tt.cities) {
 				t.Errorf("city options = %q, want %q", got, tt.cities)

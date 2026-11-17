@@ -32,9 +32,9 @@
         {{range .Cities}}<option value="{{.Value}}"{{if .Selected}} selected{{end}}>{{.Label}}</option>
         {{end}}
       </select>
-      {{if not .State}}<p class="hint" id="calendar-cidade-dica">escolha um estado e filtre para escolher a cidade</p>{{end}}
     </div>
     <button class="btn btn--outline btn--sm" type="submit">[→] filtrar</button>
+    {{if not .State}}<p class="hint calendar__filter-hint" id="calendar-cidade-dica">escolha um estado e filtre para escolher a cidade</p>{{end}}
   </form>
   {{if .Truncated}}<p class="status status--warn" role="status">mostrando só os primeiros {{.Limit}} eventos deste mês</p>{{end}}
   <table class="calendar__grid" aria-labelledby="calendar-title">

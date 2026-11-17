@@ -1012,10 +1012,11 @@
    <div class="calendar" id="calendar-month" data-month="AAAA-MM">
      <nav class="calendar__nav"><a class="btn ..." rel="prev">[‹]</a> <h2 class="calendar__title" id="calendar-title"> <a class="btn ..." rel="next">[›]</a>
        <a class="btn btn--ghost btn--sm calendar__today">Hoje</a></nav>
-     <form class="calendar__filter" method="get" action="/"><div class="field">label + select</div> ... <button class="btn ...">[→] filtrar</button></form>
+     <form class="calendar__filter" method="get" action="/"><div class="field">label + select</div> ... <button class="btn ...">[→] filtrar</button>
+       <p class="hint calendar__filter-hint" id="calendar-cidade-dica"> (only with no state: the describedby of the disabled city select)</form>
      <table class="calendar__grid" aria-labelledby="calendar-title">
        <thead><tr><th class="calendar__weekday" scope="col">DOM ...</th></tr></thead>
-       <tbody><tr class="calendar__week"><td class="calendar__cell [calendar__cell--out] [calendar__cell--today] [calendar__cell--past]" data-day="AAAA-MM-DD">
+       <tbody><tr><td class="calendar__cell [calendar__cell--out] [calendar__cell--today] [calendar__cell--past]" data-day="AAAA-MM-DD">
          <a class="calendar__daynum"><span aria-hidden="true">14</span><span class="sr-only">sábado, 14/11/2026, 1 evento</span></a>
          <ul class="calendar__events"><li><a class="calendar__chip"><span class="calendar__chip-meta"><span class="calendar__chip-time"> <span class="badge calendar__chip-type"></span>
            <span class="calendar__chip-name"></a></li></ul>
@@ -1061,6 +1062,10 @@
 .calendar__filter .field {
   flex: 1 1 10rem;
   max-width: 16rem;
+}
+.calendar__filter-hint {
+  flex: 1 0 100%;
+  margin: 0;
 }
 
 .calendar__grid {
