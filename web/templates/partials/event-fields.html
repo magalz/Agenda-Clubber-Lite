@@ -1,0 +1,177 @@
+{{/* The fields of the event form, for pages/app/evento-form (create and edit). Call it inside the <form> with the page's
+     PageData: {{template "event-fields" .}}. .Form holds the values (url.Values), .Errors the messages by field, and .Data is
+     an eventFormPage: Edit (the event already exists: the collective is shown, not chosen), CollectiveName (edit),
+     Collectives (the collectives the person may create in), and the options of the selects: Types, States, Cities (those of
+     the chosen state), Styles and Substyles (those of the chosen style). Each option has Value, Label and Selected.
+     Everything works as a plain post with no JavaScript. The cities and the substyles depend on the state and the style: the
+     person changes those and presses the form's ATUALIZAR LISTAS button, which posts the form back with the lists filled in
+     (nothing is saved). Later enhancements (the date and duration widgets, the cascades) bind to the ids and names below.
+     Fields (id = name): collective_id (create only), name, type, type_other, date (dd/mm/aaaa), time (HH:MM), duration_hours
+     and duration_minutes (errors of both under "duration"), price, free, ticket_url, style, style_other, substyle, state,
+     city, venue, artists, description. A label with label--required is for a control with the required attribute, and a control
+     with an error carries aria-invalid and aria-describedby to its erro-<field> message (the ef-aria template, which takes
+     Errors, Field and, for a control that has a hint, Hint: the hint's id).
+     CSS: stack, stack--sm, field, label, label--required, hint, input, input--money, select, textarea, check
+     and the event-form__* classes (components.css, "Event form"). */}}
+{{define "ef-aria"}}{{$err := index .Errors .Field}}{{if $err}} aria-invalid="true"{{end}}{{if or .Hint $err}} aria-describedby="{{if .Hint}}{{.Hint}}{{end}}{{if and .Hint $err}} {{end}}{{if $err}}erro-{{.Field}}{{end}}"{{end}}{{end}}
+
+{{define "event-fields"}}<fieldset class="event-form__section">
+  <legend class="event-form__title">o evento</legend>
+  {{if .Data.Edit}}<div class="field">
+    <span class="label">coletivo</span>
+    <p class="event-form__static">{{.Data.CollectiveName}}</p>
+    <p class="hint">o coletivo de um evento não muda</p>
+  </div>
+  {{else}}<div class="field">
+    <label class="label label--required" for="collective_id">coletivo</label>
+    <select class="select" id="collective_id" name="collective_id" required{{template "ef-aria" (dict "Errors" .Errors "Field" "collective_id")}}>
+      <option value="">escolha o coletivo</option>
+      {{range .Data.Collectives}}<option value="{{.Value}}"{{if .Selected}} selected{{end}}>{{.Label}}</option>
+      {{end}}
+    </select>
+    {{template "field-error" (dict "Errors" .Errors "Field" "collective_id")}}
+  </div>
+  {{end}}
+  <div class="field">
+    <label class="label label--required" for="name">nome</label>
+    <input class="input" type="text" id="name" name="name" value="{{.Form.Get "name"}}" autocomplete="off" required{{template "ef-aria" (dict "Errors" .Errors "Field" "name")}}>
+    {{template "field-error" (dict "Errors" .Errors "Field" "name")}}
+  </div>
+  <div class="event-form__row">
+    <div class="field">
+      <label class="label label--required" for="type">tipo</label>
+      <select class="select" id="type" name="type" required{{template "ef-aria" (dict "Errors" .Errors "Field" "type")}}>
+        {{range .Data.Types}}<option value="{{.Value}}"{{if .Selected}} selected{{end}}>{{.Label}}</option>
+        {{end}}
+      </select>
+      {{template "field-error" (dict "Errors" .Errors "Field" "type")}}
+    </div>
+    <div class="field">
+      <label class="label" for="type_other">qual tipo?</label>
+      <input class="input" type="text" id="type_other" name="type_other" value="{{.Form.Get "type_other"}}" autocomplete="off"{{template "ef-aria" (dict "Errors" .Errors "Field" "type_other" "Hint" "dica-type-other")}}>
+      <p class="hint" id="dica-type-other">só se o tipo for Outros</p>
+      {{template "field-error" (dict "Errors" .Errors "Field" "type_other")}}
+    </div>
+  </div>
+</fieldset>
+
+<fieldset class="event-form__section">
+  <legend class="event-form__title">quando</legend>
+  <div class="event-form__row">
+    <div class="field">
+      <label class="label label--required" for="date">data</label>
+      <input class="input" type="text" id="date" name="date" value="{{.Form.Get "date"}}" inputmode="numeric" placeholder="dd/mm/aaaa" autocomplete="off" required{{template "ef-aria" (dict "Errors" .Errors "Field" "date")}}>
+      {{template "field-error" (dict "Errors" .Errors "Field" "date")}}
+    </div>
+    <div class="field">
+      <label class="label label--required" for="time">hora de início</label>
+      <input class="input" type="text" id="time" name="time" value="{{.Form.Get "time"}}" inputmode="numeric" placeholder="HH:MM" autocomplete="off" required{{template "ef-aria" (dict "Errors" .Errors "Field" "time")}}>
+      {{template "field-error" (dict "Errors" .Errors "Field" "time")}}
+    </div>
+  </div>
+  <fieldset class="event-form__group">
+    <legend class="label label--required">duração</legend>
+    <div class="event-form__duration">
+      <div class="field">
+        <label class="label label--required" for="duration_hours">horas</label>
+        <input class="input" type="number" id="duration_hours" name="duration_hours" value="{{.Form.Get "duration_hours"}}" min="0" max="23" inputmode="numeric" required{{template "ef-aria" (dict "Errors" .Errors "Field" "duration")}}>
+      </div>
+      <div class="field">
+        <label class="label" for="duration_minutes">minutos</label>
+        <input class="input" type="number" id="duration_minutes" name="duration_minutes" value="{{.Form.Get "duration_minutes"}}" min="0" max="59" inputmode="numeric"{{template "ef-aria" (dict "Errors" .Errors "Field" "duration")}}>
+      </div>
+    </div>
+    {{template "field-error" (dict "Errors" .Errors "Field" "duration")}}
+  </fieldset>
+</fieldset>
+
+<fieldset class="event-form__section">
+  <legend class="event-form__title">entrada</legend>
+  <div class="event-form__row">
+    <div class="field">
+      <label class="label" for="price">preço (R$)</label>
+      <input class="input input--money" type="text" id="price" name="price" value="{{.Form.Get "price"}}" inputmode="decimal" placeholder="0,00" autocomplete="off"{{template "ef-aria" (dict "Errors" .Errors "Field" "price" "Hint" "dica-price")}}>
+      <p class="hint" id="dica-price">ex.: 25 ou 25,50. fica de fora se o evento for gratuito</p>
+      {{template "field-error" (dict "Errors" .Errors "Field" "price")}}
+    </div>
+    <div class="field">
+      <span class="label">gratuito</span>
+      <label class="check" for="free"><input type="checkbox" id="free" name="free" value="on"{{if .Form.Get "free"}} checked{{end}}> evento gratuito</label>
+    </div>
+  </div>
+  <div class="field">
+    <label class="label" for="ticket_url">link dos ingressos</label>
+    <input class="input" type="url" id="ticket_url" name="ticket_url" value="{{.Form.Get "ticket_url"}}" placeholder="https://" autocomplete="off"{{template "ef-aria" (dict "Errors" .Errors "Field" "ticket_url")}}>
+    {{template "field-error" (dict "Errors" .Errors "Field" "ticket_url")}}
+  </div>
+</fieldset>
+
+<fieldset class="event-form__section">
+  <legend class="event-form__title">som</legend>
+  <div class="event-form__row">
+    <div class="field">
+      <label class="label label--required" for="style">estilo</label>
+      <select class="select" id="style" name="style" required{{template "ef-aria" (dict "Errors" .Errors "Field" "style")}}>
+        {{range .Data.Styles}}<option value="{{.Value}}"{{if .Selected}} selected{{end}}>{{.Label}}</option>
+        {{end}}
+      </select>
+      {{template "field-error" (dict "Errors" .Errors "Field" "style")}}
+    </div>
+    <div class="field">
+      <label class="label" for="substyle">subestilo</label>
+      <select class="select" id="substyle" name="substyle"{{template "ef-aria" (dict "Errors" .Errors "Field" "substyle")}}>
+        {{range .Data.Substyles}}<option value="{{.Value}}"{{if .Selected}} selected{{end}}>{{.Label}}</option>
+        {{end}}
+      </select>
+      {{template "field-error" (dict "Errors" .Errors "Field" "substyle")}}
+    </div>
+  </div>
+  <div class="field">
+    <label class="label" for="style_other">qual estilo?</label>
+    <input class="input" type="text" id="style_other" name="style_other" value="{{.Form.Get "style_other"}}" autocomplete="off"{{template "ef-aria" (dict "Errors" .Errors "Field" "style_other" "Hint" "dica-style-other")}}>
+    <p class="hint" id="dica-style-other">só se o estilo for Outros</p>
+    {{template "field-error" (dict "Errors" .Errors "Field" "style_other")}}
+  </div>
+</fieldset>
+
+<fieldset class="event-form__section">
+  <legend class="event-form__title">onde</legend>
+  <div class="event-form__row">
+    <div class="field">
+      <label class="label label--required" for="state">estado</label>
+      <select class="select" id="state" name="state" required{{template "ef-aria" (dict "Errors" .Errors "Field" "state")}}>
+        {{range .Data.States}}<option value="{{.Value}}"{{if .Selected}} selected{{end}}>{{.Label}}</option>
+        {{end}}
+      </select>
+      {{template "field-error" (dict "Errors" .Errors "Field" "state")}}
+    </div>
+    <div class="field">
+      <label class="label label--required" for="city">cidade</label>
+      <select class="select" id="city" name="city" required{{template "ef-aria" (dict "Errors" .Errors "Field" "city")}}>
+        {{range .Data.Cities}}<option value="{{.Value}}"{{if .Selected}} selected{{end}}>{{.Label}}</option>
+        {{end}}
+      </select>
+      {{template "field-error" (dict "Errors" .Errors "Field" "city")}}
+    </div>
+  </div>
+  <div class="field">
+    <label class="label" for="venue">local</label>
+    <input class="input" type="text" id="venue" name="venue" value="{{.Form.Get "venue"}}" autocomplete="off"{{template "ef-aria" (dict "Errors" .Errors "Field" "venue")}}>
+    {{template "field-error" (dict "Errors" .Errors "Field" "venue")}}
+  </div>
+</fieldset>
+
+<fieldset class="event-form__section">
+  <legend class="event-form__title">detalhes</legend>
+  <div class="field">
+    <label class="label" for="artists">artistas</label>
+    <textarea class="textarea" id="artists" name="artists" rows="4"{{template "ef-aria" (dict "Errors" .Errors "Field" "artists" "Hint" "dica-artists")}}>{{.Form.Get "artists"}}</textarea>
+    <p class="hint" id="dica-artists">um por linha</p>
+    {{template "field-error" (dict "Errors" .Errors "Field" "artists")}}
+  </div>
+  <div class="field">
+    <label class="label" for="description">descrição</label>
+    <textarea class="textarea" id="description" name="description" rows="6"{{template "ef-aria" (dict "Errors" .Errors "Field" "description")}}>{{.Form.Get "description"}}</textarea>
+    {{template "field-error" (dict "Errors" .Errors "Field" "description")}}
+  </div>
+</fieldset>{{end}}
