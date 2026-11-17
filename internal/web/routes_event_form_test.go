@@ -288,7 +288,6 @@ func TestEvfNewPage(t *testing.T) {
 
 func TestEvfCreate(t *testing.T) {
 	e := newEvfEnv(t)
-	ctx := context.Background()
 
 	t.Run("a valid form creates the event", func(t *testing.T) {
 		id := evfRedirect(t, "owner", e.send(e.Owner, "/eventos/novo", evfCreateForm(e.Alfa.ID)), "evento-criado")
@@ -489,7 +488,6 @@ func TestEvfCreate(t *testing.T) {
 	if n := e.count(t, e.Alfa.ID); n != 2 {
 		t.Errorf("the collective holds %d events at the end, want the 2 valid ones", n)
 	}
-	_ = ctx
 }
 
 func TestEvfEditPage(t *testing.T) {
@@ -702,8 +700,8 @@ func TestEvfUpdate(t *testing.T) {
 			if got != approvalsMsgNotAllowed {
 				t.Errorf("%s: body = %q, want %q", tc.who, got, approvalsMsgNotAllowed)
 			}
-			if e.stored(t, tc.ev.ID).Name != "Noite Verde" && tc.ev.ID == alfa.ID {
-				t.Errorf("%s: the event was saved", tc.who)
+			if got := e.stored(t, tc.ev.ID).Version; got != tc.ev.Version {
+				t.Errorf("%s: the event was saved (version %d, want %d)", tc.who, got, tc.ev.Version)
 			}
 		}
 		// An Administrador of a blocked collective gets the form back with the reason.
@@ -772,7 +770,7 @@ func TestEvfUpdate(t *testing.T) {
 	})
 }
 
-// evfAllRules fails for every class of the form's markup that components.css
+// evfRules fails for every class of the form's markup that components.css
 // has no rule for.
 func evfRules(t *testing.T, what, body string) {
 	t.Helper()
