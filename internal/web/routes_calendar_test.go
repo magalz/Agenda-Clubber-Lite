@@ -436,10 +436,11 @@ func TestCalendarFilter(t *testing.T) {
 
 			// The state options: todos first, then exactly the states that have events
 			// (the state being filtered is kept, so the select shows what the grid shows).
-			wantAll(t, "state options", state, `<option value="">todos</option>`)
+			wantAll(t, "state options", state, `<option value="">todos os estados</option>`)
 			if got := calOptions(state); !slices.Equal(got, tt.states) {
 				t.Errorf("state options = %q, want %q", got, tt.states)
 			}
+			wantAll(t, "city options", city, `<option value="">todas as cidades</option>`)
 			if got := calSelected(state); got != tt.state {
 				t.Errorf("selected state = %q, want %q", got, tt.state)
 			}
