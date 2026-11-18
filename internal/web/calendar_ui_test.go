@@ -103,6 +103,39 @@ func TestCuiRootWrapsTheMonthAndTheSheet(t *testing.T) {
 	}
 }
 
+// The month swaps into a stable slot (innerHTML of #calendar-slot), not over itself: app.js may not write the strategy
+// that replaces an element's own HTML (TestSignupUIScript bans the word for the whole script). The slot holds the
+// month and nothing else, so the sheet and the status stay put, and GET /calendario answers the month without it.
+func TestCuiMonthSwapsIntoAStableSlot(t *testing.T) {
+	p := cuiRender(t)
+	root := cuiRoot(t, p.home)
+
+	slot := strings.Index(root, `<div id="calendar-slot">`)
+	if slot < 0 {
+		t.Fatalf("no <div id=\"calendar-slot\"> in the root:\n%s", root)
+	}
+	slotEnd := dynClose(t, root, slot)
+	month := strings.Index(root, `<div class="calendar" id="calendar-month"`)
+	if month < slot || dynClose(t, root, month) > slotEnd {
+		t.Errorf("the month (at %d) is not inside the slot (%d..%d)", month, slot, slotEnd)
+	}
+	for _, outside := range []string{`id="calendar-status"`, `<dialog class="sheet"`} {
+		if at := strings.Index(root, outside); at >= slot && at < slotEnd {
+			t.Errorf("%s is inside the slot (%d..%d, at %d): the swap would replace it", outside, slot, slotEnd, at)
+		}
+	}
+	if strings.Contains(p.month, "calendar-slot") {
+		t.Errorf("GET /calendario answers with the slot, which the page already has: it would nest")
+	}
+
+	js := dynRead(t, "static/js/app.js")
+	goTo := regexp.MustCompile(`(?s)async goTo\(.*?\n        \},\n`).FindString(js)
+	if goTo == "" {
+		t.Fatalf("app.js has no goTo method in calendarPage")
+	}
+	wantAll(t, "goTo", goTo, "#calendar-slot", "innerHTML")
+}
+
 // A chip is a plain link to the event, so a click with a modifier key, a middle click and a visit with no script all
 // open the event page; the script only intercepts the plain click. The month alone has none of the script's markup.
 func TestCuiChipsStayPlainLinks(t *testing.T) {
