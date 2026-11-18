@@ -1550,6 +1550,58 @@ body:has(dialog.sheet:modal) {
   color: var(--accent-contrast);
 }
 
+/* ==== Event form: the dynamic form and its side panel ====
+   What the eventDynamic component adds (pages/app/evento-form, partials/event-fields):
+     .event-layout (x-data="eventDynamic"): the form's stack, then
+       aside.event-aside[x-cloak]: the "Na mesma data" panel of Analisar Data
+         h2.uppercase-label.event-aside__title, p.hint, p.event-aside__stale (the date, state or city changed since),
+         and the #analise-resultado div [aria-live=polite], where the day list (.item-list rows) is swapped in
+     .event-form__analyse[x-cloak]: the row of the ANALISAR DATA button, between the date row and the duration
+   One column up to 1280px, the panel below the fields. From there the panel sits beside the form, in a track of its own
+   (auto, so that the form keeps its width while the panel is hidden, as it is with no script). */
+.event-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  row-gap: var(--space-6);
+}
+.event-aside {
+  min-width: 0;
+  padding: var(--space-4);
+  border: 1px solid var(--color-line);
+  background: var(--color-bg-elev);
+}
+.event-aside > * + * {
+  margin-top: var(--space-3);
+}
+.event-aside__title {
+  color: var(--accent-text);
+}
+.event-aside__stale {
+  padding-left: var(--space-3);
+  border-left: 2px solid var(--color-warn);
+  font-size: var(--text-xs);
+  line-height: var(--leading-xs);
+  color: var(--color-warn);
+}
+@media (min-width: 1280px) {
+  .event-layout {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .event-aside {
+    position: sticky;
+    top: var(--space-4);
+    align-self: start;
+    inline-size: 20rem;
+    margin-inline-start: var(--space-6);
+  }
+}
+.event-form__analyse {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
+}
+
 /* ==== Footer ==== */
 .footer {
   display: flex;

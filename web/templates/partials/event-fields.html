@@ -16,7 +16,13 @@
      - timeSpinner (the time's .field) and durationSpinner (the duration fieldset): ▲▼ buttons (data-step, in minutes) and
        the Up/Down keys step the values; a typed value out of range is refused and the .field-status line says so.
      - moneyInput (the price and Free row): #price takes digits as cents and shows them as BRL; Free clears and disables it.
-     Later enhancements (the cascades) bind to the ids and names below.
+     - eventDynamic (the page's .event-layout, around the form and its side panel, so the form's own x-data sit inside
+       it): the cascades and the rest of the dynamic form. Choosing a state or a style swaps the cities or the substyles
+       with the select-options fragments (the selected one is kept when it is still valid). "qual tipo?" and "qual
+       estilo?" show only for Outros, or when they hold a value or an error; with the style Outros the substyle is off.
+       The ATUALIZAR LISTAS button and its hint hide (x-show, so they show without the script), and the .event-form__analyse
+       row (x-cloak: the script's own) loads the events of the chosen day into the .event-aside panel of the page.
+     The scripts bind to the ids and names below.
      Fields (id = name): collective_id (create only), name, type, type_other, date (dd/mm/aaaa), time (HH:MM), duration_hours
      and duration_minutes (errors of both under "duration"), price, free, ticket_url, style, style_other, substyle, state,
      city, venue, artists, description. A label with label--required is for a control with the required attribute, and a control
@@ -57,7 +63,7 @@
       </select>
       {{template "field-error" (dict "Errors" .Errors "Field" "type")}}
     </div>
-    <div class="field">
+    <div class="field" x-show="typeOtherShown">
       <label class="label" for="type_other">qual tipo?</label>
       <input class="input" type="text" id="type_other" name="type_other" value="{{.Form.Get "type_other"}}" autocomplete="off"{{template "ef-aria" (dict "Errors" .Errors "Field" "type_other" "Hint" "dica-type-other")}}>
       <p class="hint" id="dica-type-other">só se o tipo for Outros</p>
@@ -103,6 +109,10 @@
       <p class="field-status" aria-live="polite" x-text="message"></p>
       {{template "field-error" (dict "Errors" .Errors "Field" "time")}}
     </div>
+  </div>
+  <div class="event-form__analyse" x-cloak>
+    <button class="btn btn--outline" type="button" disabled :disabled="analyseDisabled" @click="analyse">[→] ANALISAR DATA</button>
+    <p class="hint">mostra os eventos já marcados na data escolhida, no painel Na mesma data</p>
   </div>
   <fieldset class="event-form__group" x-data="durationSpinner" @keydown="onKeydown" @input="onInput" @change="onChange" @click="onClick">
     <legend class="label label--required">duração</legend>
@@ -173,13 +183,13 @@
     </div>
     <div class="field">
       <label class="label" for="substyle">subestilo</label>
-      <select class="select" id="substyle" name="substyle"{{template "ef-aria" (dict "Errors" .Errors "Field" "substyle")}}>
+      <select class="select" id="substyle" name="substyle" :disabled="substyleOff"{{template "ef-aria" (dict "Errors" .Errors "Field" "substyle")}}>
         {{template "select-options" .Data.Substyles}}
       </select>
       {{template "field-error" (dict "Errors" .Errors "Field" "substyle")}}
     </div>
   </div>
-  <div class="field">
+  <div class="field" x-show="styleOtherShown">
     <label class="label" for="style_other">qual estilo?</label>
     <input class="input" type="text" id="style_other" name="style_other" value="{{.Form.Get "style_other"}}" autocomplete="off"{{template "ef-aria" (dict "Errors" .Errors "Field" "style_other" "Hint" "dica-style-other")}}>
     <p class="hint" id="dica-style-other">só se o estilo for Outros</p>
