@@ -110,6 +110,8 @@
   const REDUCED_MOTION = '(prefers-reduced-motion: reduce)';
   // How long a month's slide keeps its direction on the root (components.css reads it): the transition is 180ms.
   const SLIDE_KEEP = 1000;
+  // How long after its answer a swap that runs in a view transition may still come (see swapped).
+  const SWAP_WAIT = 2000;
 
   // Each element enters after the one before it. .animate-fade-up reads --i, which the CSSOM sets because a style
   // attribute would break the CSP; the places past STAGGER_MAX all come with the last of them.
@@ -117,6 +119,32 @@
     elements.forEach((element, i) => {
       element.classList.add('animate-fade-up');
       element.style.setProperty('--i', String(Math.min(i, STAGGER_MAX)));
+    });
+  }
+
+  // Runs an htmx request and tells whether its answer was swapped in. htmx resolves the request's promise once it has
+  // handled the answer, but the browser runs the swap of a view transition a frame later, so the promise cannot tell:
+  // the swap's own event does (htmx:afterSwap, which comes with the new content in the page). An error status, a request
+  // that fails and an answer that swaps nothing give false; the last one is told SWAP_WAIT after the answer.
+  function swapped(request) {
+    return new Promise((resolve) => {
+      let settled = false;
+      let timer = 0;
+      const finish = (done) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        document.removeEventListener('htmx:afterSwap', onSwap);
+        document.removeEventListener('htmx:responseError', onFail);
+        resolve(done);
+      };
+      const onSwap = () => finish(true);
+      const onFail = () => finish(false);
+      document.addEventListener('htmx:afterSwap', onSwap);
+      document.addEventListener('htmx:responseError', onFail);
+      request().then(() => {
+        if (!settled) timer = setTimeout(onFail, SWAP_WAIT);
+      }, onFail);
     });
   }
 
@@ -1068,8 +1096,8 @@
         },
 
         // Swaps the month for the page at href (a link of the calendar: /?mes=...&uf=...&cidade=...), which GET /calendario
-        // answers alone. push is false when the address already is href (back and forward). htmx does not say that a
-        // request failed, so the month that is in the page afterwards does: the old one still there means it did.
+        // answers alone. push is false when the address already is href (back and forward). A month that was not swapped
+        // in (an error, no answer) leaves the old one in the page, and the link is followed instead.
         async goTo(href, push = true) {
           const old = monthOf();
           const query = new URL(href, location.origin).searchParams;
@@ -1085,18 +1113,19 @@
           }
 
           busy = true;
+          let done;
           try {
-            await htmx.ajax('GET', MONTH_URL + new URL(href, location.origin).search, {
-              target: old,
-              swap: animate ? 'outerHTML transition:true' : 'outerHTML',
-            });
-          } catch {
-            // The month in the page tells below.
+            done = await swapped(() =>
+              htmx.ajax('GET', MONTH_URL + new URL(href, location.origin).search, {
+                target: old,
+                swap: animate ? 'outerHTML transition:true' : 'outerHTML',
+              }),
+            );
           } finally {
             busy = false;
           }
           const month = monthOf();
-          if (!month || month === old) {
+          if (!done || !month || month === old) {
             location.assign(href);
             return;
           }

@@ -1160,8 +1160,9 @@
 }
 .calendar__chip-meta {
   display: flex;
+  flex-wrap: wrap; /* a cell too narrow for the time and the type puts the type on its own line instead of cutting it */
   align-items: center;
-  gap: var(--space-1);
+  column-gap: var(--space-1);
   min-width: 0;
 }
 .calendar__chip-time {
