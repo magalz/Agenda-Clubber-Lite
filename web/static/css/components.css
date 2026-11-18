@@ -1509,9 +1509,11 @@ body:has(dialog.sheet:modal) {
   text-align: center;
   text-transform: uppercase;
 }
-/* The table and its headers are the calendar's (.calendar__grid, .calendar__weekday); the picker only drops the header borders. */
+/* The table and its headers are the calendar's (.calendar__grid, .calendar__weekday); the picker changes two things: no
+   border on the headers, and capitals (the script writes Dom..Sáb, the calendar's own headers are written in capitals). */
 .date-picker__grid .calendar__weekday {
   border: 0;
+  text-transform: uppercase;
 }
 .date-picker__grid td {
   padding: 1px;

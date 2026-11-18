@@ -95,10 +95,10 @@
     'janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho',
     'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro',
   ];
-  // [header, full name] of each weekday, Sunday first and the headers written as in the calendar.
+  // [header, full name] of each weekday, Sunday first as in the calendar.
   const WEEKDAYS = [
-    ['DOM', 'domingo'], ['SEG', 'segunda-feira'], ['TER', 'terça-feira'], ['QUA', 'quarta-feira'],
-    ['QUI', 'quinta-feira'], ['SEX', 'sexta-feira'], ['SÁB', 'sábado'],
+    ['Dom', 'domingo'], ['Seg', 'segunda-feira'], ['Ter', 'terça-feira'], ['Qua', 'quarta-feira'],
+    ['Qui', 'quinta-feira'], ['Sex', 'sexta-feira'], ['Sáb', 'sábado'],
   ];
 
   // Which way each key steps a spinner. The start time also takes PageUp and PageDown, an hour at a time.
