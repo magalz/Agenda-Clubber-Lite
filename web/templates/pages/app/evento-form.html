@@ -6,23 +6,36 @@
      the one the person is editing from, and its error (a version that is not a number) shows above the form.
      [→] CRIAR or SALVAR saves; [↻] ATUALIZAR LISTAS posts the form back with the cities of the chosen state and the
      substyles of the chosen style filled in, and saves nothing. It comes second, so Enter submits the primary button.
+     With JavaScript the cities and the substyles refill themselves, so that button and its hint (x-show="refreshShown")
+     hide. The .event-layout is the eventDynamic component's root (web/static/js/app.js): it holds the form and, after it
+     (below the fields on a phone, beside them on a wide screen), the "Na mesma data" panel, a hidden (x-cloak) live
+     region the script fills with the events of the day the person chose to analyse. #analise-resultado is where it
+     swaps them in: the day list's fragment, or its [erro] line for a date that is not one.
      CSS: section-heading, stack, status, status--error, cluster, btn, btn--solid, btn--outline, btn--ghost, hint, field-error
-     (components.css), and the event-form* classes ("Event form"). */}}
+     (components.css), and the event-form* and event-layout, event-aside* classes ("Event form"). */}}
 {{define "content"}}<div class="section-heading">
   <h1 class="section-heading__title text-glow"><span class="section-heading__prompt" aria-hidden="true">~/ </span>{{if .Data.Edit}}editar evento{{else}}criar evento{{end}}</h1>
   <p class="section-heading__sub">{{if .Data.Edit}}o que mudar aqui vale para todos{{else}}o evento aparece no calendário assim que for salvo{{end}}</p>
 </div>
-<div class="stack stack--lg">
-  {{with .Data.Alert}}<p class="status status--error" role="alert">{{.}}{{with $.Data.AlertHref}} <a href="{{.}}">[→] ver o evento atual</a>{{end}}</p>{{end}}
-  {{if .Data.Edit}}{{template "field-error" (dict "Errors" .Errors "Field" "version")}}{{end}}
-  <form class="event-form stack stack--lg" method="post" action="{{.Data.Action}}">
-    {{if .Data.Edit}}<input type="hidden" name="version" value="{{.Form.Get "version"}}">
-    {{end}}{{template "event-fields" .}}
-    <div class="cluster event-form__actions">
-      <button class="btn btn--solid" type="submit">[→] {{if .Data.Edit}}SALVAR{{else}}CRIAR{{end}}</button>
-      <button class="btn btn--outline" type="submit" name="acao" value="atualizar" formnovalidate>[↻] ATUALIZAR LISTAS</button>
-      <a class="btn btn--ghost" href="{{.Data.CancelHref}}">Cancelar</a>
-    </div>
-    <p class="hint">depois de mudar o estado ou o estilo, use ATUALIZAR LISTAS para carregar as cidades e os subestilos. nada é salvo nesse passo.</p>
-  </form>
+<div class="event-layout" x-data="eventDynamic" @change="onFieldChange" @input="onFieldInput">
+  <div class="stack stack--lg">
+    {{with .Data.Alert}}<p class="status status--error" role="alert">{{.}}{{with $.Data.AlertHref}} <a href="{{.}}">[→] ver o evento atual</a>{{end}}</p>{{end}}
+    {{if .Data.Edit}}{{template "field-error" (dict "Errors" .Errors "Field" "version")}}{{end}}
+    <form class="event-form stack stack--lg" method="post" action="{{.Data.Action}}">
+      {{if .Data.Edit}}<input type="hidden" name="version" value="{{.Form.Get "version"}}">
+      {{end}}{{template "event-fields" .}}
+      <div class="cluster event-form__actions">
+        <button class="btn btn--solid" type="submit">[→] {{if .Data.Edit}}SALVAR{{else}}CRIAR{{end}}</button>
+        <button class="btn btn--outline" type="submit" name="acao" value="atualizar" formnovalidate x-show="refreshShown">[↻] ATUALIZAR LISTAS</button>
+        <a class="btn btn--ghost" href="{{.Data.CancelHref}}">Cancelar</a>
+      </div>
+      <p class="hint" id="dica-atualizar" x-show="refreshShown">depois de mudar o estado ou o estilo, use ATUALIZAR LISTAS para carregar as cidades e os subestilos. nada é salvo nesse passo.</p>
+    </form>
+  </div>
+  <aside class="event-aside" aria-labelledby="analise-titulo" aria-live="polite" x-cloak>
+    <h2 class="event-aside__title" id="analise-titulo">Na mesma data</h2>
+    <p class="hint" x-show="panelIdle">escolha a data e use ANALISAR DATA para ver o que já está marcado nela.</p>
+    <p class="event-aside__stale" x-show="panelStale">a data, o estado ou a cidade mudou: use ANALISAR DATA de novo para atualizar a lista.</p>
+    <div id="analise-resultado"></div>
+  </aside>
 </div>{{end}}

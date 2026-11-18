@@ -207,6 +207,10 @@ func TestDynComponentMembers(t *testing.T) {
 			continue
 		}
 		for _, name := range mine {
+			// Alpine calls init and destroy on each component's own object and no attribute names them: they cannot shadow.
+			if name == "init" || name == "destroy" {
+				continue
+			}
 			if slices.Contains(members, name) {
 				t.Errorf("eventDynamic and %s both define %q: the one nested in the other would shadow it", other, name)
 			}

@@ -91,6 +91,18 @@
   // The mask reads the digits as cents, so "25" would be R$ 0,25: the hint of the form says so once the script runs.
   const HINT_PRICE = 'digite só os números: 2550 vira 25,50. fica de fora se o evento for Free';
 
+  // The choice that opens a free-text field, for the type and for the style (domain.EventTypeOutros, domain.StyleOther).
+  const OTHER = 'outros';
+  // What the dynamic form asks of the server: the option lists of the cascades (routes_options.go) and the day list.
+  const CITIES_URL = '/opcoes/cidades';
+  const SUBSTYLES_URL = '/opcoes/subestilos';
+  const DAY_URL = '/eventos/dia';
+  // Where the day list goes (the "Na mesma data" panel of pages/app/evento-form), and how many rows enter one after
+  // another (the rest come in with the last of them, so a long day does not take seconds to show).
+  const RESULT_ID = 'analise-resultado';
+  const STAGGER_MAX = 8;
+  const MSG_DAY_FAILED = '[erro] não foi possível carregar os eventos desta data. tente de novo';
+
   const MONTHS = [
     'janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho',
     'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro',
@@ -175,6 +187,38 @@
     if (minutes && Number(minutes) > (minutes.length === 1 ? 5 : 59)) return { error: MSG_CLOCK_MINUTES };
     if (minutes === undefined && hours.length === 2 && adding) minutes = '';
     return { text: minutes === undefined ? hours : hours + ':' + minutes };
+  }
+
+  // The day in a date field as AAAA-MM-DD, as the server reads it (parseDate in internal/events: dd/mm/aaaa, d/m/aaaa or
+  // AAAA-MM-DD, a day that exists, the past allowed), or '' when it is not one.
+  function dayFromField(text) {
+    const typed = text.trim();
+    return dayOf(typed) ? typed : isoFromText(typed);
+  }
+
+  // The request in flight to refill each select, so a newer choice drops the older one.
+  const refills = new WeakMap();
+
+  // Refills a select with the <option> lines a route answers for the query pairs (the routes read uf, estilo and
+  // selecionada, not the names of the selects; the server keeps the selected one when it is still valid). Resolves true
+  // when it refilled, false when the request failed (the select stays as it was) and null when a newer one replaced it.
+  async function refill(select, path, pairs) {
+    refills.get(select)?.abort();
+    const controller = new AbortController();
+    refills.set(select, controller);
+    try {
+      const response = await fetch(path + '?' + new URLSearchParams(pairs), {
+        headers: { Accept: 'text/html' },
+        signal: controller.signal,
+      });
+      if (!response.ok) throw new Error('options ' + response.status);
+      const html = await response.text();
+      if (controller.signal.aborted) return null;
+      select.innerHTML = html;
+      return true;
+    } catch {
+      return controller.signal.aborted ? null : false;
+    }
   }
 
   const BRL = new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -598,6 +642,8 @@
           if (isPast(iso)) return;
           input.value = textFromIso(iso);
           this.close(true);
+          // A script writes no change event: the form's own listeners (eventDynamic) hear this one, as when it is typed.
+          input.dispatchEvent(new Event('change', { bubbles: true }));
         },
 
         onClick(event) {
@@ -808,5 +854,172 @@
         },
       };
     });
+
+    // The dynamic event form: the cascades, the "Outros" fields and the "Analisar Data" panel. The root is the page's
+    // .event-layout (pages/app/evento-form), around the form and the panel (aside.event-aside), so it hears the change and
+    // the input of every field, told apart by event.target.id, and the widgets above sit inside it. It adds no field: what
+    // the form posts is what the plain form posts.
+    //  - A new state fetches the cities and a new style the substyles (the select-options of /opcoes/cidades and
+    //    /opcoes/subestilos). If the fetch fails the list stays as it was and ATUALIZAR LISTAS and its hint show again.
+    //  - "qual tipo?" and "qual estilo?" show for Outros, and on load also when they hold a value or an error (a refused
+    //    form), until the person changes their select. A hidden field keeps its value. The style Outros turns the
+    //    substyle off.
+    //  - ANALISAR DATA, enabled for a date the server would read, loads the day list into the panel with htmx. The panel
+    //    says when the date, the state or the city has changed since: a note, not a reload, so the live region stays
+    //    quiet while the person types.
+    Alpine.data('eventDynamic', () => {
+      let typeOther;
+      let styleOther;
+      let citySelect;
+      let substyleSelect;
+
+      return {
+        typeValue: '',
+        styleValue: '',
+        stateValue: '',
+        cityValue: '',
+        dateValue: '',
+        typeKept: false,
+        styleKept: false,
+        citiesFailed: false,
+        substylesFailed: false,
+        analysedUrl: '',
+
+        init() {
+          const root = this.$root;
+          typeOther = root.querySelector('#type_other');
+          styleOther = root.querySelector('#style_other');
+          citySelect = root.querySelector('#city');
+          substyleSelect = root.querySelector('#substyle');
+          this.typeValue = root.querySelector('#type').value;
+          this.styleValue = root.querySelector('#style').value;
+          this.stateValue = root.querySelector('#state').value;
+          this.cityValue = citySelect.value;
+          this.dateValue = root.querySelector('#date').value;
+          this.typeKept = typeOther.value !== '' || typeOther.hasAttribute('aria-invalid');
+          this.styleKept = styleOther.value !== '' || styleOther.hasAttribute('aria-invalid');
+        },
+
+        get typeOtherShown() {
+          return this.typeValue === OTHER || this.typeKept;
+        },
+        get styleOtherShown() {
+          return this.styleValue === OTHER || this.styleKept;
+        },
+        get substyleOff() {
+          return this.styleValue === OTHER;
+        },
+        // Only a list that could not be refilled brings the button back.
+        get refreshShown() {
+          return this.citiesFailed || this.substylesFailed;
+        },
+        get analyseDisabled() {
+          return this.dayUrl() === '';
+        },
+        get panelIdle() {
+          return this.analysedUrl === '';
+        },
+        get panelStale() {
+          return this.analysedUrl !== '' && this.analysedUrl !== this.dayUrl();
+        },
+
+        // The day list's URL for the form as it is now, or '' when the date is not one. The events of the form's city
+        // are highlighted only when both the state and the city are chosen.
+        dayUrl() {
+          const day = dayFromField(this.dateValue);
+          if (day === '') return '';
+          const params = new URLSearchParams([['data', day]]);
+          if (this.stateValue !== '' && this.cityValue !== '') {
+            params.set('destaque_uf', this.stateValue);
+            params.set('destaque_cidade', this.cityValue);
+          }
+          return DAY_URL + '?' + params;
+        },
+        analyse() {
+          const url = this.dayUrl();
+          if (url === '') return;
+          this.analysedUrl = url;
+          // A request that fails is reported in the panel by the htmx:sendError listener below.
+          htmx.ajax('GET', url, { target: '#' + RESULT_ID, swap: 'innerHTML' }).catch(() => {});
+        },
+
+        async refreshCities() {
+          const done = await refill(citySelect, CITIES_URL, [['uf', this.stateValue], ['selecionada', citySelect.value]]);
+          if (done === null) return;
+          this.citiesFailed = !done;
+          this.cityValue = citySelect.value;
+        },
+        async refreshSubstyles() {
+          const done = await refill(substyleSelect, SUBSTYLES_URL, [['estilo', this.styleValue], ['selecionada', substyleSelect.value]]);
+          if (done === null) return;
+          this.substylesFailed = !done;
+        },
+
+        onFieldChange(event) {
+          const field = event.target;
+          switch (field.id) {
+            case 'type':
+              this.typeValue = field.value;
+              this.typeKept = false;
+              break;
+            case 'style':
+              this.styleValue = field.value;
+              this.styleKept = false;
+              this.refreshSubstyles();
+              break;
+            case 'state':
+              this.stateValue = field.value;
+              this.refreshCities();
+              break;
+            case 'city':
+              this.cityValue = field.value;
+              break;
+            case 'date':
+              this.dateValue = field.value;
+              break;
+          }
+        },
+        // The date is followed as it is typed, so the button and the note keep up with it.
+        onFieldInput(event) {
+          if (event.target.id === 'date') this.dateValue = event.target.value;
+        },
+      };
+    });
   });
+
+  // The "Na mesma data" panel of the event form (eventDynamic.analyse): htmx swaps the day list into #analise-resultado.
+  const isPanelTarget = (target) => target instanceof Element && target.id === RESULT_ID;
+
+  // htmx swaps no 4xx by default. A date the server refuses is a 422 whose [erro] line belongs in the panel, and only there.
+  document.addEventListener('htmx:beforeSwap', (event) => {
+    if (event.detail.xhr.status === 422 && isPanelTarget(event.detail.target)) {
+      event.detail.shouldSwap = true;
+      event.detail.isError = false;
+    }
+  });
+
+  // The rows enter one after another: .animate-fade-up reads --i, which the CSSOM sets because a style attribute would
+  // break the CSP. Under prefers-reduced-motion base.css cuts the animation short. The panel scrolls into view, for a
+  // phone, where it is below the form.
+  document.addEventListener('htmx:afterSwap', (event) => {
+    const target = event.detail.target;
+    if (!isPanelTarget(target)) return;
+    target.querySelectorAll('.item-list__item').forEach((row, i) => {
+      row.classList.add('animate-fade-up');
+      row.style.setProperty('--i', String(Math.min(i, STAGGER_MAX)));
+    });
+    target.closest('aside').scrollIntoView({ block: 'nearest' });
+  });
+
+  // An answer that is no list (a server error, or no answer) says so in the panel instead of leaving the old list.
+  for (const name of ['htmx:responseError', 'htmx:sendError']) {
+    document.addEventListener(name, (event) => {
+      if (!isPanelTarget(event.detail.target)) return;
+      const message = document.createElement('p');
+      message.className = 'status status--error';
+      message.setAttribute('role', 'alert');
+      message.textContent = MSG_DAY_FAILED;
+      event.detail.target.replaceChildren(message);
+    });
+  }
 })();
