@@ -114,7 +114,7 @@
     <button class="btn btn--outline" type="button" disabled :disabled="analyseDisabled" @click="analyse">[→] ANALISAR DATA</button>
     <p class="hint">mostra os eventos já marcados na data escolhida, no painel Na mesma data</p>
   </div>
-  <fieldset class="event-form__group" x-data="durationSpinner"@keydown="onKeydown" @input="onInput" @change="onChange" @click="onClick">
+  <fieldset class="event-form__group" x-data="durationSpinner" @keydown="onKeydown" @input="onInput" @change="onChange" @click="onClick">
     <legend class="label label--required">duração</legend>
     <div class="event-form__duration">
       <div class="field">
