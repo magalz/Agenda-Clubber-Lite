@@ -41,31 +41,6 @@ func (f ewForms) each(t *testing.T, check func(t *testing.T, body string)) {
 // ewCloaked matches a bare x-cloak attribute, which base.css hides until Alpine removes it.
 var ewCloaked = regexp.MustCompile(`\sx-cloak[\s>]`)
 
-// ewTag returns the opening tag that holds needle.
-func ewTag(t *testing.T, body, needle string) string {
-	t.Helper()
-	m := regexp.MustCompile(`<[a-z]+\b[^>]*` + regexp.QuoteMeta(needle) + `[^>]*>`).FindString(body)
-	if m == "" {
-		t.Fatalf("no tag with %s in:\n%.800s", needle, body)
-	}
-	return m
-}
-
-// ewBetween returns the text from the first from to the next to after it.
-func ewBetween(t *testing.T, body, from, to string) string {
-	t.Helper()
-	i := strings.Index(body, from)
-	if i < 0 {
-		t.Fatalf("%q not found", from)
-	}
-	rest := body[i+len(from):]
-	j := strings.Index(rest, to)
-	if j < 0 {
-		t.Fatalf("%q not found after %q", to, from)
-	}
-	return rest[:j]
-}
-
 // The Alpine CSP build has no expression evaluator: every Alpine attribute must
 // name a member app.js registers (the rule of TestAlpineAttributesNameRegisteredMembers,
 // which only sees the home page). The form has the four components, so the check
@@ -126,7 +101,7 @@ func TestEwPostedNamesAreUnchanged(t *testing.T) {
 
 	f := ewRender(t, newEvfEnv(t))
 	for kind, body := range map[string]string{"create": f.create, "edit": f.edit} {
-		form := ewBetween(t, body, `<form class="event-form`, `</form>`)
+		form := tagAttrs(t, body, `(?s)<form class="event-form(.*?)</form>`)
 		var got []string
 		for _, m := range names.FindAllStringSubmatch(form, -1) {
 			got = append(got, m[1])
@@ -145,7 +120,7 @@ func TestEwMarkup(t *testing.T) {
 		// Each component wraps its own inputs.
 		wrapped := func(component, next string, ids ...string) {
 			t.Helper()
-			inside := ewBetween(t, body, `x-data="`+component+`"`, `x-data="`+next+`"`)
+			inside := tagAttrs(t, body, `(?s)x-data="`+component+`"(.*?)x-data="`+next+`"`)
 			for _, id := range ids {
 				if !strings.Contains(inside, `id="`+id+`"`) {
 					t.Errorf("%s does not wrap #%s", component, id)
@@ -155,7 +130,7 @@ func TestEwMarkup(t *testing.T) {
 		wrapped("datePicker", "timeSpinner", "date")
 		wrapped("timeSpinner", "durationSpinner", "time")
 		wrapped("durationSpinner", "moneyInput", "duration_hours", "duration_minutes")
-		money := ewBetween(t, body, `x-data="moneyInput"`, `</fieldset>`)
+		money := tagAttrs(t, body, `(?s)x-data="moneyInput"(.*?)</fieldset>`)
 		for _, id := range []string{"price", "free"} {
 			if !strings.Contains(money, `id="`+id+`"`) {
 				t.Errorf("moneyInput does not wrap #%s", id)
@@ -163,16 +138,16 @@ func TestEwMarkup(t *testing.T) {
 		}
 
 		// The date picker: a named toggle, and a popup that is labelled and hidden until opened.
-		toggle := ewTag(t, body, `date-picker__toggle`)
+		toggle := tagAttrs(t, body, `(<[a-z]+\b[^>]*date-picker__toggle[^>]*>)`)
 		wantAll(t, "the date toggle", toggle, `type="button"`, `aria-label="escolher data"`, `aria-haspopup="dialog"`, `aria-controls="date-picker-popup"`, `aria-expanded="false"`)
 		if !ewCloaked.MatchString(toggle) {
 			t.Errorf("the date toggle shows without JavaScript: no x-cloak in %s", toggle)
 		}
-		popup := ewTag(t, body, `id="date-picker-popup"`)
+		popup := tagAttrs(t, body, `(<[a-z]+\b[^>]*id="date-picker-popup"[^>]*>)`)
 		wantAll(t, "the date popup", popup, `role="dialog"`, `aria-label="escolher data"`, ` hidden`)
-		wantAll(t, "the month title", ewTag(t, body, `date-picker__title`), `aria-live="polite"`)
+		wantAll(t, "the month title", tagAttrs(t, body, `(<[a-z]+\b[^>]*date-picker__title[^>]*>)`), `aria-live="polite"`)
 		for _, dir := range []string{"-1", "1"} {
-			nav := ewTag(t, body, `data-nav="`+dir+`"`)
+			nav := tagAttrs(t, body, `(<[a-z]+\b[^>]*data-nav="`+dir+`"[^>]*>)`)
 			wantAll(t, "the month button "+dir, nav, `class="btn btn--outline btn--sm"`, `type="button"`, `aria-label=`)
 		}
 
@@ -194,6 +169,35 @@ func TestEwMarkup(t *testing.T) {
 		wantAll(t, "the R$ prefix", body, `<span class="input-group__prefix" aria-hidden="true" x-cloak>R$</span>`)
 		wantAll(t, "the message of a refused value", body, `class="field-status" aria-live="polite" x-text="message"`)
 	})
+}
+
+// The picker draws the calendar's own table, so a restyled calendar restyles the
+// picker too: the script names the calendar's classes, the stylesheet defines
+// them, and it keeps no copy of them under the picker's name.
+func TestEwDatePickerUsesTheCalendarGrid(t *testing.T) {
+	read := func(name string) string {
+		t.Helper()
+		b, err := fs.ReadFile(webfs.Static, name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(b)
+	}
+	js, css := read("static/js/app.js"), read("static/css/components.css")
+
+	for _, class := range []string{"calendar__grid", "calendar__weekday"} {
+		if !strings.Contains(js, "className = '"+class+"'") {
+			t.Errorf("app.js does not give the picker's table the calendar's %s", class)
+		}
+		if !strings.Contains(css, "\n."+class+" {") {
+			t.Errorf("components.css has no .%s rule", class)
+		}
+	}
+	for _, copied := range []string{"date-picker__table", "date-picker__weekday"} {
+		if strings.Contains(js, copied) || strings.Contains(css, copied) {
+			t.Errorf("%s is a copy of a calendar rule: use the calendar's class", copied)
+		}
+	}
 }
 
 // data-today and data-keep tell the script which days it may offer: today (in
@@ -235,7 +239,7 @@ func TestEwDatePickerDates(t *testing.T) {
 			e.App.Now = func() time.Time { return tc.now }
 			defer func() { e.App.Now = realNow }()
 
-			tag := ewTag(t, tc.page(), `x-data="datePicker"`)
+			tag := tagAttrs(t, tc.page(), `(<[a-z]+\b[^>]*x-data="datePicker"[^>]*>)`)
 			wantAll(t, "the date picker", tag, ` data-today="`+tc.today+`"`)
 			if tc.keep == "" {
 				if strings.Contains(tag, "data-keep") {
