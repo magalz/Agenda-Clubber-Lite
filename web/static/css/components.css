@@ -1416,7 +1416,7 @@ body:has(dialog.sheet:modal) {
        .date-picker__popup[role=dialog][hidden]: the popup under the input; the script toggles hidden
          .date-picker__head: button.btn.btn--outline.btn--sm[data-nav=-1|1] + .date-picker__title + button.btn.btn--outline.btn--sm (as the calendar's)
          .date-picker__grid: the script puts in it
-           table.date-picker__table[role=grid] > th.date-picker__weekday, td > button.date-picker__day[data-day=AAAA-MM-DD]
+           table.calendar__grid[role=grid] > th.calendar__weekday, td > button.date-picker__day[data-day=AAAA-MM-DD]
            A day is today with aria-current=date, past with .is-past and aria-disabled=true, and chosen with
            aria-selected=true on its td. The day with the cursor is the one in the tab order.
      .spinner.spinner--wide: input.input + (span.spinner__btns[x-cloak] > 2 button.spinner__btn[data-step] + span.spinner__unit[x-cloak])
@@ -1509,21 +1509,12 @@ body:has(dialog.sheet:modal) {
   text-align: center;
   text-transform: uppercase;
 }
-.date-picker__table {
-  width: 100%;
-  table-layout: fixed;
+/* The table and its headers are the calendar's (.calendar__grid, .calendar__weekday); the picker only drops the header borders. */
+.date-picker__grid .calendar__weekday {
+  border: 0;
 }
-.date-picker__table td {
+.date-picker__grid td {
   padding: 1px;
-}
-.date-picker__weekday {
-  padding: var(--space-1) 0;
-  font-size: var(--text-2xs);
-  font-weight: 400;
-  letter-spacing: var(--tracking-label);
-  text-align: center;
-  text-transform: uppercase;
-  color: var(--color-muted);
 }
 .date-picker__day {
   display: block;
@@ -1551,7 +1542,7 @@ body:has(dialog.sheet:modal) {
   opacity: 0.4;
   cursor: not-allowed;
 }
-.date-picker__table td[aria-selected='true'] .date-picker__day {
+.date-picker__grid td[aria-selected='true'] .date-picker__day {
   background: var(--accent);
   font-weight: 700;
   color: var(--accent-contrast);

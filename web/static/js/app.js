@@ -95,10 +95,10 @@
     'janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho',
     'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro',
   ];
-  // [header, full name] of each weekday, Sunday first as in the calendar.
+  // [header, full name] of each weekday, Sunday first and the headers written as in the calendar.
   const WEEKDAYS = [
-    ['Dom', 'domingo'], ['Seg', 'segunda-feira'], ['Ter', 'terça-feira'], ['Qua', 'quarta-feira'],
-    ['Qui', 'quinta-feira'], ['Sex', 'sexta-feira'], ['Sáb', 'sábado'],
+    ['DOM', 'domingo'], ['SEG', 'segunda-feira'], ['TER', 'terça-feira'], ['QUA', 'quarta-feira'],
+    ['QUI', 'quinta-feira'], ['SEX', 'sexta-feira'], ['SÁB', 'sábado'],
   ];
 
   // Which way each key steps a spinner. The start time also takes PageUp and PageDown, an hour at a time.
@@ -496,10 +496,10 @@
 
     // Date picker: a month popup (role=dialog) over #date, opened by the [▦] button. The root carries data-today (today
     // in APP_TZ, AAAA-MM-DD) and, editing, data-keep (the event's own day, which stays valid when it is past). The
-    // script fills .date-picker__grid with a table[role=grid] of day buttons; the cursor day is the one in the tab
-    // order, so the arrows move it and focus follows. A past day is aria-disabled, not disabled: the arrows still walk
-    // over it and a screen reader says it is unavailable. Choosing a day writes dd/mm/aaaa into the input; typing in the
-    // input still works and the popup follows it.
+    // script fills .date-picker__grid with the calendar's own table (.calendar__grid, role=grid) of day buttons; the
+    // cursor day is the one in the tab order, so the arrows move it and focus follows. A past day is aria-disabled,
+    // not disabled: the arrows still walk over it and a screen reader says it is unavailable. Choosing a day writes
+    // dd/mm/aaaa into the input; typing in the input still works and the popup follows it.
     Alpine.data('datePicker', () => {
       let input;
       let grid;
@@ -531,13 +531,13 @@
           this.title = name;
 
           const table = document.createElement('table');
-          table.className = 'date-picker__table';
+          table.className = 'calendar__grid';
           table.setAttribute('role', 'grid');
           table.setAttribute('aria-label', name);
           const headRow = table.createTHead().insertRow();
           for (const [short, full] of WEEKDAYS) {
             const th = document.createElement('th');
-            th.className = 'date-picker__weekday';
+            th.className = 'calendar__weekday';
             th.setAttribute('scope', 'col');
             th.setAttribute('abbr', full);
             th.textContent = short;
