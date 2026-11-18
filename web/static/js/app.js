@@ -1096,7 +1096,7 @@
         },
 
         // Swaps the month for the page at href (a link of the calendar: /?mes=...&uf=...&cidade=...), which GET /calendario
-        // answers alone. push is false when the address already is href (back and forward). A month that was not swapped
+        // answers alone, into #calendar-slot (the wrapper that holds only the month). push is false when the address already is href (back and forward). A month that was not swapped
         // in (an error, no answer) leaves the old one in the page, and the link is followed instead.
         async goTo(href, push = true) {
           const old = monthOf();
@@ -1117,8 +1117,8 @@
           try {
             done = await swapped(() =>
               htmx.ajax('GET', MONTH_URL + new URL(href, location.origin).search, {
-                target: old,
-                swap: animate ? 'outerHTML transition:true' : 'outerHTML',
+                target: root.querySelector('#calendar-slot'),
+                swap: animate ? 'innerHTML transition:true' : 'innerHTML',
               }),
             );
           } finally {

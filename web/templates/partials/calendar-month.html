@@ -5,7 +5,7 @@
      fits the cell), Truncated and Limit.
      Everything works without JavaScript: the month links are plain links, the filter is a GET form to /, a chip links to
      the event and the number of a day (and +N) to that day's list, with the filter kept. The page's script (app/home) swaps this
-     block (#calendar-month) in place, from the same query, and below 640px fills #calendar-day with the list of the chosen
+     block (#calendar-month, inside the page's #calendar-slot) from the same query, and below 640px fills #calendar-day with the list of the chosen
      day; #calendar-day stays empty until then. The block holds no script attribute, so the HTML of a swap needs no setup.
      The FILTRAR button (calendar__apply) is the plain form's; the script hides it, since the filter applies on change.
      Below 640px the grid is compact (the chips are hidden, a dot stands for each event); the number of the day is the link.
