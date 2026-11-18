@@ -53,7 +53,7 @@ With `APP_ENV=dev`, `APP_ORIGIN` and `MONGO_URI` are the only required settings 
 |---|---|
 | `migrate` | Creates or updates the database schema; safe to run again. It reads only the MongoDB settings. |
 | `create-admin --name ... --email ... --phone ...` | Creates an active admin whose email counts as confirmed. This is how the first admin exists: people who sign up wait for an admin to approve them. |
-| `seed-dev` | Fills a dev database with sample accounts and collectives. |
+| `seed-dev` | Fills a dev database with sample accounts, collectives and events. |
 | `healthcheck` | Probes the running server's `/healthz`; the container health check uses it. |
 
 ### The first admin
@@ -72,7 +72,7 @@ It prints `admin created: <email>`, or says why it could not (the password is ne
 
 ### Sample data
 
-`seed-dev` runs only with `APP_ENV=dev` and refuses to run without `SEED_PASSWORD`, which must pass the password policy; every sample account gets that password. Running it again changes nothing that already exists. Set `SEED_PASSWORD` in `.env` (the dev stack passes it on to the container) or in the environment, then run `seed-dev`.
+`seed-dev` runs only with `APP_ENV=dev` and refuses to run without `SEED_PASSWORD`, which must pass the password policy; every sample account gets that password. Running it again changes nothing that already exists. It also reads `APP_TZ` (the zone of the sample events' dates, `America/Fortaleza` by default) and refuses an unknown zone. Set `SEED_PASSWORD` in `.env` (the dev stack passes it on to the container) or in the environment, then run `seed-dev`.
 
 The sample accounts, all `@agenda.test`:
 
@@ -90,6 +90,22 @@ The sample accounts, all `@agenda.test`:
 | `delta@agenda.test` | active; the only Administrador (and Master) of Coletivo Delta, whose events the admin blocked, so its Criar Evento link is disabled |
 
 Together they leave something to decide in every flow of the [approvals](#approvals): accounts, a new collective, join requests, and a collective with blocked events.
+
+The sample events are made by the Administrador of their collective (`dono`, and `delta` for Coletivo Delta). An event is found by its collective and its name, so a run adds only the ones that are missing. Their dates come from the day of the first run, in `APP_TZ`, and a later run leaves them where they were: use a fresh database to get new dates. Close to the first or the last day of a month, the events that are "earlier this month" or "later this month" fall in the neighbouring month.
+
+| Event | Collective | When | What it shows |
+|---|---|---|---|
+| Warm Up Techno | Coletivo Alfa | 8 days before, 22:00 | a past event, with a venue and a description |
+| Sarau na Praça | Produtora Beta | 3 days before, 17:00 | type Outros, named "Sarau"; Sobral/CE |
+| Noite House Recife | Coletivo Alfa | 3 days after, 21:00 | Recife/PE; one of the three events of that day, so [Analisar Data](#events-and-calendar) lists two events in Fortaleza and one in Recife |
+| Rave Litoral | Coletivo Alfa | 3 days after, 22:00 | Fortaleza/CE; the same day |
+| Pista Drum and Bass | Produtora Beta | 3 days after, 23:00 | Fortaleza/CE; the same day |
+| Noite Ambient no Terraço | Coletivo Delta | 5 days after, 20:00 | an event of a collective whose events are blocked |
+| Oficina de Discotecagem | Produtora Beta | 6 days after, 14:00 | a Free workshop |
+| After Hours Subsolo | Coletivo Alfa | 8 days after, 23:30 | starts late and ends at 06:00 the next day |
+| Baile do Brega Funk | Coletivo Alfa | 10 days after, 21:00 | Olinda/PE |
+| Baile de Forró Eletrônico | Coletivo Alfa | the 6th of next month, 21:00 | style Outros, named "Forró eletrônico"; Caruaru/PE |
+| Festival Nordeste Eletrônico | Produtora Beta | the 12th of next month, 16:00 | an https ticket link, a venue and artists on several lines |
 
 ### Email in development
 
@@ -120,6 +136,29 @@ The pages:
 - `/coletivo/<id>`, a collective's page for its Administradores: join requests, members and roles, the name. Anyone else (the Admin included) gets the same 404 as for a path that does not exist, as does everyone while the collective is not approved.
 
 The rules live in `internal/approvals`; [AGENTS.md](AGENTS.md) records the decisions behind them.
+
+## Events and calendar
+
+The calendar (`/`) shows every event of every collective, past ones included, a month at a time (`?mes=AAAA-MM`). A day's cell lists its first three events and counts the rest; the day's number opens the list of that day, and an event opens its page. Dates are in `APP_TZ`, `dd/mm/aaaa`, 24h. The pages need a signed-in person, and every one of them sees every event.
+
+Who does what:
+
+- **Create**: an approved Administrador of an approved collective, from "Criar Evento". The form offers only the collectives the person may create in. The Admin creates events only as an Administrador of the collective.
+- **Edit and delete**: any approved Administrador of the event's collective, or the Admin. A Membro only reads.
+- **The event block**: while the Admin blocks a collective's events ("bloquear eventos"), its Administradores can neither create, edit nor delete them (the page says why, with a 409). The Admin can still edit and delete them. The form never offers a blocked collective, not even to the Admin. The events already there stay on the calendar.
+- **Editing twice**: an edit carries the version it read. If someone else saved first, nothing is saved: the form comes back (409) with what the person typed and a link to the event as it is now, and saving again is a deliberate choice.
+
+The form asks for the name, the type, the date and start time, the duration (under 24 hours), the price or Free, the style, the state and the city, and, if the organizer wants, a ticket link (http or https), the substyle, the venue, the artists (one per line) and a description. A type or a style of Outros asks for a name. The cities depend on the state and the substyles on the style; the form works without JavaScript, with a button that refreshes the lists. A new event cannot start before today. An event that ends after midnight belongs to the day it starts.
+
+The pages:
+
+- **Meus Eventos** (`/meus-eventos`): the events of every collective where the person has an approved membership, a Membro included. "Próximos" are those that have not ended, "Anteriores" the ones that have. A row the person cannot edit says why: "só leitura (Membro)", "eventos bloqueados pelo admin", or just "só leitura" (an Administrador of a collective that is not approved).
+- **Analisar Data** (`/eventos/dia?data=dd/mm/aaaa`, or `AAAA-MM-DD`): the events already on a day, from every collective and by start time, so a collective sees the clashes before it picks a date. It takes the same state and city filter, and `?destaque_uf=` and `?destaque_cidade=` put the events of one city first, with the badge "mesma cidade". A date that does not parse gets a message (422) and no list; a request from HTMX gets only the list.
+- **The city filter**: the calendar and the day list can be restricted to a state and, within it, a city (`?uf=` and `?cidade=`). The selects offer only the places that have events, and every link of the calendar keeps the filter. A state or city that is not in the catalog means "todos".
+
+The history (`Histórico`, `/admin/historico`) records every deletion of an event ("evento excluído") and an edit made by the Admin in a collective where the Admin is not an approved Administrador ("evento editado pelo admin"), with the event's name and start date, who did it and the collective. Creating an event, and an Administrador's own edit, are not recorded.
+
+The flows live in `internal/events`, and the styles and cities in `internal/catalog`.
 
 ## Checks
 
