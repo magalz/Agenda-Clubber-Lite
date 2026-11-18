@@ -281,7 +281,11 @@ func TestCuiSwapIsToldOnlyByTheEventsOfItsOwnTarget(t *testing.T) {
 	if n := strings.Count(helper, "detail.target"); n < 2 {
 		t.Errorf("swapped compares detail.target in %d of its 2 listeners (htmx:afterSwap and htmx:responseError): %s", n, helper)
 	}
-	wantAll(t, "goTo", cuiGoTo(t, js), "root.querySelector('#calendar-slot')", "slot)")
+	goTo := cuiGoTo(t, js)
+	wantAll(t, "goTo", goTo, "root.querySelector('#calendar-slot')", "target: slot")
+	if !regexp.MustCompile(`(?s)swapped\(.*\bslot,?\s*\)`).MatchString(goTo) {
+		t.Errorf("goTo does not pass the slot it swaps into as the target swapped() waits for: %s", goTo)
+	}
 }
 
 // A month change (the filter, the history) that comes while a month is out waits, and of several only the newest goes
