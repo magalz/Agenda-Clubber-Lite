@@ -1553,9 +1553,9 @@ body:has(dialog.sheet:modal) {
 /* ==== Event form: the dynamic form and its side panel ====
    What the eventDynamic component adds (pages/app/evento-form, partials/event-fields):
      .event-layout (x-data="eventDynamic"): the form's stack, then
-       aside.event-aside[x-cloak][aria-live=polite]: the "Na mesma data" panel of Analisar Data
-         .event-aside__title (the h2), p.hint, p.event-aside__stale (the date, state or city changed since), and the
-         #analise-resultado div, where the day list (.item-list rows) is swapped in
+       aside.event-aside[x-cloak]: the "Na mesma data" panel of Analisar Data
+         h2.uppercase-label.event-aside__title, p.hint, p.event-aside__stale (the date, state or city changed since),
+         and the #analise-resultado div [aria-live=polite], where the day list (.item-list rows) is swapped in
      .event-form__analyse[x-cloak]: the row of the ANALISAR DATA button, between the date row and the duration
    One column up to 1280px, the panel below the fields. From there the panel sits beside the form, in a track of its own
    (auto, so that the form keeps its width while the panel is hidden, as it is with no script). */
@@ -1574,11 +1574,6 @@ body:has(dialog.sheet:modal) {
   margin-top: var(--space-3);
 }
 .event-aside__title {
-  margin: 0;
-  font-size: var(--text-xs);
-  line-height: var(--leading-xs);
-  letter-spacing: var(--tracking-label);
-  text-transform: uppercase;
   color: var(--accent-text);
 }
 .event-aside__stale {

@@ -32,10 +32,10 @@
       <p class="hint" id="dica-atualizar" x-show="refreshShown">depois de mudar o estado ou o estilo, use ATUALIZAR LISTAS para carregar as cidades e os subestilos. nada é salvo nesse passo.</p>
     </form>
   </div>
-  <aside class="event-aside" aria-labelledby="analise-titulo" aria-live="polite" x-cloak>
-    <h2 class="event-aside__title" id="analise-titulo">Na mesma data</h2>
+  <aside class="event-aside" aria-labelledby="analise-titulo" x-cloak>
+    <h2 class="uppercase-label event-aside__title" id="analise-titulo">Na mesma data</h2>
     <p class="hint" x-show="panelIdle">escolha a data e use ANALISAR DATA para ver o que já está marcado nela.</p>
     <p class="event-aside__stale" x-show="panelStale">a data, o estado ou a cidade mudou: use ANALISAR DATA de novo para atualizar a lista.</p>
-    <div id="analise-resultado"></div>
+    <div id="analise-resultado" aria-live="polite"></div>
   </aside>
 </div>{{end}}

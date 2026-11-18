@@ -207,8 +207,10 @@
     const controller = new AbortController();
     refills.set(select, controller);
     try {
+      // A redirect is a failure: an expired session answers 303 to /entrar, and its page must not land in the select.
       const response = await fetch(path + '?' + new URLSearchParams(pairs), {
         headers: { Accept: 'text/html' },
+        redirect: 'error',
         signal: controller.signal,
       });
       if (!response.ok) throw new Error('options ' + response.status);
