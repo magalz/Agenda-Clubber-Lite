@@ -50,6 +50,16 @@ func cuiSheet(t *testing.T, root string) string {
 	return root[start : start+end+len("</dialog>")]
 }
 
+// cuiGoTo is the goTo method of calendarPage in app.js, from its signature to its closing brace.
+func cuiGoTo(t *testing.T, js string) string {
+	t.Helper()
+	goTo := regexp.MustCompile(`(?s)async goTo\(.*?\n        \},\n`).FindString(js)
+	if goTo == "" {
+		t.Fatalf("app.js has no goTo method in calendarPage")
+	}
+	return goTo
+}
+
 // --- the markup ---
 
 // One <dialog class="sheet"> for the whole calendar, outside #calendar-month (the swap replaces that block and would
@@ -128,12 +138,7 @@ func TestCuiMonthSwapsIntoAStableSlot(t *testing.T) {
 		t.Errorf("GET /calendario answers with the slot, which the page already has: it would nest")
 	}
 
-	js := dynRead(t, "static/js/app.js")
-	goTo := regexp.MustCompile(`(?s)async goTo\(.*?\n        \},\n`).FindString(js)
-	if goTo == "" {
-		t.Fatalf("app.js has no goTo method in calendarPage")
-	}
-	wantAll(t, "goTo", goTo, "#calendar-slot", "innerHTML")
+	wantAll(t, "goTo", cuiGoTo(t, dynRead(t, "static/js/app.js")), "#calendar-slot", "innerHTML")
 }
 
 // A chip is a plain link to the event, so a click with a modifier key, a middle click and a visit with no script all
@@ -246,18 +251,69 @@ func TestCuiScriptTalksToTheRoutes(t *testing.T) {
 // reads the page straight after the bare promise (that sent every animated month change to location.assign).
 func TestCuiMonthSwapIsToldByItsEventNotByThePromise(t *testing.T) {
 	js := dynRead(t, "static/js/app.js")
-	helper := regexp.MustCompile(`(?s)function swapped\(request\) \{.*?\n  \}\n`).FindString(js)
-	if helper == "" {
-		t.Fatalf("app.js has no function swapped(request) for the month swap to await")
-	}
+	helper := cuiSwapped(t, js)
 	wantAll(t, "swapped", helper, "htmx:afterSwap", "htmx:responseError", "removeEventListener")
-	goTo := regexp.MustCompile(`(?s)async goTo\(.*?\n        \},\n`).FindString(js)
-	if goTo == "" {
-		t.Fatalf("app.js has no goTo method in calendarPage")
-	}
+	goTo := cuiGoTo(t, js)
 	wantAll(t, "goTo", goTo, "swapped(", "location.assign")
 	if strings.Contains(goTo, "await htmx.ajax") {
 		t.Errorf("goTo awaits htmx.ajax and reads the page after its promise, which resolves before a view transition swaps: %s", goTo)
+	}
+}
+
+// cuiSwapped is the swapped(request, target) function of app.js, from its signature to its closing brace.
+func cuiSwapped(t *testing.T, js string) string {
+	t.Helper()
+	helper := regexp.MustCompile(`(?s)function swapped\(request, target\) \{.*?\n  \}\n`).FindString(js)
+	if helper == "" {
+		t.Fatalf("app.js has no function swapped(request, target) for the month swap to await")
+	}
+	return helper
+}
+
+// htmx has one request slot for every htmx.ajax call that names no source (document.body): a request made while
+// another is out is queued, and its promise resolves at once. The answer of one request must therefore not settle the
+// wait of another: swapped() takes the element its request swaps into and heeds only the events of that target (the day
+// list's answer once settled the month's wait, and a filter changed twice before the first answer left the month
+// without its tab stop, its stagger and its status).
+func TestCuiSwapIsToldOnlyByTheEventsOfItsOwnTarget(t *testing.T) {
+	js := dynRead(t, "static/js/app.js")
+	helper := cuiSwapped(t, js)
+	if n := strings.Count(helper, "detail.target"); n < 2 {
+		t.Errorf("swapped compares detail.target in %d of its 2 listeners (htmx:afterSwap and htmx:responseError): %s", n, helper)
+	}
+	wantAll(t, "goTo", cuiGoTo(t, js), "root.querySelector('#calendar-slot')", "slot)")
+}
+
+// A month change (the filter, the history) that comes while a month is out waits, and of several only the newest goes
+// on, so the page ends on the last choice, with the one history entry of it, and the month in the page is the one the
+// script set up (tab stop, stagger, status). A change that comes while the sheet or a day list is out follows its link
+// instead, as a click does. Each request names itself in busy, so goTo can tell them apart.
+func TestCuiMonthChangesWhileOneIsOutKeepOnlyTheNewest(t *testing.T) {
+	js := dynRead(t, "static/js/app.js")
+	wantAll(t, "app.js", js, "busy = 'month'", "busy = 'sheet'", "busy = 'day'")
+	goTo := cuiGoTo(t, js)
+	wantAll(t, "goTo", goTo, "pending = [", "busy === 'month'")
+
+	busy := strings.Index(goTo, "if (busy)")
+	old := strings.Index(goTo, "const old")
+	if busy < 0 || old < 0 || busy > old {
+		t.Fatalf("goTo does not meet a request that is out before it reads the page (if (busy) at %d, const old at %d): %s", busy, old, goTo)
+	}
+	if !strings.Contains(goTo[busy:old], "location.assign(href)") {
+		t.Errorf("goTo does not follow its link when the sheet or a day list is out: %s", goTo[busy:old])
+	}
+
+	superseded := strings.Index(goTo, "if (pending)")
+	push := strings.Index(goTo, "pushState")
+	focus := strings.Index(goTo, ".focus()")
+	if superseded < 0 || push < 0 || focus < 0 {
+		t.Fatalf("goTo has no if (pending) (%d), pushState (%d) or .focus() (%d): %s", superseded, push, focus, goTo)
+	}
+	if superseded > push {
+		t.Errorf("goTo pushes its history entry before it looks for a newer change: a superseded change would leave an entry of its own")
+	}
+	if focus > superseded {
+		t.Errorf("goTo gives the focus back after it looks for a newer change: the control the person is using would be lost on the way to it")
 	}
 }
 
