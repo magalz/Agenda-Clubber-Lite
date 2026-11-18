@@ -207,6 +207,27 @@ func TestCuiScriptTalksToTheRoutes(t *testing.T) {
 		"calendarPage", "calendar-page--js")
 }
 
+// htmx resolves the promise of htmx.ajax before the swap of a view transition runs (the browser runs that swap a frame
+// later), so the month that is in the page right after the await is still the old one. The swap's own event tells
+// whether the month came: goTo awaits swapped(), which listens to htmx:afterSwap and htmx:responseError, and never
+// reads the page straight after the bare promise (that sent every animated month change to location.assign).
+func TestCuiMonthSwapIsToldByItsEventNotByThePromise(t *testing.T) {
+	js := dynRead(t, "static/js/app.js")
+	helper := regexp.MustCompile(`(?s)function swapped\(request\) \{.*?\n  \}\n`).FindString(js)
+	if helper == "" {
+		t.Fatalf("app.js has no function swapped(request) for the month swap to await")
+	}
+	wantAll(t, "swapped", helper, "htmx:afterSwap", "htmx:responseError", "removeEventListener")
+	goTo := regexp.MustCompile(`(?s)async goTo\(.*?\n        \},\n`).FindString(js)
+	if goTo == "" {
+		t.Fatalf("app.js has no goTo method in calendarPage")
+	}
+	wantAll(t, "goTo", goTo, "swapped(", "location.assign")
+	if strings.Contains(goTo, "await htmx.ajax") {
+		t.Errorf("goTo awaits htmx.ajax and reads the page after its promise, which resolves before a view transition swaps: %s", goTo)
+	}
+}
+
 // The keys of the roving tabindex and the media queries the script mirrors from the stylesheet.
 func TestCuiScriptHandlesTheKeysAndTheBreakpoints(t *testing.T) {
 	js := dynRead(t, "static/js/app.js")
@@ -227,6 +248,17 @@ func TestCuiStylesheetDefinesTheClasses(t *testing.T) {
 	if !regexp.MustCompile(`(?s)@media \(prefers-reduced-motion: reduce\)\s*\{[^@]*::view-transition`).MatchString(css) {
 		t.Errorf("components.css does not switch the view transition off under prefers-reduced-motion: reduce")
 	}
+}
+
+// Between about 640 and 780px a cell is too narrow for a chip's time and type side by side, and the type's ellipsis cut it
+// to "Fe…": the line wraps, so the type goes on a line of its own instead of being cut.
+func TestCuiChipMetaWrapsInsteadOfCuttingTheType(t *testing.T) {
+	css := dynRead(t, "static/css/components.css")
+	rule := regexp.MustCompile(`(?s)\.calendar__chip-meta \{[^}]*\}`).FindString(css)
+	if rule == "" {
+		t.Fatalf("components.css has no .calendar__chip-meta rule")
+	}
+	wantAll(t, ".calendar__chip-meta", rule, "display: flex", "flex-wrap: wrap")
 }
 
 // What the interactive layer adds is no inline script or style.
