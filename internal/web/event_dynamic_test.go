@@ -159,16 +159,20 @@ func TestDynMarkup(t *testing.T) {
 			t.Errorf("the Analisar Data button comes after the duration: it belongs to the date row")
 		}
 
-		// The panel: a labelled live region, hidden until the script runs, with the heading and a stable target.
+		// The panel: labelled, hidden until the script runs, with the heading and a stable target. Only the
+		// result is a live region, so the stale note does not speak while the person types a date.
 		start := dynOpen(t, body, `<aside class="event-aside"`)
 		aside := body[start:dynClose(t, body, start)]
 		open := aside[:strings.Index(aside, ">")+1]
-		wantAll(t, "the panel", open, `aria-live="polite"`, `aria-labelledby="analise-titulo"`)
+		wantAll(t, "the panel", open, `aria-labelledby="analise-titulo"`)
+		if strings.Contains(open, "aria-live") {
+			t.Errorf("the whole panel is a live region: %s", open)
+		}
 		if !ewCloaked.MatchString(open) {
 			t.Errorf("the panel shows without JavaScript: no x-cloak in %s", open)
 		}
-		wantAll(t, "the panel", aside, `id="analise-titulo"`, `Na mesma data`, `id="analise-resultado"`,
-			`x-show="panelIdle"`, `x-show="panelStale"`)
+		wantAll(t, "the panel", aside, `<h2 class="uppercase-label event-aside__title" id="analise-titulo">`, `Na mesma data`,
+			`<div id="analise-resultado" aria-live="polite">`, `x-show="panelIdle"`, `x-show="panelStale"`)
 	})
 }
 
@@ -246,6 +250,7 @@ func TestDynScriptTalksToTheRoutes(t *testing.T) {
 		"'/opcoes/cidades'", "'/opcoes/subestilos'", "'/eventos/dia'",
 		"'uf'", "'estilo'", "'selecionada'", "'data'", "'destaque_uf'", "'destaque_cidade'",
 		"URLSearchParams",
+		"redirect: 'error'",                             // an expired session's 303 to /entrar is a failed refill, not a login page in a select
 		"'htmx:beforeSwap'", "422", "analise-resultado", // a refused date is swapped into the panel only
 		"'animate-fade-up'", "setProperty('--i'", // the stagger goes through the CSSOM: no style attribute under the CSP
 	} {
