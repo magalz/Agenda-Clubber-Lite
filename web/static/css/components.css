@@ -1414,7 +1414,7 @@ body:has(dialog.sheet:modal) {
      .input-group > span.input-group__prefix[x-cloak] (R$) + input.input.input--money
      .date-picker (the date's .field; position:relative)
        .date-picker__popup[role=dialog][hidden]: the popup under the input; the script toggles hidden
-         .date-picker__head: button.date-picker__nav[data-nav=-1|1] + .date-picker__title + button.date-picker__nav
+         .date-picker__head: button.btn.btn--outline.btn--sm[data-nav=-1|1] + .date-picker__title + button.btn.btn--outline.btn--sm (as the calendar's)
          .date-picker__grid: the script puts in it
            table.date-picker__table[role=grid] > th.date-picker__weekday, td > button.date-picker__day[data-day=AAAA-MM-DD]
            A day is today with aria-current=date, past with .is-past and aria-disabled=true, and chosen with
@@ -1508,23 +1508,6 @@ body:has(dialog.sheet:modal) {
   letter-spacing: var(--tracking-label);
   text-align: center;
   text-transform: uppercase;
-}
-.date-picker__nav {
-  display: inline-flex;
-  flex: none;
-  align-items: center;
-  justify-content: center;
-  width: 2rem;
-  height: 2rem;
-  border: 1px solid var(--color-control);
-  color: var(--color-muted);
-  transition:
-    color var(--dur-fast) var(--ease-standard),
-    border-color var(--dur-fast) var(--ease-standard);
-}
-.date-picker__nav:hover {
-  border-color: var(--accent);
-  color: var(--foreground);
 }
 .date-picker__table {
   width: 100%;

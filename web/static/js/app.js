@@ -518,7 +518,7 @@
           const root = this.$root;
           input = root.querySelector('#date');
           grid = root.querySelector('.date-picker__grid');
-          today = dayOf(root.dataset.today || '') ? root.dataset.today : isoOf(new Date());
+          today = root.dataset.today;
           keep = dayOf(root.dataset.keep || '') ? root.dataset.keep : '';
         },
 

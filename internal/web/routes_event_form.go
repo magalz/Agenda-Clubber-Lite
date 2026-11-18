@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -266,17 +267,14 @@ func (a *App) eventEditRender(c *gin.Context, view events.DetailView, status int
 		CollectiveName: view.CollectiveName,
 		Alert:          alert,
 		AlertHref:      alertHref,
-		Keep:           view.Event.StartsAt.In(a.Cfg.Location).Format(pickerDay),
+		Keep:           view.Event.StartsAt.In(a.Cfg.Location).Format(time.DateOnly),
 	}
 	a.eventFormRender(c, status, "Editar Evento", "calendario", page, f, errs)
 }
 
-// pickerDay is the layout of the days the date picker reads (data-today, data-keep).
-const pickerDay = "2006-01-02"
-
 // eventFormRender fills the lists and today's date of page for f's state and style and renders it.
 func (a *App) eventFormRender(c *gin.Context, status int, title, nav string, page eventFormPage, f events.Form, errs domain.FieldErrors) {
-	page.Today = a.Now().In(a.Cfg.Location).Format(pickerDay)
+	page.Today = a.Now().In(a.Cfg.Location).Format(time.DateOnly)
 	page.fillLists(f)
 	a.page(c, status, "app/evento-form", PageData{Title: title, Nav: nav, Form: eventFormValues(f), Errors: errs, Data: page})
 }

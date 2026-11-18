@@ -173,7 +173,7 @@ func TestEwMarkup(t *testing.T) {
 		wantAll(t, "the month title", ewTag(t, body, `date-picker__title`), `aria-live="polite"`)
 		for _, dir := range []string{"-1", "1"} {
 			nav := ewTag(t, body, `data-nav="`+dir+`"`)
-			wantAll(t, "the month button "+dir, nav, `type="button"`, `aria-label=`)
+			wantAll(t, "the month button "+dir, nav, `class="btn btn--outline btn--sm"`, `type="button"`, `aria-label=`)
 		}
 
 		// The spinners: a name and a type on every button, hidden until the script runs.
