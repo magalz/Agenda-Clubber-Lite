@@ -114,7 +114,8 @@
   const SWAP_WAIT = 2000;
 
   // Each element enters after the one before it. .animate-fade-up reads --i, which the CSSOM sets because a style
-  // attribute would break the CSP; the places past STAGGER_MAX all come with the last of them.
+  // attribute would break the CSP; the places past STAGGER_MAX all come with the last of them. Under
+  // prefers-reduced-motion base.css cuts the animation and its delay short, so the callers need no check of their own.
   function stagger(elements) {
     elements.forEach((element, i) => {
       element.classList.add('animate-fade-up');
@@ -1092,7 +1093,7 @@
             month.querySelector('.calendar__cell[aria-current="date"] .calendar__daynum') ||
             month.querySelector('.calendar__cell:not(.calendar__cell--out) .calendar__daynum');
           rove(stop || dayLinks()[0]);
-          if (!matchMedia(REDUCED_MOTION).matches) stagger(month.querySelectorAll('.calendar__chip'));
+          stagger(month.querySelectorAll('.calendar__chip'));
         },
 
         // Swaps the month for the page at href (a link of the calendar: /?mes=...&uf=...&cidade=...), which GET /calendario
@@ -1191,7 +1192,7 @@
             location.assign(link.href);
             return;
           }
-          if (!matchMedia(REDUCED_MOTION).matches) stagger(panel.querySelectorAll('.item-list__item'));
+          stagger(panel.querySelectorAll('.item-list__item'));
           panel.scrollIntoView({ block: 'nearest' });
         },
 

@@ -80,8 +80,8 @@ func TestCuiSheetSitsOutsideTheMonthWithOnlyTheCloseButtonInTheBar(t *testing.T)
 		t.Errorf("the bar holds more than the close button (the title is the event's own h2): %s", bar)
 	}
 	// The body is where the event is loaded: empty until the script fills it.
-	if !regexp.MustCompile(`(?s)<div class="sheet__body" id="[a-z-]+">\s*</div>`).MatchString(sheet) {
-		t.Errorf("the sheet has no empty .sheet__body with an id to load the event into: %s", sheet)
+	if !regexp.MustCompile(`(?s)<div class="sheet__body">\s*</div>`).MatchString(sheet) {
+		t.Errorf("the sheet has no empty .sheet__body to load the event into: %s", sheet)
 	}
 }
 
