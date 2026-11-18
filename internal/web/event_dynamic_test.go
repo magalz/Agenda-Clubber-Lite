@@ -172,6 +172,25 @@ func TestDynMarkup(t *testing.T) {
 	})
 }
 
+// A closing quote must be followed by a space, ">" or "/" before the next attribute.
+// Browsers recover from a glued pair (x-data="a"@keydown="b"), but the attribute
+// check of TestEwAlpineAttributesNameRegisteredMembers needs the space in front of
+// an Alpine attribute, so a glued one would escape it.
+var (
+	dynStartTagRe = regexp.MustCompile(`<[a-zA-Z][^<>]*>`)
+	dynGluedRe    = regexp.MustCompile(`="[^"]*"[^\s>/]`)
+)
+
+func TestDynAttributesAreSeparated(t *testing.T) {
+	ewRender(t, newEvfEnv(t)).each(t, func(t *testing.T, body string) {
+		for _, tag := range dynStartTagRe.FindAllString(body, -1) {
+			if glued := dynGluedRe.FindString(tag); glued != "" {
+				t.Errorf("no space between two attributes (%q) in %s", glued, tag)
+			}
+		}
+	})
+}
+
 // A 422 re-render shows the fields that have a value or an error, so the page
 // the server sends back carries the same hooks and the values the script reads.
 func TestDynRefusedFormKeepsTheHooks(t *testing.T) {
