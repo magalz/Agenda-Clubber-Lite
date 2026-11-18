@@ -167,7 +167,7 @@ func TestDynMarkup(t *testing.T) {
 		if !ewCloaked.MatchString(open) {
 			t.Errorf("the panel shows without JavaScript: no x-cloak in %s", open)
 		}
-		dynHas(t, "the panel", aside, `id="analise-titulo"`, `Na mesma data`, `id="analise-resultado"`,
+		wantAll(t, "the panel", aside, `id="analise-titulo"`, `Na mesma data`, `id="analise-resultado"`,
 			`x-show="panelIdle"`, `x-show="panelStale"`)
 	})
 }
@@ -199,7 +199,7 @@ func TestDynRefusedFormKeepsTheHooks(t *testing.T) {
 	v.Set("type", "outros")
 	v.Set("style", "outros")
 	body := evfBody(t, "refused form", e.send(e.Owner, "/eventos/novo", v), http.StatusUnprocessableEntity)
-	dynHas(t, "the refused form", body, `x-data="eventDynamic"`, `x-show="typeOtherShown"`, `x-show="styleOtherShown"`, `@click="analyse"`)
+	wantAll(t, "the refused form", body, `x-data="eventDynamic"`, `x-show="typeOtherShown"`, `x-show="styleOtherShown"`, `@click="analyse"`)
 	for _, field := range []string{"type_other", "style_other"} {
 		wantAll(t, field, tagAttrs(t, body, `(<input [^>]*id="`+field+`"[^>]*>)`), `aria-invalid="true"`)
 	}
@@ -296,21 +296,10 @@ func TestDynRoutesAnswerTheScript(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			rec := serve(e.r, http.MethodGet, tc.target, withCookie(e.Cookie[e.Owner.ID]), hx)
 			body := evfBody(t, tc.name, rec, tc.want)
-			dynHas(t, tc.name, body, tc.in...)
+			wantAll(t, tc.name, body, tc.in...)
 			if strings.Contains(body, "<html") {
 				t.Errorf("%s answers a whole page, not the fragment to swap in", tc.name)
 			}
 		})
-	}
-}
-
-// dynHas is wantAll for a whole page or fragment: it names what is missing and
-// does not print the page.
-func dynHas(t *testing.T, what, body string, wants ...string) {
-	t.Helper()
-	for _, w := range wants {
-		if !strings.Contains(body, w) {
-			t.Errorf("%s: missing %q (%d bytes)", what, w, len(body))
-		}
 	}
 }
