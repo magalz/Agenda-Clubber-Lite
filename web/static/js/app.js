@@ -112,6 +112,9 @@
   const SLIDE_KEEP = 1000;
   // How long after its answer a swap that runs in a view transition may still come (see swapped).
   const SWAP_WAIT = 2000;
+  // How long a request of the calendar may stay out before the page follows the plain link of the newest one (see
+  // newestOnly): a request that hangs must not trap the person.
+  const HANG_WAIT = 8000;
 
   // Each element enters after the one before it. .animate-fade-up reads --i, which the CSSOM sets because a style
   // attribute would break the CSP; the places past STAGGER_MAX all come with the last of them. Under
@@ -127,8 +130,8 @@
   // handled the answer, but the browser runs the swap of a view transition a frame later, so the promise cannot tell:
   // the swap's own event does (htmx:afterSwap, which comes with the new content in the page). An error status, a request
   // that fails and an answer that swaps nothing give false; the last one is told SWAP_WAIT after the answer. Only the
-  // events of target count: htmx has one request slot for every ajax call that names no source, so another request's
-  // answer (a day list, an earlier month) must not settle this one.
+  // events of target count: they bubble to the document from every request, so another request's answer (a day list, an
+  // earlier month) must not settle this one.
   function swapped(request, target) {
     return new Promise((resolve) => {
       let settled = false;
@@ -153,6 +156,40 @@
         if (!settled) timer = setTimeout(finish, SWAP_WAIT, false);
       }, () => finish(false));
     });
+  }
+
+  // Runs the jobs of one kind of request (run(job, newer)) one at a time, and of those that come while one is out only the
+  // newest waits: latest wins. newer() tells a running job that another waits behind it, so it can leave the page as it
+  // is for the newer one; send.newest() is the newest job asked for, the one that is out or waiting, else null. A job
+  // that stays out longer than HANG_WAIT hands the page to follow(job of the newest), the plain link, so a request that
+  // never answers does not turn the person's next clicks into a queue that never moves.
+  function newestOnly(run, follow) {
+    let current = null;
+    let waiting = null;
+    const newer = () => waiting !== null;
+    const send = async (job) => {
+      if (current !== null) {
+        waiting = job;
+        return;
+      }
+      current = job;
+      let hang = 0;
+      try {
+        while (current !== null) {
+          hang = setTimeout(() => follow(waiting ?? current), HANG_WAIT);
+          await run(current, newer);
+          clearTimeout(hang);
+          current = waiting;
+          waiting = null;
+        }
+      } finally {
+        clearTimeout(hang);
+        current = null;
+        waiting = null;
+      }
+    };
+    send.newest = () => waiting ?? current;
+    return send;
   }
 
   const MONTHS = [
@@ -1043,28 +1080,55 @@
     // The calendar page (pages/app/home): the month as an app, over markup that already works as plain links. The root
     // (.calendar-page) wraps the month (#calendar-month) and the sheet (<dialog id="evento-sheet">), so the listeners
     // are delegated and the HTML a swap brings needs no setup. Only a plain left click is taken: a modifier key, the
-    // middle button, no script, a busy page or a request that fails all follow the link instead.
+    // middle button, no script or a request that fails all follow the link instead.
     //  - A chip loads the event (the HTMX answer of GET /eventos/:id) into the sheet and opens it. Closing it, by Esc or
-    //    [✕], gives the focus back to the chip.
+    //    [✕], gives the focus back to the chip, or to the same event's chip in the month that replaced it, or to the day
+    //    that is the tab stop.
     //  - The month bar and the filter swap #calendar-month for GET /calendario with their own query, push the URL of
     //    that page and slide the month (a view transition) toward the side it moves. Back and forward swap again.
     //  - The day links are one tab stop (roving tabindex); the arrows, Home and End move between them.
     //  - Below 640px the number of a day loads that day's list into #calendar-day instead of leaving the page.
     // The class calendar-page--js, which the script puts on its root, hides the FILTRAR button: the filter applies on change.
+    //
+    // Two actions can come within one response time, and the person's choice must survive that. Every month change is
+    // built from latest(), the newest address asked for (the month that is out or waiting, else the one in the page),
+    // never from the month in the page, whose filter, month bar and day links are stale while a newer month loads. Of
+    // each kind of request (the month, the event of a chip, a day list) one runs at a time and the newest waits behind it
+    // (newestOnly), and each kind names the element it makes its requests from (the slot, the sheet, the root), because
+    // htmx keeps one request slot for each such element and queues a second request on it, answering its promise at
+    // once. A month that a newer one supersedes is swapped in if it came, but sets nothing up.
     Alpine.data('calendarPage', () => {
       let root;
-      // The request that is out ('month', 'sheet' or 'day'), if any. One runs at a time, because htmx queues a second one
-      // behind the first and answers its promise at once. A click meanwhile follows its link, so a request that hangs
-      // never traps the person; a month change (the filter, the history) waits if a month is out and follows its link
-      // otherwise.
-      let busy = '';
-      let pending = null; // the newest month change that came while a month was out: [href, push]
       let opener = null; // the chip the open sheet came from
       let slideTimer = 0;
       let onPopState;
+      let loadMonth; // the runners of the three kinds of request, made by init
+      let loadSheet;
+      let loadDay;
+      let dayAfter = ''; // a phone's day tapped while a month is out, which the month that lands opens
 
       const monthOf = () => root.querySelector('#calendar-month');
       const dayLinks = () => [...monthOf().querySelectorAll('.calendar__daynum')];
+      const dayLink = (key) => monthOf().querySelector('[data-day="' + key + '"] .calendar__daynum');
+
+      // The address of a month's page, as the server's own links have it: the empty choices are left out and the rest is
+      // in order.
+      function hrefOf({ mes, uf, cidade }) {
+        const params = new URLSearchParams([['mes', mes], ['uf', uf], ['cidade', cidade]].filter(([, value]) => value !== ''));
+        params.sort();
+        return '/?' + params;
+      }
+
+      // The address a month in the page stands for.
+      const queryOf = (month) => ({
+        mes: month.dataset.month,
+        uf: month.querySelector('#calendar-uf').value,
+        cidade: month.querySelector('#calendar-cidade').value,
+      });
+      // The newest address asked for: where every month change starts from.
+      const latest = () => loadMonth.newest() ?? queryOf(monthOf());
+      // Today's month, as the server's Hoje link has it (the time zone is the server's, not the browser's).
+      const todayOf = () => new URL(monthOf().querySelector('.calendar__today').href).searchParams.get('mes');
 
       // Of the day links only one is in the tab order, and the arrow keys move it.
       function rove(stop) {
@@ -1083,11 +1147,21 @@
           root = this.$root;
           root.classList.add('calendar-page--js');
           this.enhance();
+          // What the page does when a request hangs: the month goes to its address, which already is the history entry the
+          // choice made, and the others to their links.
+          loadMonth = newestOnly((query, newer) => this.showMonth(query, newer), (query) => location.replace(hrefOf(query)));
+          loadSheet = newestOnly((chip, newer) => this.showEvent(chip, newer), (chip) => location.assign(chip.href));
+          loadDay = newestOnly((key, newer) => this.showDay(key, newer), (key) => {
+            const link = dayLink(key);
+            if (link) location.assign(link.href);
+          });
           onPopState = () => {
             if (location.pathname !== '/') return;
             const sheet = root.querySelector('#evento-sheet');
             if (sheet.open) sheet.close();
-            this.goTo(location.pathname + location.search, false);
+            const params = new URLSearchParams(location.search);
+            const mes = params.get('mes') ?? '';
+            this.goTo({ mes: dayOf(mes + '-01') ? mes : todayOf(), uf: params.get('uf') ?? '', cidade: params.get('cidade') ?? '' }, false);
           };
           window.addEventListener('popstate', onPopState);
         },
@@ -1107,74 +1181,88 @@
           stagger(month.querySelectorAll('.calendar__chip'));
         },
 
-        // Swaps the month for the page at href (a link of the calendar: /?mes=...&uf=...&cidade=...), which GET /calendario
-        // answers alone, into #calendar-slot (the wrapper that holds only the month). push is false when the address
-        // already is href (back and forward). A month that was not swapped in (an error, no answer) leaves the old one in
-        // the page, and the link is followed instead. A change that comes while a month is out waits, and of several only
-        // the newest goes on: the one it supersedes is swapped in if it came, but sets nothing up and pushes no entry.
-        async goTo(href, push = true) {
-          if (busy) {
-            if (busy === 'month') pending = [href, push];
-            else location.assign(href);
-            return;
-          }
+        // The person's choice of a month (query: mes, uf, cidade): its address is the history entry at once, one for each
+        // choice, and the month loads behind whatever month is out. push is false when the address already is the
+        // entry (back and forward).
+        goTo(query, push = true) {
+          const href = hrefOf(query);
+          if (push && href !== location.pathname + location.search) history.pushState(null, '', href);
+          loadMonth(query);
+        },
+
+        // Swaps the month of query for the one GET /calendario answers alone, into #calendar-slot (the wrapper that holds
+        // only the month). A month that was not swapped in (an error, no answer) leaves the old one in the page, and the
+        // address is loaded as a page instead; so does the newest month that is out after HANG_WAIT. When a newer month
+        // waits behind this one, this one sets nothing up (the tab stop, the stagger, the status are the newest month's),
+        // and a failure of it is the newer one's to meet.
+        async showMonth(query, newer) {
           const old = monthOf();
-          const url = new URL(href, location.origin);
-          const to = url.searchParams.get('mes') || '';
+          const slot = root.querySelector('#calendar-slot');
+          const href = hrefOf(query);
           const from = old.dataset.month;
-          const slide = to === '' || to === from ? '' : to > from ? 'next' : 'prev';
-          const animate = slide !== '' && typeof document.startViewTransition === 'function' && !matchMedia(REDUCED_MOTION).matches;
-          const focused = old.contains(document.activeElement) ? twin(document.activeElement) : '';
-          if (animate) {
+          const slide = query.mes === from ? '' : query.mes > from ? 'next' : 'prev';
+          // No slide under the open sheet: the page behind it is not seen.
+          const animate =
+            slide !== '' &&
+            typeof document.startViewTransition === 'function' &&
+            !matchMedia(REDUCED_MOTION).matches &&
+            !root.querySelector('#evento-sheet').open;
+
+          // The answer is about to be swapped in, which is the moment to read what the person is on and to tell the
+          // stylesheet the direction: the request may take longer than the attribute lives, and a month that comes later
+          // must not overwrite the direction of one that is still sliding. The timer starts here, and nothing else clears
+          // the attribute (the swap comes inside the transition, before its pseudo-elements are styled).
+          let focused = '';
+          const listening = new AbortController();
+          slot.addEventListener('htmx:beforeSwap', (event) => {
+            if (event.detail.target !== slot) return;
+            focused = old.contains(document.activeElement) ? twin(document.activeElement) : '';
+            if (!animate) return;
             clearTimeout(slideTimer);
             document.documentElement.dataset.calendarSlide = slide;
             slideTimer = setTimeout(() => delete document.documentElement.dataset.calendarSlide, SLIDE_KEEP);
-          }
-
-          const slot = root.querySelector('#calendar-slot');
-          busy = 'month';
+          }, { signal: listening.signal });
           let done;
           try {
             done = await swapped(
-              () => htmx.ajax('GET', MONTH_URL + url.search, { target: slot, swap: animate ? 'innerHTML transition:true' : 'innerHTML' }),
+              () => htmx.ajax('GET', MONTH_URL + href.slice(1), { source: slot, target: slot, swap: animate ? 'innerHTML transition:true' : 'innerHTML' }),
               slot,
             );
           } finally {
-            busy = '';
+            listening.abort();
           }
           const month = monthOf();
-          // The swap took the control out of the page, so the focus goes to its twin before anything else (a newer change
-          // below starts from the month that is in the page, and the person is still on that control).
+          // The swap took the control out of the page, so the focus goes to its twin before anything else (the person is
+          // still on that control, whatever the month that comes next).
           if (focused) month?.querySelector(focused)?.focus();
-          if (pending) {
-            const [next, nextPush] = pending;
-            pending = null;
-            return this.goTo(next, nextPush);
-          }
+          if (newer()) return;
           if (!done || !month || month === old) {
-            location.assign(href);
+            location.replace(href);
             return;
           }
 
-          if (push && href !== location.pathname + location.search) history.pushState(null, '', href);
           this.enhance();
           root.querySelector('#calendar-status').textContent = month.querySelector('#calendar-title').textContent;
+          // A day that a phone chose while this month was out (or whose list is out) is chosen again in the month that
+          // came: that is the one with the state the person picked.
+          const day = dayAfter || loadDay.newest();
+          dayAfter = '';
+          if (day) loadDay(day);
         },
 
         // Loads the event of a chip into the sheet and opens it. The body is emptied first, so what is in it afterwards
         // is this answer: no title means it failed (an error is not swapped in), and the event's own page opens instead.
-        async openSheet(chip) {
+        // Only the newest chip opens the sheet.
+        async showEvent(chip, newer) {
           const dialog = root.querySelector('#evento-sheet');
           const body = dialog.querySelector('.sheet__body');
           body.replaceChildren();
-          busy = 'sheet';
           try {
-            await htmx.ajax('GET', chip.getAttribute('href'), { target: body, swap: 'innerHTML' });
+            await htmx.ajax('GET', chip.getAttribute('href'), { source: dialog, target: body, swap: 'innerHTML' });
           } catch {
             // The title tells below.
-          } finally {
-            busy = '';
           }
+          if (newer()) return;
           const title = body.querySelector('h2.sheet__title');
           if (!title || !title.id) {
             location.assign(chip.href);
@@ -1184,15 +1272,24 @@
           dialog.setAttribute('aria-labelledby', title.id);
           dialog.showModal();
         },
-        // Esc, [✕] and close() all end here, so the focus goes back to the chip whichever of them closed the sheet.
+        // Esc, [✕] and close() all end here, so the focus goes back whichever of them closed the sheet: to the chip, or to
+        // its twin (the chip of the same event) when a month swap replaced it, else to the day that is the tab stop.
         onSheetClose() {
-          if (opener?.isConnected) opener.focus();
+          const href = opener?.getAttribute('href');
+          const chip = opener?.isConnected
+            ? opener
+            : [...monthOf().querySelectorAll('.calendar__chip')].find((other) => other.getAttribute('href') === href);
+          (chip || monthOf().querySelector('.calendar__daynum[tabindex="0"]'))?.focus();
           opener = null;
         },
 
-        // A phone's choice of a day: marks it and loads its list into the panel below the grid. The old list stays until
-        // the new one comes, so one that is still the same element after the request means it failed.
-        async chooseDay(link) {
+        // A phone's choice of a day (its key, AAAA-MM-DD): marks it and loads its list into the panel below the grid. A
+        // day that is not in the month (it changed under the choice) is dropped. The old list stays until the new one
+        // comes, so one that is still the same element after the request means it failed; a panel that was swapped out of
+        // the page with its month says nothing.
+        async showDay(key, newer) {
+          const link = dayLink(key);
+          if (!link) return;
           const month = monthOf();
           const panel = month.querySelector('#calendar-day');
           const shown = panel.firstElementChild;
@@ -1204,14 +1301,12 @@
           link.setAttribute('aria-current', 'true');
           rove(link);
 
-          busy = 'day';
           try {
-            await htmx.ajax('GET', link.getAttribute('href'), { target: panel, swap: 'innerHTML' });
+            await htmx.ajax('GET', link.getAttribute('href'), { source: root, target: panel, swap: 'innerHTML' });
           } catch {
             // The list in the panel tells below.
-          } finally {
-            busy = '';
           }
+          if (!panel.isConnected || newer()) return;
           if (!panel.querySelector('#day-list') || panel.firstElementChild === shown) {
             location.assign(link.href);
             return;
@@ -1224,31 +1319,41 @@
           if (event.defaultPrevented || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
           const link = event.target.closest('a');
           // The sheet is in the root too: its own links (edit, tickets) are plain links.
-          if (busy || !link || !monthOf().contains(link)) return;
+          if (!link || !monthOf().contains(link)) return;
           if (link.classList.contains('calendar__chip')) {
             event.preventDefault();
-            this.openSheet(link);
+            loadSheet(link);
           } else if (link.closest('.calendar__nav')) {
+            // A month from the newest one asked for, not from the one in the page: the link carries the latter.
             event.preventDefault();
-            this.goTo(link.getAttribute('href'));
+            const asked = latest();
+            const rel = link.getAttribute('rel');
+            this.goTo({ ...asked, mes: rel ? addMonths(asked.mes + '-01', rel === 'next' ? 1 : -1).slice(0, 7) : todayOf() });
           } else if (link.classList.contains('calendar__daynum') && !matchMedia(WIDE).matches) {
+            // While a month is out the day waits for it: its link carries the filter of the month in the page.
             event.preventDefault();
-            this.chooseDay(link);
+            const key = link.closest('.calendar__cell').dataset.day;
+            if (loadMonth.newest()) dayAfter = key;
+            else loadDay(key);
+          } else if ((link.classList.contains('calendar__daynum') || link.classList.contains('calendar__more')) && loadMonth.newest()) {
+            // A wider screen leaves the page for the day's list, and the filter it takes is the newest one asked for.
+            event.preventDefault();
+            const url = new URL(link.href);
+            const asked = latest();
+            for (const name of ['uf', 'cidade']) {
+              if (asked[name]) url.searchParams.set(name, asked[name]);
+              else url.searchParams.delete(name);
+            }
+            location.assign(url);
           }
         },
 
-        // The filter applies on change. A new state drops the city (its list is of the old state), and an empty choice is
-        // left out, so the address is the one the server's own link to that page has.
+        // The filter applies on change. A new state drops the city (its list is of the old state).
         onCalendarChange(event) {
           const field = event.target;
           if (field.id !== 'calendar-uf' && field.id !== 'calendar-cidade') return;
-          const form = field.form;
-          const city = field.id === 'calendar-uf' ? '' : form.elements.cidade.value;
-          const params = new URLSearchParams(
-            [['mes', form.elements.mes.value], ['uf', form.elements.uf.value], ['cidade', city]].filter(([, value]) => value !== ''),
-          );
-          params.sort();
-          this.goTo('/?' + params);
+          const asked = latest();
+          this.goTo(field.id === 'calendar-uf' ? { ...asked, uf: field.value, cidade: '' } : { ...asked, cidade: field.value });
         },
 
         // Arrow keys, Home and End move between the day links: a day, a week, the start or the end of the week. Past the
@@ -1283,11 +1388,10 @@
               return;
           }
           event.preventDefault();
-          if (to >= 0 && to < links.length) this.focusDay(links[to]);
-        },
-        focusDay(link) {
-          rove(link);
-          link.focus();
+          if (to >= 0 && to < links.length) {
+            rove(links[to]);
+            links[to].focus();
+          }
         },
       };
     });
