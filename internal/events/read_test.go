@@ -350,22 +350,46 @@ func TestDetail(t *testing.T) {
 	disabled := insertUser(t, w.S, "desligado@agenda.test", func(u *domain.User) { u.Status = domain.UserStatusDisabled })
 	insertMember(t, w.S, disabled.ID, w.Alfa.ID, domain.RoleOwner)
 
+	// The people of the blocked collective who are not its approved Administrador
+	// and a blocked collective that is not approved: none of them may edit, but only
+	// the approved Administrador is refused because of the block.
+	pendingOnDelta := insertUser(t, w.S, "pendente-delta@agenda.test")
+	insertMember(t, w.S, pendingOnDelta.ID, w.Delta.ID, domain.RoleOwner, func(m *domain.Membership) {
+		m.Status = domain.MembershipStatusPending
+		m.OwnerApprovedAt, m.DecidedAt = nil, nil
+	})
+	memberOnDelta := insertUser(t, w.S, "membro-delta@agenda.test")
+	insertMember(t, w.S, memberOnDelta.ID, w.Delta.ID, domain.RoleMember)
+	disabledOnDelta := insertUser(t, w.S, "desligado-delta@agenda.test", func(u *domain.User) { u.Status = domain.UserStatusDisabled })
+	insertMember(t, w.S, disabledOnDelta.ID, w.Delta.ID, domain.RoleOwner)
+	echo := insertCollective(t, w.S, "Coletivo Echo", w.Owner.ID, func(c *domain.Collective) {
+		c.Status, c.EventsBlocked = domain.CollectiveStatusPending, true
+	})
+	insertMember(t, w.S, w.Owner.ID, echo.ID, domain.RoleOwner)
+	festaEcho := readInsert(t, w, echo, "festa echo", calendarLocal(2026, time.November, 22, 22, 0))
+
 	tests := []struct {
-		name          string
-		actor         domain.User
-		event         domain.Event
-		wantEdit      bool
-		wantBlocked   bool
-		wantCollctive string
+		name            string
+		actor           domain.User
+		event           domain.Event
+		wantEdit        bool
+		wantEditBlocked bool // refused by mayEdit only because of the event block
+		wantCollctive   string
 	}{
 		{"Administrador", w.Owner, alfa, true, false, "Coletivo Alfa"},
 		{"Administrador of a blocked collective", w.Owner, delta, false, true, "Coletivo Delta"},
 		{"Membro", w.Member, alfa, false, false, "Coletivo Alfa"},
 		{"outsider", w.Outsider, alfa, false, false, "Coletivo Alfa"},
 		{"site admin", w.Admin, alfa, true, false, "Coletivo Alfa"},
-		{"site admin, blocked collective", w.Admin, delta, true, true, "Coletivo Delta"},
+		{"site admin, blocked collective", w.Admin, delta, true, false, "Coletivo Delta"},
+		{"Membro of a blocked collective", memberOnDelta, delta, false, false, "Coletivo Delta"},
+		{"outsider, blocked collective", w.Outsider, delta, false, false, "Coletivo Delta"},
 		{"pending Administrador", pending, alfa, false, false, "Coletivo Alfa"},
+		{"pending Administrador of a blocked collective", pendingOnDelta, delta, false, false, "Coletivo Delta"},
 		{"disabled Administrador", disabled, alfa, false, false, "Coletivo Alfa"},
+		{"disabled Administrador of a blocked collective", disabledOnDelta, delta, false, false, "Coletivo Delta"},
+		// mayEdit says ErrNotAllowed before it looks at the block, so the refusal is not the block's.
+		{"Administrador of a blocked collective that is not approved", w.Owner, festaEcho, false, false, "Coletivo Echo"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -376,8 +400,8 @@ func TestDetail(t *testing.T) {
 			if v.ID != tt.event.ID || v.Name != tt.event.Name || v.CollectiveID != tt.event.CollectiveID || v.CollectiveName != tt.wantCollctive {
 				t.Errorf("event = %q (%s) of %q, want %q (%s) of %q", v.Name, v.ID, v.CollectiveName, tt.event.Name, tt.event.ID, tt.wantCollctive)
 			}
-			if v.CanEdit != tt.wantEdit || v.CanDelete != tt.wantEdit || v.Blocked != tt.wantBlocked {
-				t.Errorf("CanEdit %v, CanDelete %v, Blocked %v; want %v, %v, %v", v.CanEdit, v.CanDelete, v.Blocked, tt.wantEdit, tt.wantEdit, tt.wantBlocked)
+			if v.CanEdit != tt.wantEdit || v.CanDelete != tt.wantEdit || v.EditBlocked != tt.wantEditBlocked {
+				t.Errorf("CanEdit %v, CanDelete %v, EditBlocked %v; want %v, %v, %v", v.CanEdit, v.CanDelete, v.EditBlocked, tt.wantEdit, tt.wantEdit, tt.wantEditBlocked)
 			}
 		})
 	}

@@ -122,10 +122,11 @@ func Mine(ctx context.Context, s domain.Store, actor domain.User, now time.Time)
 
 // DetailView is the event with the actor's rights over it. CanDelete is CanEdit:
 // the same people do both. Blocked says the collective's events are blocked, so a
-// page can say why an Administrador may not edit.
+// page can say why an Administrador may not edit. EditBlocked says mayEdit refused
+// the actor only because of the event block.
 type DetailView struct {
 	domain.EventView
-	CanEdit, CanDelete, Blocked bool
+	CanEdit, CanDelete, Blocked, EditBlocked bool
 }
 
 // Detail returns the event id with what actor may do to it, or an error that
