@@ -29,11 +29,6 @@ type evfEnv struct{ evdEnv }
 
 func newEvfEnv(t *testing.T) evfEnv { return evfEnv{newEvdEnv(t)} }
 
-// send posts the values to target as u, from the app's own origin.
-func (e evfEnv) send(u domain.User, target string, v url.Values, mod ...func(*http.Request)) *httptest.ResponseRecorder {
-	return post(e.r, target, v.Encode(), append([]func(*http.Request){withCookie(e.Cookie[u.ID])}, mod...)...)
-}
-
 // stored reads the event id from the store.
 func (e evfEnv) stored(t *testing.T, id string) domain.EventView {
 	t.Helper()
@@ -114,13 +109,12 @@ func evfEditForm(date string, version int64) url.Values {
 }
 
 var (
-	evfOptionRe = regexp.MustCompile(`<option value="([^"]*)"( selected)?>`)
-	evfLabelRe  = regexp.MustCompile(`<label\b([^>]*)>`)
-	evfForRe    = regexp.MustCompile(`\sfor="([^"]*)"`)
-	evfIDRe     = regexp.MustCompile(`\sid="([^"]*)"`)
-	evfDescRe   = regexp.MustCompile(`\saria-describedby="([^"]*)"`)
-	evfClassRe  = regexp.MustCompile(`\sclass="([^"]*)"`)
-	evfControl  = regexp.MustCompile(`<(?:input|select|textarea)\b([^>]*)>`)
+	evfLabelRe = regexp.MustCompile(`<label\b([^>]*)>`)
+	evfForRe   = regexp.MustCompile(`\sfor="([^"]*)"`)
+	evfIDRe    = regexp.MustCompile(`\sid="([^"]*)"`)
+	evfDescRe  = regexp.MustCompile(`\saria-describedby="([^"]*)"`)
+	evfClassRe = regexp.MustCompile(`\sclass="([^"]*)"`)
+	evfControl = regexp.MustCompile(`<(?:input|select|textarea)\b([^>]*)>`)
 )
 
 // evfSelect returns the <select name=...> element of the page.
@@ -131,17 +125,6 @@ func evfSelect(t *testing.T, body, name string) string {
 		t.Fatalf("no <select name=%q> in:\n%.600s", name, body)
 	}
 	return m
-}
-
-// evfOptions returns the option values of a select, in order, and the selected one.
-func evfOptions(sel string) (values []string, selected string) {
-	for _, m := range evfOptionRe.FindAllStringSubmatch(sel, -1) {
-		values = append(values, m[1])
-		if m[2] != "" {
-			selected = m[1]
-		}
-	}
-	return values, selected
 }
 
 // evfInput returns the attributes of the <input name=...> of the page.
@@ -196,7 +179,7 @@ func TestEvfNewPage(t *testing.T) {
 	evfNoField(t, "a new event", body, "version")
 
 	// Only Alfa is offered: Delta's events are blocked. With one collective, it is chosen.
-	values, selected := evfOptions(evfSelect(t, body, "collective_id"))
+	values, selected := evValues(evfSelect(t, body, "collective_id"))
 	if !slices.Equal(values, []string{"", e.Alfa.ID}) || selected != e.Alfa.ID {
 		t.Errorf("collective options = %q, selected %q; want only Alfa, selected", values, selected)
 	}
@@ -206,22 +189,22 @@ func TestEvfNewPage(t *testing.T) {
 	wantAll(t, "the collective select", evfSelect(t, body, "collective_id"), `Coletivo Alfa`)
 
 	// With no state or style chosen, the dependent selects have nothing to list.
-	city, _ := evfOptions(evfSelect(t, body, "city"))
+	city, _ := evValues(evfSelect(t, body, "city"))
 	if !slices.Equal(city, []string{""}) || !strings.Contains(evfSelect(t, body, "city"), "escolha o estado primeiro") {
 		t.Errorf("city options = %q, want only the empty one, saying to choose the state first", city)
 	}
-	if sub, _ := evfOptions(evfSelect(t, body, "substyle")); !slices.Equal(sub, []string{""}) {
+	if sub, _ := evValues(evfSelect(t, body, "substyle")); !slices.Equal(sub, []string{""}) {
 		t.Errorf("substyle options = %q, want only the empty one", sub)
 	}
-	state, _ := evfOptions(evfSelect(t, body, "state"))
+	state, _ := evValues(evfSelect(t, body, "state"))
 	if len(state) != 28 || !slices.Contains(state, "CE") || !slices.Contains(state, "SP") {
 		t.Errorf("state options = %d, want the empty one and the 27 UFs", len(state))
 	}
-	style, _ := evfOptions(evfSelect(t, body, "style"))
+	style, _ := evValues(evfSelect(t, body, "style"))
 	if !slices.Contains(style, "techno") || style[len(style)-1] != "outros" {
 		t.Errorf("style options = %q, want the catalog styles then outros", style)
 	}
-	typ, _ := evfOptions(evfSelect(t, body, "type"))
+	typ, _ := evValues(evfSelect(t, body, "type"))
 	if !slices.Equal(typ, []string{"", "festa", "rave", "festival", "workshop", "feira", "outros"}) {
 		t.Errorf("type options = %q", typ)
 	}
@@ -265,7 +248,7 @@ func TestEvfNewPage(t *testing.T) {
 	beta := evCollective(t, e.Store, "Coletivo Beta", e.Owner.ID)
 	evMember(t, e.Store, e.Owner.ID, beta.ID, domain.RoleOwner)
 	body = evdOK(t, "owner with two collectives", e.get(e.Owner, "/eventos/novo"))
-	values, selected = evfOptions(evfSelect(t, body, "collective_id"))
+	values, selected = evValues(evfSelect(t, body, "collective_id"))
 	if !slices.Equal(values, []string{"", e.Alfa.ID, beta.ID}) || selected != "" {
 		t.Errorf("collective options = %q, selected %q; want the empty one, Alfa and Beta, none chosen", values, selected)
 	}
@@ -367,23 +350,23 @@ func TestEvfCreate(t *testing.T) {
 		if strings.Contains(body, "<b>da</b>") {
 			t.Error("a typed tag reached the page unescaped")
 		}
-		_, chosen := evfOptions(evfSelect(t, body, "collective_id"))
+		_, chosen := evValues(evfSelect(t, body, "collective_id"))
 		if chosen != e.Alfa.ID {
 			t.Errorf("collective selected = %q, want Alfa", chosen)
 		}
 		// The lists are those of the state and the style that were submitted.
-		cities, selectedCity := evfOptions(evfSelect(t, body, "city"))
+		cities, selectedCity := evValues(evfSelect(t, body, "city"))
 		if !slices.Contains(cities, "Fortaleza") || slices.Contains(cities, "Recife") || selectedCity != "" {
 			t.Errorf("cities = %d options, selected %q; want those of CE, with none selected", len(cities), selectedCity)
 		}
-		if _, state := evfOptions(evfSelect(t, body, "state")); state != "CE" {
+		if _, state := evValues(evfSelect(t, body, "state")); state != "CE" {
 			t.Errorf("state selected = %q, want CE", state)
 		}
-		subs, _ := evfOptions(evfSelect(t, body, "substyle"))
+		subs, _ := evValues(evfSelect(t, body, "substyle"))
 		if !slices.Contains(subs, "deep techno") || slices.Contains(subs, "acid house") || subs[len(subs)-1] != "outros" {
 			t.Errorf("substyles = %q, want those of techno, then outros", subs)
 		}
-		if _, style := evfOptions(evfSelect(t, body, "style")); style != "techno" {
+		if _, style := evValues(evfSelect(t, body, "style")); style != "techno" {
 			t.Errorf("style selected = %q, want techno", style)
 		}
 		if n := e.count(t, e.Alfa.ID); n != before {
@@ -451,16 +434,16 @@ func TestEvfCreate(t *testing.T) {
 		if strings.Contains(body, `class="field-error"`) {
 			t.Error("the refresh shows errors")
 		}
-		cities, _ := evfOptions(evfSelect(t, body, "city"))
+		cities, _ := evValues(evfSelect(t, body, "city"))
 		if !slices.Contains(cities, "Recife") || slices.Contains(cities, "Fortaleza") {
 			t.Errorf("cities = %d options, want those of PE", len(cities))
 		}
-		subs, _ := evfOptions(evfSelect(t, body, "substyle"))
+		subs, _ := evValues(evfSelect(t, body, "substyle"))
 		if !slices.Contains(subs, "acid house") || slices.Contains(subs, "deep techno") {
 			t.Errorf("substyles = %q, want those of house", subs)
 		}
 		wantAll(t, "the values", evfInput(t, body, "time"), `value="22:00"`)
-		if _, state := evfOptions(evfSelect(t, body, "state")); state != "PE" {
+		if _, state := evValues(evfSelect(t, body, "state")); state != "PE" {
 			t.Errorf("state selected = %q, want PE", state)
 		}
 		if n := e.count(t, e.Alfa.ID); n != before {
@@ -470,17 +453,17 @@ func TestEvfCreate(t *testing.T) {
 		// Outros as the style leaves nothing to choose from.
 		f.Set("style", "outros")
 		body = evfBody(t, "atualizar with outros", e.send(e.Owner, "/eventos/novo", f), http.StatusOK)
-		if subs, _ := evfOptions(evfSelect(t, body, "substyle")); !slices.Equal(subs, []string{""}) {
+		if subs, _ := evValues(evfSelect(t, body, "substyle")); !slices.Equal(subs, []string{""}) {
 			t.Errorf("substyles of outros = %q, want only the empty one", subs)
 		}
 		// Neither does a style that does not exist, nor a state that does not.
 		f.Set("style", "nope")
 		f.Set("state", "XX")
 		body = evfBody(t, "atualizar with nonsense", e.send(e.Owner, "/eventos/novo", f), http.StatusOK)
-		if subs, _ := evfOptions(evfSelect(t, body, "substyle")); !slices.Equal(subs, []string{""}) {
+		if subs, _ := evValues(evfSelect(t, body, "substyle")); !slices.Equal(subs, []string{""}) {
 			t.Errorf("substyles of an unknown style = %q, want only the empty one", subs)
 		}
-		if cities, _ := evfOptions(evfSelect(t, body, "city")); !slices.Equal(cities, []string{""}) {
+		if cities, _ := evValues(evfSelect(t, body, "city")); !slices.Equal(cities, []string{""}) {
 			t.Errorf("cities of an unknown state = %q, want only the empty one", cities)
 		}
 	})
@@ -532,11 +515,11 @@ func TestEvfEditPage(t *testing.T) {
 		t.Errorf("description = %q", got)
 	}
 	for name, want := range map[string]string{"type": "festa", "style": "techno", "substyle": "deep techno", "state": "CE", "city": "Fortaleza"} {
-		if _, got := evfOptions(evfSelect(t, body, name)); got != want {
+		if _, got := evValues(evfSelect(t, body, name)); got != want {
 			t.Errorf("%s selected = %q, want %q", name, got, want)
 		}
 	}
-	if cities, _ := evfOptions(evfSelect(t, body, "city")); !slices.Contains(cities, "Fortaleza") || slices.Contains(cities, "Recife") {
+	if cities, _ := evValues(evfSelect(t, body, "city")); !slices.Contains(cities, "Fortaleza") || slices.Contains(cities, "Recife") {
 		t.Errorf("cities = %d options, want those of CE", len(cities))
 	}
 	// The collective is read-only: its name, and no control to change it.
@@ -552,7 +535,7 @@ func TestEvfEditPage(t *testing.T) {
 	// select must offer it: saving the form unchanged must not drop it.
 	pop := e.full(t, func(ev *domain.Event) { ev.Style, ev.Substyle = "pop", "outros" })
 	body = evdOK(t, "style without substyles", e.get(e.Owner, "/eventos/"+pop.ID+"/editar"))
-	if subs, got := evfOptions(evfSelect(t, body, "substyle")); !slices.Equal(subs, []string{"", "outros"}) || got != "outros" {
+	if subs, got := evValues(evfSelect(t, body, "substyle")); !slices.Equal(subs, []string{"", "outros"}) || got != "outros" {
 		t.Errorf("substyle options = %q, selected %q; want the empty one and outros, outros selected", subs, got)
 	}
 
@@ -582,7 +565,7 @@ func TestEvfEditPage(t *testing.T) {
 	}
 
 	// An event that is not there answers like a path no route serves.
-	want := serve(e.r, http.MethodGet, "/nao-existe-aqui", withCookie(e.Cookie[e.Owner.ID]))
+	want := e.get(e.Owner, "/nao-existe-aqui")
 	for _, id := range []string{evdNoID, "nao-e-um-id"} {
 		evdWantUnregistered(t, "unknown id "+id, e.get(e.Owner, "/eventos/"+id+"/editar"), want)
 	}
@@ -641,7 +624,7 @@ func TestEvfUpdate(t *testing.T) {
 		wantAll(t, "the page", body, `id="erro-name">campo obrigatório</p>`, `Coletivo Alfa`)
 		wantAll(t, "the version kept", evfInput(t, body, "version"), `value="1"`)
 		wantAll(t, "the time kept", evfInput(t, body, "time"), `value="22:00"`)
-		if cities, _ := evfOptions(evfSelect(t, body, "city")); !slices.Contains(cities, "Recife") {
+		if cities, _ := evValues(evfSelect(t, body, "city")); !slices.Contains(cities, "Recife") {
 			t.Error("the cities are not those of the submitted state")
 		}
 		evfNoField(t, "the edit page", body, "collective_id")
@@ -718,7 +701,7 @@ func TestEvfUpdate(t *testing.T) {
 	})
 
 	t.Run("an event that is not there, and a post without an Origin", func(t *testing.T) {
-		want := serve(e.r, http.MethodGet, "/nao-existe-aqui", withCookie(e.Cookie[e.Owner.ID]))
+		want := e.get(e.Owner, "/nao-existe-aqui")
 		rec := e.send(e.Owner, "/eventos/"+evdNoID+"/editar", evfEditForm("14/11/2026", 1))
 		evdWantUnregistered(t, "unknown event", rec, want)
 
@@ -739,7 +722,7 @@ func TestEvfUpdate(t *testing.T) {
 		f.Set("state", "PE")
 		f.Set("acao", "atualizar")
 		body := evfBody(t, "owner", e.send(e.Owner, "/eventos/"+ev.ID+"/editar", f), http.StatusOK)
-		if cities, _ := evfOptions(evfSelect(t, body, "city")); !slices.Contains(cities, "Recife") || slices.Contains(cities, "Fortaleza") {
+		if cities, _ := evValues(evfSelect(t, body, "city")); !slices.Contains(cities, "Recife") || slices.Contains(cities, "Fortaleza") {
 			t.Errorf("cities = %d options, want those of PE", len(cities))
 		}
 		wantAll(t, "the values", evfInput(t, body, "name"), `value="Mudado"`)

@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"html"
 	"net/http"
-	"net/http/httptest"
 	"net/url"
 	"regexp"
 	"slices"
@@ -27,52 +26,19 @@ const (
 
 // --- helpers (prefix day) ---
 
-// dayEnv is the shared cast and a router. Everyone signed in sees the same list,
-// so the requests go out as the Outsider unless a test says otherwise.
-type dayEnv struct {
-	evWorld
-	r http.Handler
-}
+// dayEnv is the shared cast with the day list's own way to name an instant.
+// Everyone signed in sees the same list, so the requests go out as the Outsider
+// unless a test says otherwise.
+type dayEnv struct{ evWorld }
 
 func newDayEnv(t *testing.T) dayEnv {
 	t.Helper()
-	w := newEvWorld(t)
-	return dayEnv{evWorld: w, r: w.App.Router()}
+	return dayEnv{newEvWorld(t)}
 }
 
 // at is the instant of a time on a day of November 2026, in the app's zone.
 func (e dayEnv) at(day, hour, minute int) time.Time {
 	return time.Date(2026, time.November, day, hour, minute, 0, 0, e.App.Cfg.Location).UTC()
-}
-
-// event stores an event of Alfa called name that starts at the instant.
-func (e dayEnv) event(t *testing.T, name string, starts time.Time, mutate ...func(*domain.Event)) domain.Event {
-	t.Helper()
-	set := func(ev *domain.Event) { ev.Name, ev.StartsAt = name, starts }
-	return evEvent(t, e.Store, e.Alfa.ID, e.Owner.ID, append([]func(*domain.Event){set}, mutate...)...)
-}
-
-// dayPlace puts the event in a place.
-func dayPlace(state, city string) func(*domain.Event) {
-	return func(ev *domain.Event) { ev.State, ev.City = state, city }
-}
-
-func (e dayEnv) getAs(u domain.User, target string, mod ...func(*http.Request)) *httptest.ResponseRecorder {
-	return serve(e.r, http.MethodGet, target, append([]func(*http.Request){withCookie(e.Cookie[u.ID])}, mod...)...)
-}
-
-func (e dayEnv) get(target string, mod ...func(*http.Request)) *httptest.ResponseRecorder {
-	return e.getAs(e.Outsider, target, mod...)
-}
-
-// body answers the GET and fails unless it is a 200.
-func (e dayEnv) body(t *testing.T, target string, mod ...func(*http.Request)) string {
-	t.Helper()
-	rec := e.get(target, mod...)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("GET %s: %d %q; want 200", target, rec.Code, rec.Body)
-	}
-	return rec.Body.String()
 }
 
 var (
@@ -91,31 +57,6 @@ func dayNames(s string) []string {
 		out = append(out, html.UnescapeString(dayTitleRE.FindStringSubmatch(row)[1]))
 	}
 	return out
-}
-
-// dayHref is the href of the first link of s whose text starts with prefix, read
-// the way a browser does: unescaped, then parsed.
-func dayHref(t *testing.T, s, prefix string) *url.URL {
-	t.Helper()
-	m := regexp.MustCompile(`<a ([^>]*)>\s*` + regexp.QuoteMeta(prefix)).FindStringSubmatch(s)
-	if m == nil {
-		t.Fatalf("no link whose text starts with %q in:\n%s", prefix, s)
-	}
-	return dayAttrURL(t, m[1], "href")
-}
-
-// dayAttrURL reads the href of the first tag in s.
-func dayAttrURL(t *testing.T, s, name string) *url.URL {
-	t.Helper()
-	m := regexp.MustCompile(`(?:^|\s)` + name + `="([^"]*)"`).FindStringSubmatch(s)
-	if m == nil {
-		t.Fatalf("no %s in %q", name, s)
-	}
-	u, err := url.Parse(html.UnescapeString(m[1]))
-	if err != nil {
-		t.Fatalf("%s=%q: %v", name, m[1], err)
-	}
-	return u
 }
 
 // --- the list ---
@@ -137,7 +78,7 @@ func TestDayListsTheEventsOfTheDay(t *testing.T) {
 				t.Fatalf("events = %q, want %q", got, want)
 			}
 			// The name is a real link to the event.
-			if got := dayAttrURL(t, dayLinkRE.FindString(rows[1]), "href"); got.Path != "/eventos/"+night.ID || got.RawQuery != "" {
+			if got := evAttrURL(t, dayLinkRE.FindString(rows[1]), "href"); got.Path != "/eventos/"+night.ID || got.RawQuery != "" {
 				t.Errorf("the name links to %q, want /eventos/%s", got, night.ID)
 			}
 			wantAll(t, "the Festa", rows[1], ">Festa<", "techno", "Coletivo Alfa", "Fortaleza/CE", "22:00, até 04:00 (&#43;1)")
@@ -174,9 +115,9 @@ func TestDayOrdersByStartTime(t *testing.T) {
 
 func TestDayFilterRestrictsToThePlace(t *testing.T) {
 	e := newDayEnv(t)
-	e.event(t, "Sobral Tarde", e.at(14, 15, 0), dayPlace("CE", "Sobral"))
+	e.event(t, "Sobral Tarde", e.at(14, 15, 0), calPlace("CE", "Sobral"))
 	e.event(t, "Fortaleza Noite", e.at(14, 20, 0))
-	e.event(t, "Recife Noite", e.at(14, 21, 0), dayPlace("PE", "Recife"))
+	e.event(t, "Recife Noite", e.at(14, 21, 0), calPlace("PE", "Recife"))
 	all := []string{"Sobral Tarde", "Fortaleza Noite", "Recife Noite"}
 
 	tests := []struct {
@@ -204,8 +145,8 @@ func TestDayFilterRestrictsToThePlace(t *testing.T) {
 
 func TestDayHighlightsTheCityOfTheForm(t *testing.T) {
 	e := newDayEnv(t)
-	e.event(t, "Recife Manhã", e.at(14, 10, 0), dayPlace("PE", "Recife"))
-	e.event(t, "Sobral Meio-dia", e.at(14, 12, 0), dayPlace("CE", "Sobral"))
+	e.event(t, "Recife Manhã", e.at(14, 10, 0), calPlace("PE", "Recife"))
+	e.event(t, "Sobral Meio-dia", e.at(14, 12, 0), calPlace("CE", "Sobral"))
 	e.event(t, "Fortaleza Noite", e.at(14, 22, 0))
 	e.event(t, "Fortaleza Tarde", e.at(14, 18, 0))
 	byTime := []string{"Recife Manhã", "Sobral Meio-dia", "Fortaleza Tarde", "Fortaleza Noite"}
@@ -274,7 +215,7 @@ func TestDayRefusesAMissingOrInvalidDate(t *testing.T) {
 				if htmx {
 					mod = append(mod, hx)
 				}
-				rec := e.get("/eventos/dia"+q, mod...)
+				rec := e.get(e.Outsider, "/eventos/dia"+q, mod...)
 				if rec.Code != http.StatusUnprocessableEntity {
 					t.Fatalf("status = %d %q, want 422", rec.Code, rec.Body)
 				}
@@ -316,7 +257,7 @@ func TestDayHTMXAnswersOnlyTheList(t *testing.T) {
 	e.event(t, "Noite Verde", e.at(14, 22, 0))
 	const target = "/eventos/dia?data=2026-11-14&destaque_uf=CE&destaque_cidade=Fortaleza"
 
-	rec := e.get(target, hx)
+	rec := e.get(e.Outsider, target, hx)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("GET %s with HX-Request: %d %q", target, rec.Code, rec.Body)
 	}
@@ -348,7 +289,7 @@ func TestDayHTMXAnswersOnlyTheList(t *testing.T) {
 func TestDayAnEmptyDayShowsTheEmptyText(t *testing.T) {
 	e := newDayEnv(t)
 	e.event(t, "Noite Verde", e.at(14, 22, 0))
-	e.event(t, "Recife", e.at(16, 22, 0), dayPlace("PE", "Recife"))
+	e.event(t, "Recife", e.at(16, 22, 0), calPlace("PE", "Recife"))
 
 	for _, tc := range []struct{ name, target string }{
 		{"a day with no event", "/eventos/dia?data=2026-11-15"},
@@ -389,7 +330,7 @@ func TestDayBackLinkKeepsTheMonthAndTheFilter(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			body := e.body(t, "/eventos/dia"+tt.query)
-			u := dayHref(t, body, "[←] calendário")
+			u := evHref(t, body, "[←] calendário")
 			want := url.Values{"mes": {"2026-12"}}
 			if tt.uf != "" {
 				want.Set("uf", tt.uf)
@@ -403,7 +344,7 @@ func TestDayBackLinkKeepsTheMonthAndTheFilter(t *testing.T) {
 		})
 	}
 	// An invalid date has no month: the way back is the calendar.
-	if u := dayHref(t, e.get("/eventos/dia?data=ontem").Body.String(), "[←] calendário"); u.Path != "/" || u.RawQuery != "" {
+	if u := evHref(t, e.get(e.Outsider, "/eventos/dia?data=ontem").Body.String(), "[←] calendário"); u.Path != "/" || u.RawQuery != "" {
 		t.Errorf("the back link of an invalid date is %q, want /", u)
 	}
 }
@@ -411,13 +352,13 @@ func TestDayBackLinkKeepsTheMonthAndTheFilter(t *testing.T) {
 func TestDayIsWhereTheCalendarLinks(t *testing.T) {
 	e := newDayEnv(t)
 	for _, h := range []int{10, 12, 14, 16, 18} {
-		e.event(t, fmt.Sprintf("Ev %02d", h), e.at(21, h, 0), dayPlace("PE", "Recife"))
+		e.event(t, fmt.Sprintf("Ev %02d", h), e.at(21, h, 0), calPlace("PE", "Recife"))
 	}
 	e.event(t, "Fortaleza", e.at(21, 20, 0))
 
 	// +2 is the link of the cell, with the filter kept: the list shows what the grid counted.
 	cal := e.body(t, "/?mes=2026-11&uf=PE")
-	u := dayHref(t, cal, "+2")
+	u := evHref(t, cal, "+2")
 	if u.Path != "/eventos/dia" {
 		t.Fatalf("+2 links to %q, want /eventos/dia", u)
 	}
@@ -432,7 +373,7 @@ func TestDayIsForEverySignedInUser(t *testing.T) {
 	e := newDayEnv(t)
 	e.event(t, "Noite Verde", e.at(14, 22, 0))
 	for name, u := range map[string]domain.User{"admin": e.Admin, "owner": e.Owner, "member": e.Member, "outsider": e.Outsider} {
-		rec := e.getAs(u, "/eventos/dia?data=2026-11-14")
+		rec := e.get(u, "/eventos/dia?data=2026-11-14")
 		if rec.Code != http.StatusOK || !slices.Equal(dayNames(rec.Body.String()), []string{"Noite Verde"}) {
 			t.Errorf("%s: %d, events %q; want 200 and Noite Verde", name, rec.Code, dayNames(rec.Body.String()))
 		}
@@ -475,7 +416,7 @@ func TestDayEscapesWhatPeopleWrote(t *testing.T) {
 func TestDayIsCSPClean(t *testing.T) {
 	e := newDayEnv(t)
 	e.event(t, "Noite Verde", e.at(14, 22, 0))
-	e.event(t, "Recife", e.at(14, 12, 0), dayPlace("PE", "Recife"))
+	e.event(t, "Recife", e.at(14, 12, 0), calPlace("PE", "Recife"))
 	for _, target := range []string{
 		"/eventos/dia?data=2026-11-14&destaque_uf=CE&destaque_cidade=Fortaleza",
 		"/eventos/dia?data=2026-11-15",
@@ -486,7 +427,7 @@ func TestDayIsCSPClean(t *testing.T) {
 			if htmx {
 				mod = append(mod, hx)
 			}
-			body := e.get(target, mod...).Body.String()
+			body := e.get(e.Outsider, target, mod...).Body.String()
 			if v := cspViolations(body); len(v) > 0 {
 				t.Errorf("%s hx=%v: %s in:\n%s", target, htmx, strings.Join(v, "; "), body)
 			}
