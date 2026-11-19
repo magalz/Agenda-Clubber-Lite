@@ -358,6 +358,25 @@ func TestFormEventTicketURL(t *testing.T) {
 	}
 }
 
+// TestFormEventTicketURLIsTheStoresRule checks that the form refuses a link with
+// the store's own rule and message, so a link the form takes is one the store
+// takes, and the other way round.
+func TestFormEventTicketURLIsTheStoresRule(t *testing.T) {
+	for _, in := range []string{
+		"", "https://x.example/a?b=c#d", "http://localhost:8080/x", "https://x.example/a%20b",
+		"https://x.example/a b", "https://x.example/a b", "https://x.example/?q=a　b", "http://exa mple.com",
+		"x.example/a", "javascript:alert(1)", "ftp://x.example", "https:///x", "https://exa%zzmple.com",
+		"https://x.example/\x07", "https://x.example/\xff", "https://x.example/" + strings.Repeat("a", domain.EventURLMax),
+	} {
+		f := inputForm()
+		f.TicketURL = in
+		_, fe := f.Event(testNow, testLoc, nil)
+		if got, want := fe["ticket_url"], domain.TicketURLProblem(in); got != want {
+			t.Errorf("ticket_url %q: the form says %q, the store says %q", in, got, want)
+		}
+	}
+}
+
 func TestFormEventDateRule(t *testing.T) {
 	const past = "a data não pode ser anterior a hoje"
 	// 01/10/2026, 22:00 in Fortaleza, which is already 02/10 in UTC.

@@ -381,6 +381,10 @@ func otherProblem(chosen bool, s, msgUnused string) string {
 	return ""
 }
 
+// TicketURLProblem is the rule of the ticket link, for the callers outside the
+// package. (Stub: it still delegates to the lenient rule.)
+func TicketURLProblem(s string) string { return ticketURLProblem(s) }
+
 // ticketURLProblem accepts no URL, or an absolute http or https one with a host.
 func ticketURLProblem(s string) string {
 	if s == "" {

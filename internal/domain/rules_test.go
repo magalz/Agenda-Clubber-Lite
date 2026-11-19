@@ -500,6 +500,10 @@ func TestEventValidate(t *testing.T) {
 		c("ticket URL with a space in the host", func(e *Event) { e.TicketURL = "http://exa mple.com" }, "ticket_url"),
 		c("ticket URL with a leading space", func(e *Event) { e.TicketURL = " https://example.com" }, "ticket_url"),
 		c("ticket URL with a trailing line break", func(e *Event) { e.TicketURL = "https://example.com/\n" }, "ticket_url"),
+		c("ticket URL with a space in the path", func(e *Event) { e.TicketURL = "https://a.example/x y" }, "ticket_url"),
+		c("ticket URL with a tab in the path", func(e *Event) { e.TicketURL = "https://a.example/x\ty" }, "ticket_url"),
+		c("ticket URL with a no-break space in the path", func(e *Event) { e.TicketURL = "https://a.example/x y" }, "ticket_url"),
+		c("ticket URL with an ideographic space in the query", func(e *Event) { e.TicketURL = "https://a.example/?q=a　b" }, "ticket_url"),
 		c("ticket URL that does not parse", func(e *Event) { e.TicketURL = "https://exa%zzmple.com" }, "ticket_url"),
 		c("ticket URL of 2048 characters", func(e *Event) { e.TicketURL = urlBase + rep("a", 2048-len(urlBase)) }),
 		c("ticket URL of 2049 characters", func(e *Event) { e.TicketURL = urlBase + rep("a", 2049-len(urlBase)) }, "ticket_url"),
@@ -576,6 +580,40 @@ func TestEventValidate(t *testing.T) {
 		cases = append(cases, c("type "+string(typ), func(e *Event) { e.Type = typ }))
 	}
 	runChecks(t, baseEvent, Event.Validate, cases)
+}
+
+// TestTicketURLProblem pins the rule the form and the store share, and its
+// message: any whitespace anywhere in the link is refused with the same text as
+// a link that is not an http or https address.
+func TestTicketURLProblem(t *testing.T) {
+	const msg = "informe um endereço que comece com http:// ou https://"
+	tests := []struct {
+		name, in, want string
+	}{
+		{"empty", "", ""},
+		{"https", "https://a.example/x?a=1#b", ""},
+		{"http with a port", "http://localhost:8080/x", ""},
+		{"percent-encoded space", "https://a.example/x%20y", ""},
+		{"space in the path", "https://a.example/x y", msg},
+		{"space in the host", "http://exa mple.com", msg},
+		{"no-break space in the path", "https://a.example/x y", msg},
+		{"ideographic space in the query", "https://a.example/?q=a　b", msg},
+		{"leading space", " https://a.example", msg},
+		{"no scheme", "a.example/x", msg},
+		{"javascript scheme", "javascript:alert(1)", msg},
+		{"no host", "https:///x", msg},
+		{"does not parse", "https://exa%zzmple.com", msg},
+		{"tab in the path", "https://a.example/x\ty", MsgControl},
+		{"line break", "https://a.example/\n", MsgControl},
+		{"not UTF-8", "https://a.example/\xff", MsgInvalid},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := TicketURLProblem(tc.in); got != tc.want {
+				t.Errorf("TicketURLProblem(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
+	}
 }
 
 func TestFieldErrors(t *testing.T) {
