@@ -224,7 +224,8 @@ type Collectives interface {
 
 // MembershipView is a membership with the fields of its collective that a list
 // of the user's memberships shows. CollectiveEventsBlocked is the collective's
-// EventsBlocked, filled by Memberships.ListByUser.
+// EventsBlocked, filled by Memberships.ListByUser and Memberships.ListAwaitingAdmin,
+// the two methods that return a MembershipView.
 type MembershipView struct {
 	Membership
 	CollectiveName          string

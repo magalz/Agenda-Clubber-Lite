@@ -330,8 +330,8 @@ func RunEvents(t *testing.T, newStore NewStore) {
 			ana := e.user("ana")
 			luz := e.collective("Bloco Luz", coletivo, cApproved)
 			azul := e.collective("Casa Azul", produtora, cPending)
-			first := e.event(luz.ID, ana.ID, func(ev *domain.Event) { ev.Name = "Noite Verde" })
-			second := e.event(azul.ID, ana.ID, func(ev *domain.Event) { ev.Name = "Dia Claro" })
+			first := e.event(luz.ID, ana.ID, eventNamed("Noite Verde"))
+			second := e.event(azul.ID, ana.ID, eventNamed("Dia Claro"))
 			e.wantStoredEvent("the first event", first, "Bloco Luz")
 			e.wantStoredEvent("the second event", second, "Casa Azul")
 
@@ -538,8 +538,8 @@ func RunEvents(t *testing.T, newStore NewStore) {
 		{"Delete removes the event and no other", func(t *testing.T, e env) {
 			ana, bia := e.user("ana"), e.user("bia")
 			c := e.collective("Bloco Luz", coletivo, cApproved)
-			keep := e.event(c.ID, ana.ID, func(ev *domain.Event) { ev.Name = "Fica" })
-			gone := e.event(c.ID, ana.ID, func(ev *domain.Event) { ev.Name = "Some" })
+			keep := e.event(c.ID, ana.ID, eventNamed("Fica"))
+			gone := e.event(c.ID, ana.ID, eventNamed("Some"))
 			noErr(t, "Delete", e.r.Events.Delete(e.ctx, gone.ID))
 
 			_, err := e.r.Events.ByID(e.ctx, gone.ID)

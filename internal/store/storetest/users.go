@@ -590,7 +590,7 @@ func RunUsers(t *testing.T, newStore NewStore) {
 		{"Delete keeps the events and empties their CreatedBy and UpdatedBy", func(t *testing.T, e env) {
 			gone, ana := e.user("gone"), e.user("ana")
 			c := e.collective("Casa Azul", coletivo, cApproved)
-			byGone := e.event(c.ID, gone.ID, func(ev *domain.Event) { ev.Name = "Criada por gone" })
+			byGone := e.event(c.ID, gone.ID, eventNamed("Criada por gone"))
 			editedByGone := e.event(c.ID, ana.ID, func(ev *domain.Event) {
 				ev.Name = "Editada por gone"
 				ev.UpdatedBy = gone.ID
@@ -599,7 +599,7 @@ func RunUsers(t *testing.T, newStore NewStore) {
 				ev.Name = "Criada e editada por gone"
 				ev.UpdatedBy = gone.ID
 			})
-			byAna := e.event(c.ID, ana.ID, func(ev *domain.Event) { ev.Name = "Criada por ana" })
+			byAna := e.event(c.ID, ana.ID, eventNamed("Criada por ana"))
 
 			noErr(t, "Delete", e.r.Users.Delete(e.ctx, gone.ID))
 

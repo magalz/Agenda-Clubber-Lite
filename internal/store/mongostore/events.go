@@ -63,10 +63,10 @@ func (r events) Create(ctx context.Context, e *domain.Event) error {
 
 // views runs the stages over the events, then joins each event with its
 // collective, as "collective", for the name: the order of the stages is the order
-// of the result, and a $limit among them cuts before the join. An event whose
-// collective is gone (the cascade of a delete is a later task, and a concurrent
-// create can leave one behind) is still read, with an empty name. op names the
-// operation in the error.
+// of the result, and a $limit among them cuts before the join. Collectives.Delete
+// removes the events of its collective, but a Create that runs at the same time
+// can still leave one behind (see Create): an event whose collective is gone is
+// still read, with an empty name. op names the operation in the error.
 func (r events) views(ctx context.Context, op string, stages ...bson.D) ([]domain.EventView, error) {
 	cur, err := r.coll().Aggregate(ctx, append(mongo.Pipeline(stages),
 		bson.D{{Key: "$lookup", Value: bson.M{
@@ -134,14 +134,7 @@ func (r events) Update(ctx context.Context, e domain.Event) error {
 		if res.MatchedCount > 0 {
 			return nil
 		}
-		found, err := r.s.exists(ctx, colEvents, oid)
-		if err != nil {
-			return err
-		}
-		if !found {
-			return domain.ErrNotFound
-		}
-		return domain.ErrConflict
+		return r.s.notMatched(ctx, colEvents, oid)
 	})
 }
 
@@ -200,10 +193,12 @@ func (r events) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
-// ListBetween matches the range on starts_at, which holds whole milliseconds, so
-// a From and a To that differ by less than one are an empty range, not an error.
-// The FieldErrors it returns have the keys "city" (a City without a State) and "to"
-// (a From that is not before To). State and City only ever travel as values.
+// ListBetween matches the range on starts_at, which holds whole milliseconds. The
+// driver also cuts From and To to whole milliseconds, so the range is [From, To)
+// on the cut values: a From and a To that fall in the same millisecond are an
+// empty range, not an error. The FieldErrors it returns have the keys "city" (a
+// City without a State) and "to" (a From that is not before To). State and City
+// only ever travel as values.
 func (r events) ListBetween(ctx context.Context, f domain.EventFilter, limit int) ([]domain.EventView, error) {
 	var problems domain.FieldErrors
 	if f.City != "" && f.State == "" {
