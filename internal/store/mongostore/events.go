@@ -134,14 +134,7 @@ func (r events) Update(ctx context.Context, e domain.Event) error {
 		if res.MatchedCount > 0 {
 			return nil
 		}
-		found, err := r.s.exists(ctx, colEvents, oid)
-		if err != nil {
-			return err
-		}
-		if !found {
-			return domain.ErrNotFound
-		}
-		return domain.ErrConflict
+		return r.s.notMatched(ctx, colEvents, oid)
 	})
 }
 

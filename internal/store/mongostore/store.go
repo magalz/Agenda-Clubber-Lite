@@ -160,6 +160,20 @@ func (s *Store) exists(ctx context.Context, collection string, id bson.ObjectID)
 	return n > 0, nil
 }
 
+// notMatched says why a guarded update of one document matched nothing: the
+// document is gone (domain.ErrNotFound), or it is there and its status or version
+// no longer fits the filter (domain.ErrConflict).
+func (s *Store) notMatched(ctx context.Context, collection string, id bson.ObjectID) error {
+	found, err := s.exists(ctx, collection, id)
+	if err != nil {
+		return err
+	}
+	if !found {
+		return domain.ErrNotFound
+	}
+	return domain.ErrConflict
+}
+
 // mustExist returns domain.ErrNotFound when the reference id (an optional
 // reference when empty) names nothing in the collection.
 func (s *Store) mustExist(ctx context.Context, collection string, id *bson.ObjectID) error {
