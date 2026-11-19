@@ -302,9 +302,9 @@ func RunCollectives(t *testing.T, newStore NewStore) {
 			ana := e.user("ana")
 			c := e.collective("Casa Azul", coletivo, cApproved)
 			other := e.collective("Casa Verde", produtora, cApproved)
-			gone1 := e.event(c.ID, ana.ID, func(ev *domain.Event) { ev.Name = "Noite Azul" })
-			gone2 := e.event(c.ID, ana.ID, func(ev *domain.Event) { ev.Name = "Dia Azul" })
-			kept := e.event(other.ID, ana.ID, func(ev *domain.Event) { ev.Name = "Noite Verde" })
+			gone1 := e.event(c.ID, ana.ID, eventNamed("Noite Azul"))
+			gone2 := e.event(c.ID, ana.ID, eventNamed("Dia Azul"))
+			kept := e.event(other.ID, ana.ID, eventNamed("Noite Verde"))
 
 			noErr(t, "Delete", e.r.Collectives.Delete(e.ctx, c.ID))
 
