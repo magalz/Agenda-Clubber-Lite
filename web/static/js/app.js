@@ -1212,11 +1212,13 @@
           // stylesheet the direction: the request may take longer than the attribute lives, and a month that comes later
           // must not overwrite the direction of one that is still sliding. The timer starts here, and nothing else clears
           // the attribute (the swap comes inside the transition, before its pseudo-elements are styled).
+          let held = false;
           let focused = '';
           const listening = new AbortController();
           slot.addEventListener('htmx:beforeSwap', (event) => {
             if (event.detail.target !== slot) return;
-            focused = old.contains(document.activeElement) ? twin(document.activeElement) : '';
+            held = old.contains(document.activeElement);
+            focused = held ? twin(document.activeElement) : '';
             if (!animate) return;
             clearTimeout(slideTimer);
             document.documentElement.dataset.calendarSlide = slide;
@@ -1242,6 +1244,9 @@
           }
 
           this.enhance();
+          // A control with no twin (a chip or a day, whose sheet closed while the month was out) leaves the focus on the
+          // day that is the tab stop, not on the body.
+          if (held && document.activeElement === document.body) month.querySelector('.calendar__daynum[tabindex="0"]')?.focus();
           root.querySelector('#calendar-status').textContent = month.querySelector('#calendar-title').textContent;
           // A day that a phone chose while this month was out (or whose list is out) is chosen again in the month that
           // came: that is the one with the state the person picked.
