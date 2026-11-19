@@ -2,11 +2,9 @@ package events
 
 import (
 	"fmt"
-	"net/url"
 	"strconv"
 	"strings"
 	"time"
-	"unicode"
 
 	"github.com/magalz/agenda-clubber-lite/internal/catalog"
 	"github.com/magalz/agenda-clubber-lite/internal/domain"
@@ -20,16 +18,15 @@ const (
 	msgTime        = "use uma hora válida, no formato HH:MM"
 	msgDuration    = "use horas de 0 a 23 e minutos de 0 a 59"
 	msgPrice       = "use um preço como 25, 25,50 ou R$ 1.234,56"
-	msgTicketURL   = "informe um endereço que comece com http:// ou https://"
 	msgChooseState = "escolha o estado"
 	msgChooseCity  = "escolha a cidade"
 	msgStateFirst  = "escolha primeiro o estado e depois a cidade"
 )
 
-var (
-	msgDurationRange = fmt.Sprintf("informe uma duração de %d minutos a %dh%02d", domain.EventDurationMin, domain.EventDurationMax/60, domain.EventDurationMax%60)
-	msgPriceRange    = fmt.Sprintf("informe um preço de R$ 0,01 a R$ %d,%02d", domain.EventPriceMax/100, domain.EventPriceMax%100)
-)
+var msgDurationRange = fmt.Sprintf("informe uma duração de %d minutos a %dh%02d", domain.EventDurationMin, domain.EventDurationMax/60, domain.EventDurationMax%60)
+
+// DateLayout is dd/mm/aaaa, the way a date is shown and typed.
+const DateLayout = "02/01/2006"
 
 // Form holds the event form's fields as posted; the comment after each field is
 // its form field name, which is also its key in the FieldErrors Event returns.
@@ -99,7 +96,7 @@ func (f Form) Event(now time.Time, loc *time.Location, prev *domain.Event) (doma
 // identify reads name, type and type_other.
 func (f Form) identify(e *domain.Event, fe *domain.FieldErrors) {
 	e.Name = strings.TrimSpace(f.Name)
-	addIf(fe, "name", domain.TextProblem(e.Name, domain.EventNameMin, domain.EventNameMax, false))
+	fe.AddIf("name", domain.TextProblem(e.Name, domain.EventNameMin, domain.EventNameMax, false))
 
 	typ := domain.EventType(strings.TrimSpace(f.Type))
 	switch {
@@ -111,7 +108,7 @@ func (f Form) identify(e *domain.Event, fe *domain.FieldErrors) {
 		e.Type = typ
 		if typ == domain.EventTypeOutros {
 			e.TypeOther = strings.TrimSpace(f.TypeOther)
-			addIf(fe, "type_other", domain.TextProblem(e.TypeOther, 1, domain.EventOtherMax, false))
+			fe.AddIf("type_other", domain.TextProblem(e.TypeOther, 1, domain.EventOtherMax, false))
 		}
 	}
 }
@@ -161,12 +158,12 @@ func (f Form) schedule(e *domain.Event, fe *domain.FieldErrors, now time.Time, l
 func (f Form) cost(e *domain.Event, fe *domain.FieldErrors) {
 	if !f.Free {
 		cents, msg := parsePrice(f.Price)
-		addIf(fe, "price", msg)
+		fe.AddIf("price", msg)
 		e.PriceCents = cents
 	}
 
 	e.TicketURL = strings.TrimSpace(f.TicketURL)
-	addIf(fe, "ticket_url", ticketURLProblem(e.TicketURL))
+	fe.AddIf("ticket_url", domain.TicketURLProblem(e.TicketURL))
 }
 
 // genre reads style, substyle and style_other.
@@ -180,7 +177,7 @@ func (f Form) genre(e *domain.Event, fe *domain.FieldErrors) {
 	case style == domain.StyleOther:
 		e.Style = style
 		e.StyleOther = strings.TrimSpace(f.StyleOther)
-		addIf(fe, "style_other", domain.TextProblem(e.StyleOther, 1, domain.EventOtherMax, false))
+		fe.AddIf("style_other", domain.TextProblem(e.StyleOther, 1, domain.EventOtherMax, false))
 	default:
 		e.Style, e.Substyle = style, sub
 		if !catalog.ValidStyle(style, sub) {
@@ -211,22 +208,15 @@ func (f Form) place(e *domain.Event, fe *domain.FieldErrors) {
 	}
 
 	e.Venue = strings.TrimSpace(f.Venue)
-	addIf(fe, "venue", domain.TextProblem(e.Venue, 0, domain.EventVenueMax, false))
+	fe.AddIf("venue", domain.TextProblem(e.Venue, 0, domain.EventVenueMax, false))
 }
 
 // details reads artists and description, which keep their line breaks.
 func (f Form) details(e *domain.Event, fe *domain.FieldErrors) {
 	e.Artists = multiline(f.Artists)
-	addIf(fe, "artists", domain.TextProblem(e.Artists, 0, domain.EventArtistsMax, true))
+	fe.AddIf("artists", domain.TextProblem(e.Artists, 0, domain.EventArtistsMax, true))
 	e.Description = multiline(f.Description)
-	addIf(fe, "description", domain.TextProblem(e.Description, 0, domain.EventDescriptionMax, true))
-}
-
-// addIf records msg for key unless msg is empty.
-func addIf(fe *domain.FieldErrors, key, msg string) {
-	if msg != "" {
-		fe.Add(key, msg)
-	}
+	fe.AddIf("description", domain.TextProblem(e.Description, 0, domain.EventDescriptionMax, true))
 }
 
 // multiline turns the CRLF and the lone CR a browser textarea posts into LF, then
@@ -305,7 +295,7 @@ func parsePrice(s string) (int64, string) {
 	}
 	reais, err := strconv.ParseInt(strings.ReplaceAll(whole, ".", ""), 10, 64)
 	if err != nil || reais > domain.EventPriceMax/100 { // only digits were left, so err is an overflow
-		return 0, msgPriceRange
+		return 0, domain.MsgPriceRange
 	}
 	cents := reais * 100
 	if hasFrac {
@@ -316,7 +306,7 @@ func parsePrice(s string) (int64, string) {
 		cents += int64(n)
 	}
 	if cents < 1 || cents > domain.EventPriceMax {
-		return 0, msgPriceRange
+		return 0, domain.MsgPriceRange
 	}
 	return cents, ""
 }
@@ -335,25 +325,6 @@ func groupedDigits(s string) bool {
 	return true
 }
 
-// ticketURLProblem accepts no link, or an absolute http or https one with a host
-// and no whitespace. s is already trimmed.
-func ticketURLProblem(s string) string {
-	if s == "" {
-		return ""
-	}
-	if msg := domain.TextProblem(s, 0, domain.EventURLMax, false); msg != "" {
-		return msg
-	}
-	if strings.ContainsFunc(s, unicode.IsSpace) {
-		return msgTicketURL
-	}
-	u, err := url.Parse(s)
-	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" {
-		return msgTicketURL
-	}
-	return ""
-}
-
 // FormOf fills the form with e, as the edit page shows it before the person
 // changes anything: the date as dd/mm/aaaa and the time as HH:MM in loc, the
 // duration in hours and minutes, the price as "1.234,56" (empty when the event
@@ -366,7 +337,7 @@ func FormOf(e domain.Event, loc *time.Location) Form {
 		Name:         e.Name,
 		Type:         string(e.Type),
 		TypeOther:    e.TypeOther,
-		Date:         start.Format("02/01/2006"),
+		Date:         start.Format(DateLayout),
 		Time:         start.Format("15:04"),
 		DurHours:     strconv.Itoa(e.DurationMin / 60),
 		DurMinutes:   strconv.Itoa(e.DurationMin % 60),
@@ -383,14 +354,14 @@ func FormOf(e domain.Event, loc *time.Location) Form {
 		Version:      strconv.FormatInt(e.Version, 10),
 	}
 	if !e.Free {
-		f.Price = formatCents(e.PriceCents)
+		f.Price = FormatCents(e.PriceCents)
 	}
 	return f
 }
 
-// formatCents writes a price in cents the way the price field reads it back:
+// FormatCents writes a price in cents the way the price field reads it back:
 // "1.234,56", "0,50".
-func formatCents(cents int64) string {
+func FormatCents(cents int64) string {
 	reais := strconv.FormatInt(cents/100, 10)
 	var b strings.Builder
 	for i, r := range reais {

@@ -9,9 +9,6 @@ import (
 	"github.com/magalz/agenda-clubber-lite/internal/domain"
 )
 
-// writeDateLayout is dd/mm/aaaa, the way dates are shown.
-const writeDateLayout = "02/01/2006"
-
 // Create validates the form and stores a new event of the collective it names, as
 // actor, and returns the new event's ID. It runs in one transaction that re-reads
 // the actor and the collective and checks the permission table (mayCreate) before
@@ -172,7 +169,7 @@ func writeAudit(ctx context.Context, r domain.Repos, action domain.AuditAction, 
 		ActorName:      sc.actor.Name,
 		CollectiveID:   sc.c.ID,
 		CollectiveName: sc.c.Name,
-		Detail:         e.Name + " · " + e.StartsAt.In(loc).Format(writeDateLayout),
+		Detail:         e.Name + " · " + e.StartsAt.In(loc).Format(DateLayout),
 	}
 	if err := r.AuditEntries.Create(ctx, &entry); err != nil {
 		return writeWrap("write audit entry", err)

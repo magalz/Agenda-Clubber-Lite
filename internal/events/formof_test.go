@@ -81,6 +81,42 @@ func TestFormOfFreeAndSmallPrices(t *testing.T) {
 	}
 }
 
+// TestFormatCents pins the price grouping that the price field reads back: a dot
+// between groups of three reais, a comma and two digits of cents.
+func TestFormatCents(t *testing.T) {
+	for _, tc := range []struct {
+		cents int64
+		want  string
+	}{
+		{0, "0,00"},
+		{1, "0,01"},
+		{50, "0,50"},
+		{100, "1,00"},
+		{99999, "999,99"},
+		{100000, "1.000,00"},
+		{123456, "1.234,56"},
+		{domain.EventPriceMax, "99.999,99"},
+		{100000000, "1.000.000,00"},
+	} {
+		if got := FormatCents(tc.cents); got != tc.want {
+			t.Errorf("FormatCents(%d) = %q, want %q", tc.cents, got, tc.want)
+		}
+	}
+}
+
+// TestDateLayout checks the layout writes dd/mm/aaaa and that parseDate reads it
+// back, so the form's date and the audit detail show a date the same way.
+func TestDateLayout(t *testing.T) {
+	day := time.Date(2026, 11, 9, 23, 5, 0, 0, time.UTC)
+	got := day.Format(DateLayout)
+	if got != "09/11/2026" {
+		t.Fatalf("Format(DateLayout) = %q, want 09/11/2026", got)
+	}
+	if back, ok := parseDate(got); !ok || !back.Equal(time.Date(2026, 11, 9, 0, 0, 0, 0, time.UTC)) {
+		t.Errorf("parseDate(%q) = %v, %v; want midnight UTC of the same day", got, back, ok)
+	}
+}
+
 // TestFormOfRoundTrips checks that an unchanged edit form gives the event back:
 // Form.Event(FormOf(e)) with prev e has no field errors and the same fields,
 // even for a past event.
