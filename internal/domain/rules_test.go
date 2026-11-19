@@ -616,6 +616,21 @@ func TestTicketURLProblem(t *testing.T) {
 	}
 }
 
+// TestMsgPriceRange pins the text of the price message and that Event.Validate
+// answers with it.
+func TestMsgPriceRange(t *testing.T) {
+	const want = "informe um preço de R$ 0,01 a R$ 99999,99"
+	if MsgPriceRange != want {
+		t.Errorf("MsgPriceRange = %q, want %q", MsgPriceRange, want)
+	}
+	e := baseEvent()
+	e.PriceCents = EventPriceMax + 1
+	var fe FieldErrors
+	if err := e.Validate(); !errors.As(err, &fe) || fe["price_cents"] != want {
+		t.Errorf("Validate() = %v, want price_cents %q", err, want)
+	}
+}
+
 func TestFieldErrors(t *testing.T) {
 	var _ error = FieldErrors(nil)
 
@@ -641,6 +656,19 @@ func TestFieldErrors(t *testing.T) {
 		}
 		if got["name"] != "obrigatório" || got["email"] != "informe um e-mail válido" || len(got) != 2 {
 			t.Errorf("fields = %v", got)
+		}
+	})
+
+	t.Run("AddIf records only a message", func(t *testing.T) {
+		var fe FieldErrors
+		fe.AddIf("name", "")
+		if err := fe.Err(); err != nil {
+			t.Fatalf("Err() = %v after AddIf with no message, want nil", err)
+		}
+		fe.AddIf("name", "obrigatório")
+		fe.AddIf("email", "")
+		if len(fe) != 1 || fe["name"] != "obrigatório" {
+			t.Errorf("fields = %v, want only name", fe)
 		}
 	})
 
