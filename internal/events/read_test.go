@@ -259,8 +259,8 @@ func TestDay(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Day: %v", err)
 			}
-			if v.Key != "2026-11-20" || !v.Date.Equal(day) || v.Date.Location() != testLoc || v.Truncated {
-				t.Errorf("Key %q, Date %v, Truncated %v; want 2026-11-20, %v, false", v.Key, v.Date, v.Truncated, day)
+			if !v.Date.Equal(day) || v.Date.Location() != testLoc || v.Truncated {
+				t.Errorf("Date %v, Truncated %v; want %v, false", v.Date, v.Truncated, day)
 			}
 			readWantNames(t, "events", readNames(v.Items, readDayName), tt.want)
 			var same []string

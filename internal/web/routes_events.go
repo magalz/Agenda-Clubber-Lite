@@ -24,7 +24,7 @@ var eventNotices = map[string]string{
 // answer carries. Notice is the status above the page, which only the page shows.
 // Alert is the reason a refused deletion gives. BlockedNote says to tell an
 // Administrador why the event is read-only: the admin blocked the collective's
-// events.
+// events (DetailView.EditBlocked, unless an alert already says it).
 type eventDetailData struct {
 	events.DetailView
 	TicketHref  string
@@ -91,8 +91,7 @@ func (a *App) eventDelete(c *gin.Context) {
 // of an unregistered path, and nothing is set on the response before it is read.
 // One that cannot be read is a logged 500.
 func (a *App) eventRender(c *gin.Context, u domain.User, id string, status int, notice, alert string) {
-	ctx := c.Request.Context()
-	view, err := events.Detail(ctx, a.Store, u, id)
+	view, err := events.Detail(c.Request.Context(), a.Store, u, id)
 	switch {
 	case errors.Is(err, domain.ErrNotFound):
 		answerNotFound(c)
@@ -107,21 +106,11 @@ func (a *App) eventRender(c *gin.Context, u domain.User, id string, status int, 
 		TicketHref: ticketHref(view.TicketURL),
 		EditURL:    eventURL(view.ID, "editar"),
 		DeleteURL:  eventURL(view.ID, "excluir"),
-		Notice:     notice,
-		Alert:      alert,
-	}
-	// The admin may always edit, so a blocked event the viewer may not edit is an
-	// Administrador's to be told about (a Membro or a stranger cannot edit it
-	// either way). An alert already says the same.
-	if view.Blocked && !view.CanEdit && alert == "" {
-		switch m, err := a.Store.Repos().Memberships.Get(ctx, u.ID, view.CollectiveID); {
-		case err == nil:
-			data.BlockedNote = m.Status == domain.MembershipStatusApproved && m.Role == domain.RoleOwner
-		case !errors.Is(err, domain.ErrNotFound):
-			a.Log.Error("event detail: read membership", "user", u.ID, "event", id, "err", err)
-			c.String(http.StatusInternalServerError, "erro interno")
-			return
-		}
+		// Only an Administrador is told the event is read-only because of the block
+		// (events.Detail decides who). An alert already says the same.
+		BlockedNote: view.EditBlocked && alert == "",
+		Notice:      notice,
+		Alert:       alert,
 	}
 	if c.GetHeader("HX-Request") == "true" {
 		c.Header("Cache-Control", "no-store")
@@ -143,12 +132,11 @@ func eventPath(id string) string {
 	return "/eventos/" + url.PathEscape(id)
 }
 
-// ticketHref is the ticket link of an event, or "" when it is not an http or
-// https link with a host. The store refuses any other, so this is the second
-// check, at the place where the link becomes an href.
+// ticketHref is the ticket link of an event, or "" when domain.TicketURLProblem
+// refuses it. The store refuses the same links, so this is the second check, at
+// the place where the link becomes an href.
 func ticketHref(raw string) string {
-	u, err := url.Parse(raw)
-	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" {
+	if domain.TicketURLProblem(raw) != "" {
 		return ""
 	}
 	return raw
