@@ -429,6 +429,10 @@ func TestCuiSlideAndFocusAreSettledWhenTheAnswerComes(t *testing.T) {
 	if n := strings.Count(page, "delete "); n != 1 || !strings.Contains(page, "setTimeout(() => delete document.documentElement.dataset.calendarSlide, SLIDE_KEEP)") {
 		t.Errorf("the slide attribute is deleted %d times in calendarPage, want once, by the timer that SLIDE_KEEP sets", n)
 	}
+	// A chip can hold the focus when a month lands (a sheet closed while the month was out) and has no twin in it: the
+	// focus then goes to the day that is the tab stop of the month that came (set by enhance), not to the body.
+	wantAll(t, "showMonth", month, "held", "document.body")
+	cuiBefore(t, "showMonth", month, "this.enhance()", ".calendar__daynum[tabindex=\"0\"]")
 }
 
 // The keys of the roving tabindex and the media queries the script mirrors from the stylesheet. calendarPage names
