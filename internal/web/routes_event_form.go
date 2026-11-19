@@ -18,7 +18,9 @@ import (
 // JavaScript: the cities depend on the state and the substyles on the style, so
 // the person picks those and presses [↻] ATUALIZAR LISTAS, a second submit button
 // (acao=atualizar) that posts the form back with the lists filled in and saves
-// nothing. The widgets and cascades later tasks add only enhance this.
+// nothing. With JavaScript, app.js (eventDynamic) refills those lists when the
+// state or the style changes, and the date, time, duration and price fields get
+// their widgets.
 
 // eventFormPage is the Data of app/evento-form and the dot of its event-fields
 // partial: where the form posts and cancels to, the event's collective (editing)
@@ -102,8 +104,6 @@ func (a *App) eventNewSave(c *gin.Context) {
 		c.String(http.StatusInternalServerError, "erro interno")
 	case status == http.StatusForbidden:
 		c.String(status, msg)
-	case status == http.StatusNotFound:
-		answerNotFound(c)
 	default:
 		a.eventNewRender(c, status, options, f, nil, msg)
 	}
@@ -212,18 +212,9 @@ func (a *App) eventFormEvent(c *gin.Context, u domain.User, id string) (events.D
 	}
 	// Only an approved Administrador of a collective whose events are blocked is told
 	// why (409); a Membro or a stranger gets the same 403 as for any other event.
-	if view.Blocked {
-		switch m, err := a.Store.Repos().Memberships.Get(c.Request.Context(), u.ID, view.CollectiveID); {
-		case err == nil:
-			if m.Status == domain.MembershipStatusApproved && m.Role == domain.RoleOwner {
-				c.String(http.StatusConflict, eventsMsgBlocked)
-				return view, false
-			}
-		case !errors.Is(err, domain.ErrNotFound):
-			a.Log.Error("event form: read membership", "user", u.ID, "event", id, "err", err)
-			c.String(http.StatusInternalServerError, "erro interno")
-			return view, false
-		}
+	if view.EditBlocked {
+		c.String(http.StatusConflict, eventsMsgBlocked)
+		return view, false
 	}
 	c.String(http.StatusForbidden, approvalsMsgNotAllowed)
 	return view, false

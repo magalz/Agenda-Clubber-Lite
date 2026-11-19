@@ -22,12 +22,10 @@ type DayItem struct {
 }
 
 // DayView is the day list ("Analisar Data"): the events of one day. Date is
-// midnight of the day in the zone it was read in and Key is the day as
-// AAAA-MM-DD. Truncated says the store returned its limit, so the list may miss
-// events.
+// midnight of the day in the zone it was read in. Truncated says the store
+// returned its limit, so the list may miss events.
 type DayView struct {
 	Date      time.Time
-	Key       string
 	Items     []DayItem
 	Truncated bool
 }
@@ -47,7 +45,7 @@ func Day(ctx context.Context, s domain.Store, loc *time.Location, day time.Time,
 	if err != nil {
 		return DayView{}, fmt.Errorf("events: day %s: %w", start.Format(dayKey), err)
 	}
-	v := DayView{Date: start, Key: start.Format(dayKey), Truncated: len(evs) >= domain.ListLimitMax}
+	v := DayView{Date: start, Truncated: len(evs) >= domain.ListLimitMax}
 	var rest []DayItem
 	for _, e := range evs {
 		item := DayItem{EventView: e, SameCity: highlight.City != "" && e.State == highlight.State && e.City == highlight.City}
@@ -121,11 +119,11 @@ func Mine(ctx context.Context, s domain.Store, actor domain.User, now time.Time)
 }
 
 // DetailView is the event with the actor's rights over it. CanDelete is CanEdit:
-// the same people do both. Blocked says the collective's events are blocked, so a
-// page can say why an Administrador may not edit.
+// the same people do both. EditBlocked says mayEdit refused the actor only because
+// of the event block, so a page can say why an Administrador may not edit.
 type DetailView struct {
 	domain.EventView
-	CanEdit, CanDelete, Blocked bool
+	CanEdit, CanDelete, EditBlocked bool
 }
 
 // Detail returns the event id with what actor may do to it, or an error that
@@ -147,8 +145,8 @@ func Detail(ctx context.Context, s domain.Store, actor domain.User, id string) (
 	case !errors.Is(err, domain.ErrNotFound):
 		return DetailView{}, fmt.Errorf("events: detail: membership: %w", err)
 	}
-	canEdit := mayEdit(actor, c, m) == nil
-	return DetailView{EventView: e, CanEdit: canEdit, CanDelete: canEdit, Blocked: c.EventsBlocked}, nil
+	err = mayEdit(actor, c, m)
+	return DetailView{EventView: e, CanEdit: err == nil, CanDelete: err == nil, EditBlocked: errors.Is(err, ErrBlocked)}, nil
 }
 
 // CollectiveOption is a collective the event form offers.
