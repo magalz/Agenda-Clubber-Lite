@@ -50,14 +50,35 @@ func cuiSheet(t *testing.T, root string) string {
 	return root[start : start+end+len("</dialog>")]
 }
 
-// cuiGoTo is the goTo method of calendarPage in app.js, from its signature to its closing brace.
-func cuiGoTo(t *testing.T, js string) string {
+// cuiPage is the calendarPage component of app.js, from Alpine.data('calendarPage' to its closing. The script checks
+// below read only it: a string that the module's constants or the other components also hold would pass them whatever
+// calendarPage does.
+func cuiPage(t *testing.T, js string) string {
 	t.Helper()
-	goTo := regexp.MustCompile(`(?s)async goTo\(.*?\n        \},\n`).FindString(js)
-	if goTo == "" {
-		t.Fatalf("app.js has no goTo method in calendarPage")
+	page := regexp.MustCompile(`(?s)Alpine\.data\('calendarPage'.*?\n    \}\);\n`).FindString(js)
+	if page == "" {
+		t.Fatalf("app.js has no calendarPage component (Alpine.data('calendarPage', ...) closed at 4 spaces)")
 	}
-	return goTo
+	return page
+}
+
+// cuiMember is the member of calendarPage called name (indented by 8 spaces), from its signature to its closing brace.
+func cuiMember(t *testing.T, js, name string) string {
+	t.Helper()
+	member := regexp.MustCompile(`(?s)\n        (?:async )?` + regexp.QuoteMeta(name) + `\(.*?\n        \},\n`).FindString(cuiPage(t, js))
+	if member == "" {
+		t.Fatalf("calendarPage has no %s member", name)
+	}
+	return member
+}
+
+// cuiBefore fails unless first is in text and comes before second (which must be there too).
+func cuiBefore(t *testing.T, what, text, first, second string) {
+	t.Helper()
+	a, b := strings.Index(text, first), strings.Index(text, second)
+	if a < 0 || b < 0 || a > b {
+		t.Errorf("%s: %q must come before %q (at %d and %d): %s", what, first, second, a, b, text)
+	}
 }
 
 // --- the markup ---
@@ -138,7 +159,7 @@ func TestCuiMonthSwapsIntoAStableSlot(t *testing.T) {
 		t.Errorf("GET /calendario answers with the slot, which the page already has: it would nest")
 	}
 
-	wantAll(t, "goTo", cuiGoTo(t, dynRead(t, "static/js/app.js")), "#calendar-slot", "innerHTML")
+	wantAll(t, "calendarPage", cuiPage(t, dynRead(t, "static/js/app.js")), "#calendar-slot", "innerHTML")
 }
 
 // A chip is a plain link to the event, so a click with a modifier key, a middle click and a visit with no script all
@@ -236,27 +257,28 @@ func TestCuiAlpineAttributesNameMembersOfCalendarPage(t *testing.T) {
 }
 
 // The script loads the month, the event and the day list from the routes the server answers, with the parameters the
-// routes read, and opens the sheet with showModal. The keys are the ones of the server (mes, uf, cidade, data).
+// routes read, and opens the sheet with showModal. The keys are the ones of the server (mes, uf, cidade); the day
+// list's route is the one of the day link the server renders.
 func TestCuiScriptTalksToTheRoutes(t *testing.T) {
 	js := dynRead(t, "static/js/app.js")
-	wantAll(t, "app.js", js,
-		"/calendario", "/eventos/dia", "'data'", "'uf'", "'cidade'", "'mes'",
-		"showModal", "pushState", "popstate", "location.assign",
-		"calendarPage", "calendar-page--js")
+	wantAll(t, "app.js", js, "const MONTH_URL = '/calendario'")
+	wantAll(t, "calendarPage", cuiPage(t, js),
+		"MONTH_URL", "'mes'", "'uf'", "'cidade'",
+		"showModal", "pushState", "popstate", "location.assign", "calendar-page--js")
 }
 
 // htmx resolves the promise of htmx.ajax before the swap of a view transition runs (the browser runs that swap a frame
 // later), so the month that is in the page right after the await is still the old one. The swap's own event tells
-// whether the month came: goTo awaits swapped(), which listens to htmx:afterSwap and htmx:responseError, and never
-// reads the page straight after the bare promise (that sent every animated month change to location.assign).
+// whether the month came: the month loader awaits swapped(), which listens to htmx:afterSwap and htmx:responseError,
+// and never reads the page straight after the bare promise (that sent every animated month change to the link).
 func TestCuiMonthSwapIsToldByItsEventNotByThePromise(t *testing.T) {
 	js := dynRead(t, "static/js/app.js")
 	helper := cuiSwapped(t, js)
 	wantAll(t, "swapped", helper, "htmx:afterSwap", "htmx:responseError", "removeEventListener")
-	goTo := cuiGoTo(t, js)
-	wantAll(t, "goTo", goTo, "swapped(", "location.assign")
-	if strings.Contains(goTo, "await htmx.ajax") {
-		t.Errorf("goTo awaits htmx.ajax and reads the page after its promise, which resolves before a view transition swaps: %s", goTo)
+	month := cuiMember(t, js, "showMonth")
+	wantAll(t, "showMonth", month, "swapped(", "location.replace(")
+	if strings.Contains(month, "await htmx.ajax") {
+		t.Errorf("showMonth awaits htmx.ajax and reads the page after its promise, which resolves before a view transition swaps: %s", month)
 	}
 }
 
@@ -270,63 +292,164 @@ func cuiSwapped(t *testing.T, js string) string {
 	return helper
 }
 
-// htmx has one request slot for every htmx.ajax call that names no source (document.body): a request made while
-// another is out is queued, and its promise resolves at once. The answer of one request must therefore not settle the
-// wait of another: swapped() takes the element its request swaps into and heeds only the events of that target (the day
-// list's answer once settled the month's wait, and a filter changed twice before the first answer left the month
-// without its tab stop, its stagger and its status).
+// The events of a swap bubble to the document from whichever request made it, so the answer of one request must not
+// settle the wait of another: swapped() takes the element its request swaps into and heeds only the events of that
+// target (the day list's answer once settled the month's wait, and a filter changed twice before the first answer left
+// the month without its tab stop, its stagger and its status).
 func TestCuiSwapIsToldOnlyByTheEventsOfItsOwnTarget(t *testing.T) {
 	js := dynRead(t, "static/js/app.js")
 	helper := cuiSwapped(t, js)
 	if n := strings.Count(helper, "detail.target"); n < 2 {
 		t.Errorf("swapped compares detail.target in %d of its 2 listeners (htmx:afterSwap and htmx:responseError): %s", n, helper)
 	}
-	goTo := cuiGoTo(t, js)
-	wantAll(t, "goTo", goTo, "root.querySelector('#calendar-slot')", "target: slot")
-	if !regexp.MustCompile(`(?s)swapped\(.*\bslot,?\s*\)`).MatchString(goTo) {
-		t.Errorf("goTo does not pass the slot it swaps into as the target swapped() waits for: %s", goTo)
+	month := cuiMember(t, js, "showMonth")
+	wantAll(t, "showMonth", month, "root.querySelector('#calendar-slot')", "target: slot")
+	if !regexp.MustCompile(`(?s)swapped\(.*\bslot,?\s*\)`).MatchString(month) {
+		t.Errorf("showMonth does not pass the slot it swaps into as the target swapped() waits for: %s", month)
 	}
 }
 
-// A month change (the filter, the history) that comes while a month is out waits, and of several only the newest goes
-// on, so the page ends on the last choice, with the one history entry of it, and the month in the page is the one the
-// script set up (tab stop, stagger, status). A change that comes while the sheet or a day list is out follows its link
-// instead, as a click does. Each request names itself in busy, so goTo can tell them apart.
-func TestCuiMonthChangesWhileOneIsOutKeepOnlyTheNewest(t *testing.T) {
+// htmx keeps one request slot for each element that makes requests (the source), and an ajax call that names no source
+// uses document.body: the month, the sheet and the day list then share one slot, a second request waits behind the
+// first, and its promise resolves at once. Each kind of request therefore names a source of its own, so a chip or a day
+// tapped while a month loads works in place instead of reloading the page.
+func TestCuiEveryKindOfRequestNamesASourceOfItsOwn(t *testing.T) {
+	page := cuiPage(t, dynRead(t, "static/js/app.js"))
+	calls := regexp.MustCompile(`htmx\.ajax\([^\n]*`).FindAllString(page, -1)
+	if len(calls) != 3 {
+		t.Fatalf("calendarPage has %d htmx.ajax calls (a month, a sheet and a day list), want 3: %v", len(calls), calls)
+	}
+	sources := map[string]bool{}
+	for _, call := range calls {
+		m := regexp.MustCompile(`\bsource: ([A-Za-z_$][\w$]*)`).FindStringSubmatch(call)
+		if m == nil {
+			t.Errorf("an htmx.ajax call names no source, so it uses document.body: %s", call)
+			continue
+		}
+		sources[m[1]] = true
+	}
+	if len(sources) != 3 {
+		t.Errorf("the 3 requests share their sources %v, want one each (the slot, the sheet, the root)", sources)
+	}
+}
+
+// Every control builds its address from ONE record: the newest month asked for, which is the month that is out or
+// waiting, else the month in the page. The month in the page is stale while a newer one loads (its filter form, its
+// [‹][›][Hoje] and day links carry the old month and filter), so building from it lost the person's choice: [›] then a
+// state ended on the old month, a state then [›] reloaded without the state, and [›] twice reloaded.
+func TestCuiMonthChangesAreBuiltFromTheNewestAddress(t *testing.T) {
 	js := dynRead(t, "static/js/app.js")
-	wantAll(t, "app.js", js, "busy = 'month'", "busy = 'sheet'", "busy = 'day'")
-	goTo := cuiGoTo(t, js)
-	wantAll(t, "goTo", goTo, "pending = [", "busy === 'month'")
+	page := cuiPage(t, js)
+	if regexp.MustCompile(`\bbusy\b`).MatchString(page) {
+		t.Errorf("calendarPage still turns an overlapping request away with busy: the newest one waits for its turn instead")
+	}
+	wantAll(t, "calendarPage", page, "const latest = () =>", "loadMonth.newest()")
 
-	busy := strings.Index(goTo, "if (busy)")
-	old := strings.Index(goTo, "const old")
-	if busy < 0 || old < 0 || busy > old {
-		t.Fatalf("goTo does not meet a request that is out before it reads the page (if (busy) at %d, const old at %d): %s", busy, old, goTo)
-	}
-	if !strings.Contains(goTo[busy:old], "location.assign(href)") {
-		t.Errorf("goTo does not follow its link when the sheet or a day list is out: %s", goTo[busy:old])
+	change := cuiMember(t, js, "onCalendarChange")
+	wantAll(t, "onCalendarChange", change, "latest()", "this.goTo(")
+	for _, bad := range []string{"form.elements", "location."} {
+		if strings.Contains(change, bad) {
+			t.Errorf("onCalendarChange has %q: it builds from the form of the month in the page, or leaves it, instead of the newest address: %s", bad, change)
+		}
 	}
 
-	superseded := strings.Index(goTo, "if (pending)")
-	push := strings.Index(goTo, "pushState")
-	focus := strings.Index(goTo, ".focus()")
-	if superseded < 0 || push < 0 || focus < 0 {
-		t.Fatalf("goTo has no if (pending) (%d), pushState (%d) or .focus() (%d): %s", superseded, push, focus, goTo)
+	click := cuiMember(t, js, "onCalendarClick")
+	from := strings.Index(click, "calendar__nav")
+	if from < 0 {
+		t.Fatalf("onCalendarClick has no branch for the month bar: %s", click)
 	}
-	if superseded > push {
-		t.Errorf("goTo pushes its history entry before it looks for a newer change: a superseded change would leave an entry of its own")
+	nav := click[from:]
+	if to := strings.Index(nav, "} else"); to >= 0 {
+		nav = nav[:to]
 	}
-	if focus > superseded {
-		t.Errorf("goTo gives the focus back after it looks for a newer change: the control the person is using would be lost on the way to it")
+	wantAll(t, "the month bar's branch", nav, "latest()", "addMonths(", "todayOf()", "this.goTo(")
+	for _, bad := range []string{"getAttribute('href')", "location."} {
+		if strings.Contains(nav, bad) {
+			t.Errorf("the month bar's branch has %q: a link of the month in the page carries that month, not the newest one: %s", bad, nav)
+		}
+	}
+
+	// A day link of the month in the page carries its filter too: a phone's tap waits for the month that is loading and
+	// opens its list there, a wider screen's follows the link with the newest filter.
+	wantAll(t, "onCalendarClick", click, "loadMonth.newest()", "dayAfter", "searchParams.set(")
+	if n := strings.Count(click, "latest()"); n < 2 {
+		t.Errorf("onCalendarClick reads latest() %d times (the month bar and the day links), want 2: %s", n, click)
+	}
+	month := cuiMember(t, js, "showMonth")
+	wantAll(t, "showMonth", month, "dayAfter", "loadDay(")
+	if strings.Contains(month, "pushState") {
+		t.Errorf("showMonth pushes the history entry, after the answer: a choice has its entry when it is made, whichever way the loader ends: %s", month)
+	}
+	if !strings.Contains(cuiMember(t, js, "goTo"), "pushState") {
+		t.Errorf("goTo does not push the history entry of the choice")
 	}
 }
 
-// The keys of the roving tabindex and the media queries the script mirrors from the stylesheet.
+// Of each kind of request one runs at a time and only the newest waits behind it (month, sheet and day list), and one
+// that takes longer than HANG_WAIT hands the page to the plain link of the newest one, so a request that hangs never
+// traps the person (a click while it is out would otherwise only queue). A superseded answer goes on to the newer one,
+// and only the newest month leaves the page (to the address it already is in the history, so no entry is added), the
+// newest sheet opens the dialog, and a day list whose month was swapped away says nothing.
+func TestCuiRequestsOfAKindRunOneAtATimeAndTheNewestWins(t *testing.T) {
+	js := dynRead(t, "static/js/app.js")
+	wantAll(t, "app.js", js, "const HANG_WAIT = ")
+	helper := regexp.MustCompile(`(?s)\n  function newestOnly\(run, follow\) \{.*?\n  \}\n`).FindString(js)
+	if helper == "" {
+		t.Fatalf("app.js has no function newestOnly(run, follow)")
+	}
+	wantAll(t, "newestOnly", helper, "setTimeout(", "clearTimeout(", "HANG_WAIT", "follow(", "send.newest")
+
+	page := cuiPage(t, js)
+	for _, runner := range []string{"loadMonth = newestOnly(", "loadSheet = newestOnly(", "loadDay = newestOnly("} {
+		wantAll(t, "calendarPage", page, runner)
+	}
+
+	month := cuiMember(t, js, "showMonth")
+	cuiBefore(t, "showMonth", month, ".focus()", "newer()")
+	cuiBefore(t, "showMonth", month, "newer()", "location.replace(")
+	cuiBefore(t, "showMonth", month, "newer()", "this.enhance()")
+	cuiBefore(t, "showEvent", cuiMember(t, js, "showEvent"), "newer()", "showModal")
+	wantAll(t, "showDay", cuiMember(t, js, "showDay"), "isConnected", "newer()")
+}
+
+// The slide of a month is told to the stylesheet (an attribute on the root) when the answer comes, not before the
+// request: the answer may take longer than the attribute's life, and a second month's direction must not overwrite the
+// first one's while it still slides. The timer that clears it starts there too, and nothing else deletes it
+// (htmx:afterSwap comes inside the view transition's update callback, before the pseudo-elements are styled). The
+// control the person is on is read when the answer comes as well, since they may have moved to another one by then, and
+// no slide runs under the open sheet.
+func TestCuiSlideAndFocusAreSettledWhenTheAnswerComes(t *testing.T) {
+	js := dynRead(t, "static/js/app.js")
+	month := cuiMember(t, js, "showMonth")
+	for _, settled := range []string{"document.activeElement", "calendarSlide =", "slideTimer = setTimeout("} {
+		cuiBefore(t, "showMonth", month, "'htmx:beforeSwap'", settled)
+	}
+	wantAll(t, "showMonth", month, "SLIDE_KEEP", ".open")
+	page := cuiPage(t, js)
+	if n := strings.Count(page, "delete "); n != 1 || !strings.Contains(page, "setTimeout(() => delete document.documentElement.dataset.calendarSlide, SLIDE_KEEP)") {
+		t.Errorf("the slide attribute is deleted %d times in calendarPage, want once, by the timer that SLIDE_KEEP sets", n)
+	}
+	// A chip can hold the focus when a month lands (a sheet closed while the month was out) and has no twin in it: the
+	// focus then goes to the day that is the tab stop of the month that came (set by enhance), not to the body.
+	wantAll(t, "showMonth", month, "held", "document.body")
+	cuiBefore(t, "showMonth", month, "this.enhance()", ".calendar__daynum[tabindex=\"0\"]")
+}
+
+// The keys of the roving tabindex and the media queries the script mirrors from the stylesheet. calendarPage names
+// them (the arrows, the breakpoint, the reduced-motion query, the stagger) and the module defines their values.
 func TestCuiScriptHandlesTheKeysAndTheBreakpoints(t *testing.T) {
 	js := dynRead(t, "static/js/app.js")
 	wantAll(t, "app.js", js,
+		"const WIDE = '(min-width: 640px)'", "const REDUCED_MOTION = '(prefers-reduced-motion: reduce)'",
+		"'animate-fade-up'", "'--i'")
+	page := cuiPage(t, js)
+	wantAll(t, "calendarPage", page,
 		"ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "'Home'", "'End'", "'tabindex'",
-		"(min-width: 640px)", "(prefers-reduced-motion: reduce)", "startViewTransition", "animate-fade-up", "'--i'")
+		"WIDE", "REDUCED_MOTION", "startViewTransition", "stagger(")
+	// One caller and no template names it, so it is not a member of its own.
+	if strings.Contains(page, "focusDay") {
+		t.Errorf("calendarPage still has focusDay: its one caller moves the focus itself")
+	}
 }
 
 // The stylesheet has what the script and the markup lean on: the slide of the month (a view transition, off under
