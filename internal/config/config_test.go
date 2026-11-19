@@ -57,8 +57,8 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.Origin != okOrigin {
 		t.Errorf("Origin = %q, want %q", cfg.Origin, okOrigin)
 	}
-	if cfg.Location == nil || cfg.Location.String() != "America/Fortaleza" {
-		t.Errorf("Location = %v, want America/Fortaleza", cfg.Location)
+	if cfg.Location == nil || cfg.Location.String() != DefaultTZ || DefaultTZ != "America/Fortaleza" {
+		t.Errorf("Location = %v, DefaultTZ = %q; want both America/Fortaleza", cfg.Location, DefaultTZ)
 	}
 	if want := (MongoConfig{URI: okMongo, DB: "agenda"}); cfg.Mongo != want {
 		t.Errorf("Mongo = %#v, want %#v", cfg.Mongo, want)

@@ -18,8 +18,7 @@ import (
 const (
 	devOrigin         = "http://localhost:8120" // the link's origin when APP_ORIGIN is unset
 	devEmailDomain    = "@agenda.test"
-	devPreviousPrefix = "Anterior-"         // the previous password of senha-vencida is this and SEED_PASSWORD
-	devDefaultTZ      = "America/Fortaleza" // APP_TZ when it is unset, as in internal/config
+	devPreviousPrefix = "Anterior-" // the previous password of senha-vencida is this and SEED_PASSWORD
 	oneDay            = 24 * time.Hour
 )
 
@@ -213,7 +212,7 @@ func seedDev(ctx context.Context, getenv func(string) string, stdout, stderr io.
 
 	tz := strings.TrimSpace(getenv("APP_TZ"))
 	if tz == "" {
-		tz = devDefaultTZ
+		tz = config.DefaultTZ
 	}
 	loc, err := time.LoadLocation(tz)
 	if err != nil {
