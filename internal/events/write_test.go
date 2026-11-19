@@ -290,6 +290,52 @@ func TestWriteUnknownEvent(t *testing.T) {
 	}
 }
 
+// writeGoneStore wraps a store so that one collective is not found, as if its
+// document were gone while its events still pointed at it. The store's own delete
+// removes the events with the collective, so only a wrapper can stage this.
+type writeGoneStore struct {
+	domain.Store
+	gone string
+}
+
+func (s writeGoneStore) WithTx(ctx context.Context, fn func(ctx context.Context, r domain.Repos) error) error {
+	return s.Store.WithTx(ctx, func(ctx context.Context, r domain.Repos) error {
+		r.Collectives = writeGoneCollectives{Collectives: r.Collectives, gone: s.gone}
+		return fn(ctx, r)
+	})
+}
+
+type writeGoneCollectives struct {
+	domain.Collectives
+	gone string
+}
+
+func (c writeGoneCollectives) ByID(ctx context.Context, id string) (domain.Collective, error) {
+	if id == c.gone {
+		return domain.Collective{}, domain.ErrNotFound
+	}
+	return c.Collectives.ByID(ctx, id)
+}
+
+// TestWriteEventOfAGoneCollective checks that an Update or a Delete of an event
+// whose collective is no longer there is not found, for anyone, and changes
+// nothing: it is neither a permission error nor a failure of the flow.
+func TestWriteEventOfAGoneCollective(t *testing.T) {
+	w := newWorld(t)
+	ev := insertEvent(t, w.S, w.Alfa.ID, w.Owner.ID)
+	s := writeGoneStore{Store: w.S, gone: w.Alfa.ID}
+	for _, actor := range []domain.User{w.Owner, w.Outsider, w.Admin} {
+		f := writeForm(w.Alfa.ID)
+		f.Version = "1"
+		requireErrorIs(t, Update(t.Context(), s, actor, ev.ID, f, testNow, testLoc), domain.ErrNotFound)
+		requireErrorIs(t, Delete(t.Context(), s, actor, ev.ID, testNow, testLoc), domain.ErrNotFound)
+	}
+	writeSameEvent(t, writeStored(t, w.S, ev.ID), ev)
+	if n := len(auditEntries(t, w.S)); n != 0 {
+		t.Errorf("a refused write left %d audit entries", n)
+	}
+}
+
 func TestCreateStoresTheForm(t *testing.T) {
 	w := newWorld(t)
 	f := writeForm(w.Alfa.ID)

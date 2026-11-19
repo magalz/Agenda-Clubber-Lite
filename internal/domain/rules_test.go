@@ -500,6 +500,10 @@ func TestEventValidate(t *testing.T) {
 		c("ticket URL with a space in the host", func(e *Event) { e.TicketURL = "http://exa mple.com" }, "ticket_url"),
 		c("ticket URL with a leading space", func(e *Event) { e.TicketURL = " https://example.com" }, "ticket_url"),
 		c("ticket URL with a trailing line break", func(e *Event) { e.TicketURL = "https://example.com/\n" }, "ticket_url"),
+		c("ticket URL with a space in the path", func(e *Event) { e.TicketURL = "https://a.example/x y" }, "ticket_url"),
+		c("ticket URL with a tab in the path", func(e *Event) { e.TicketURL = "https://a.example/x\ty" }, "ticket_url"),
+		c("ticket URL with a no-break space in the path", func(e *Event) { e.TicketURL = "https://a.example/x y" }, "ticket_url"),
+		c("ticket URL with an ideographic space in the query", func(e *Event) { e.TicketURL = "https://a.example/?q=a　b" }, "ticket_url"),
 		c("ticket URL that does not parse", func(e *Event) { e.TicketURL = "https://exa%zzmple.com" }, "ticket_url"),
 		c("ticket URL of 2048 characters", func(e *Event) { e.TicketURL = urlBase + rep("a", 2048-len(urlBase)) }),
 		c("ticket URL of 2049 characters", func(e *Event) { e.TicketURL = urlBase + rep("a", 2049-len(urlBase)) }, "ticket_url"),
@@ -578,6 +582,55 @@ func TestEventValidate(t *testing.T) {
 	runChecks(t, baseEvent, Event.Validate, cases)
 }
 
+// TestTicketURLProblem pins the rule the form and the store share, and its
+// message: any whitespace anywhere in the link is refused with the same text as
+// a link that is not an http or https address.
+func TestTicketURLProblem(t *testing.T) {
+	const msg = "informe um endereço que comece com http:// ou https://"
+	tests := []struct {
+		name, in, want string
+	}{
+		{"empty", "", ""},
+		{"https", "https://a.example/x?a=1#b", ""},
+		{"http with a port", "http://localhost:8080/x", ""},
+		{"percent-encoded space", "https://a.example/x%20y", ""},
+		{"space in the path", "https://a.example/x y", msg},
+		{"space in the host", "http://exa mple.com", msg},
+		{"no-break space in the path", "https://a.example/x y", msg},
+		{"ideographic space in the query", "https://a.example/?q=a　b", msg},
+		{"leading space", " https://a.example", msg},
+		{"no scheme", "a.example/x", msg},
+		{"javascript scheme", "javascript:alert(1)", msg},
+		{"no host", "https:///x", msg},
+		{"does not parse", "https://exa%zzmple.com", msg},
+		{"tab in the path", "https://a.example/x\ty", MsgControl},
+		{"line break", "https://a.example/\n", MsgControl},
+		{"not UTF-8", "https://a.example/\xff", MsgInvalid},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := TicketURLProblem(tc.in); got != tc.want {
+				t.Errorf("TicketURLProblem(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestMsgPriceRange pins the text of the price message and that Event.Validate
+// answers with it.
+func TestMsgPriceRange(t *testing.T) {
+	const want = "informe um preço de R$ 0,01 a R$ 99999,99"
+	if MsgPriceRange != want {
+		t.Errorf("MsgPriceRange = %q, want %q", MsgPriceRange, want)
+	}
+	e := baseEvent()
+	e.PriceCents = EventPriceMax + 1
+	var fe FieldErrors
+	if err := e.Validate(); !errors.As(err, &fe) || fe["price_cents"] != want {
+		t.Errorf("Validate() = %v, want price_cents %q", err, want)
+	}
+}
+
 func TestFieldErrors(t *testing.T) {
 	var _ error = FieldErrors(nil)
 
@@ -603,6 +656,19 @@ func TestFieldErrors(t *testing.T) {
 		}
 		if got["name"] != "obrigatório" || got["email"] != "informe um e-mail válido" || len(got) != 2 {
 			t.Errorf("fields = %v", got)
+		}
+	})
+
+	t.Run("AddIf records only a message", func(t *testing.T) {
+		var fe FieldErrors
+		fe.AddIf("name", "")
+		if err := fe.Err(); err != nil {
+			t.Fatalf("Err() = %v after AddIf with no message, want nil", err)
+		}
+		fe.AddIf("name", "obrigatório")
+		fe.AddIf("email", "")
+		if len(fe) != 1 || fe["name"] != "obrigatório" {
+			t.Errorf("fields = %v, want only name", fe)
 		}
 	})
 
