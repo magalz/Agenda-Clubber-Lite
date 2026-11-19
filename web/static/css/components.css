@@ -1027,7 +1027,11 @@
    Below 640px the grid is compact: low cells, no chips and no +N, one dot for each event, and the number of the day is the
    link to that day's list. From 640px each cell lists its chips. Today has a 2px accent outline, past days and the days of
    the neighbouring months (--out) have a muted number, and a past chip a dashed left border. The day list stays hidden
-   while it is empty (a script fills it). */
+   while it is empty (a script fills it).
+   The page's script (app.js, calendarPage) adds to it: calendar-page--js on its root hides the FILTRAR button
+   (.calendar__apply), since the filter then applies on change; .calendar__cell--chosen marks the day a phone chose, whose
+   list is in #calendar-day; and the grid slides when a swap moves the month (a view transition: the script sets
+   data-calendar-slide="next|prev" on <html>, and nothing slides under prefers-reduced-motion). */
 .calendar {
   display: flex;
   flex-direction: column;
@@ -1072,6 +1076,7 @@
   width: 100%;
   table-layout: fixed;
   border-collapse: collapse;
+  view-transition-name: calendar-grid;
 }
 .calendar__weekday {
   padding: var(--space-1) 0;
@@ -1098,6 +1103,10 @@
 .calendar__cell--today {
   outline: 2px solid var(--accent);
   outline-offset: -2px;
+}
+.calendar__cell--chosen {
+  background-color: var(--color-surface);
+  box-shadow: inset 0 -2px 0 var(--accent);
 }
 
 .calendar__daynum {
@@ -1151,8 +1160,9 @@
 }
 .calendar__chip-meta {
   display: flex;
+  flex-wrap: wrap; /* a cell too narrow for the time and the type puts the type on its own line instead of cutting it */
   align-items: center;
-  gap: var(--space-1);
+  column-gap: var(--space-1);
   min-width: 0;
 }
 .calendar__chip-time {
@@ -1222,6 +1232,58 @@
 }
 .calendar__day:empty {
   display: none;
+}
+
+/* The script is on: the filter applies on change, so the button of the plain form goes (.btn would win over [hidden]). */
+.calendar-page--js .calendar__apply {
+  display: none;
+}
+
+/* The slide of the month: the old grid leaves toward the side the month moves from, the new one comes from the other. */
+@keyframes calendar-leave-left {
+  to {
+    opacity: 0;
+    transform: translateX(-2rem);
+  }
+}
+@keyframes calendar-leave-right {
+  to {
+    opacity: 0;
+    transform: translateX(2rem);
+  }
+}
+@keyframes calendar-enter-from-right {
+  from {
+    opacity: 0;
+    transform: translateX(2rem);
+  }
+}
+@keyframes calendar-enter-from-left {
+  from {
+    opacity: 0;
+    transform: translateX(-2rem);
+  }
+}
+:root[data-calendar-slide='next']::view-transition-old(calendar-grid) {
+  animation: calendar-leave-left var(--dur-sheet) var(--ease-standard) both;
+}
+:root[data-calendar-slide='next']::view-transition-new(calendar-grid) {
+  animation: calendar-enter-from-right var(--dur-sheet) var(--ease-standard) both;
+}
+:root[data-calendar-slide='prev']::view-transition-old(calendar-grid) {
+  animation: calendar-leave-right var(--dur-sheet) var(--ease-standard) both;
+}
+:root[data-calendar-slide='prev']::view-transition-new(calendar-grid) {
+  animation: calendar-enter-from-left var(--dur-sheet) var(--ease-standard) both;
+}
+/* base.css's reduced-motion block does not reach the view-transition pseudo-elements (the script starts no transition
+   then either, so this is the second guard). */
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation: none;
+  }
 }
 
 /* ==== Sheet ====
@@ -1307,6 +1369,10 @@ body:has(dialog.sheet:modal) {
   background: var(--glass-bg);
   -webkit-backdrop-filter: blur(8px);
   backdrop-filter: blur(8px);
+}
+/* A bar with the close button alone (the event sheet of the calendar: the title is the event's own, in the body). */
+.sheet__bar > :only-child {
+  margin-inline-start: auto;
 }
 .sheet__title {
   min-width: 0;
