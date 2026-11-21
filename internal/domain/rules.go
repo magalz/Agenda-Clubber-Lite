@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"maps"
 	"net/mail"
+	"net/url"
 	"slices"
 	"strings"
 	"unicode"
@@ -29,7 +30,19 @@ const (
 	msgNameKey       = "deve ser a chave do nome"
 	msgAfterCreated  = "deve ser depois da criação"
 	msgNewEmailOnly  = "só se aplica à troca de e-mail"
+
+	msgTextControl    = "use só texto, sem caracteres de controle"
+	msgTypeOtherOnly  = "só se aplica ao tipo outros"
+	msgStyleOtherOnly = "só se aplica ao estilo outros"
+	msgSubstyleOutros = "não se aplica ao estilo outros"
+	msgFreePrice      = "um evento gratuito não tem preço"
+	msgTicketURL      = "informe um endereço que comece com http:// ou https://"
+	msgState          = "use as duas letras da UF, em maiúsculas"
 )
+
+// MsgPriceRange is the pt-BR message for a price outside R$ 0,01 to
+// EventPriceMax, shared by Event.Validate and the event form.
+var MsgPriceRange = fmt.Sprintf("informe um preço de R$ 0,01 a R$ %d,%02d", EventPriceMax/100, EventPriceMax%100)
 
 // FieldErrors maps a snake_case field key to a pt-BR message. Validate returns
 // it, and NormalizeEmail returns it with the key "email".
@@ -58,8 +71,9 @@ func (e *FieldErrors) Add(field, msg string) {
 	(*e)[field] = msg
 }
 
-// addIf records msg for field unless msg is empty.
-func (e *FieldErrors) addIf(field, msg string) {
+// AddIf records msg for field unless msg is empty, so a rule's problem text can
+// be passed straight in.
+func (e *FieldErrors) AddIf(field, msg string) {
 	if msg != "" {
 		e.Add(field, msg)
 	}
@@ -166,13 +180,7 @@ func NameKey(name string) string {
 // What is inside the name is kept as typed.
 func CleanCollectiveName(name string) (cleaned, problem string) {
 	name = strings.TrimSpace(name)
-	switch {
-	case !utf8.ValidString(name):
-		return "", MsgInvalid
-	case strings.ContainsFunc(name, unicode.IsControl):
-		return "", MsgControl
-	}
-	if msg := lengthProblem(name, CollectiveNameMin, CollectiveNameMax); msg != "" {
+	if msg := TextProblem(name, CollectiveNameMin, CollectiveNameMax, false); msg != "" {
 		return "", msg
 	}
 	if NameKey(name) == "" {
@@ -211,9 +219,9 @@ func foldRune(r rune) rune {
 // assigns, nor the references to other users.
 func (u User) Validate() error {
 	var e FieldErrors
-	e.addIf("name", lengthProblem(u.Name, UserNameMin, UserNameMax))
-	e.addIf("email", emailProblem(u.Email, true))
-	e.addIf("phone", phoneProblem(u.Phone))
+	e.AddIf("name", lengthProblem(u.Name, UserNameMin, UserNameMax))
+	e.AddIf("email", emailProblem(u.Email, true))
+	e.AddIf("phone", phoneProblem(u.Phone))
 	if !u.Status.Valid() {
 		e.Add("status", MsgInvalid)
 	}
@@ -229,7 +237,7 @@ func (u User) Validate() error {
 // Validate checks the fields of a collective. NameKey must be the key of Name.
 func (c Collective) Validate() error {
 	var e FieldErrors
-	e.addIf("name", lengthProblem(c.Name, CollectiveNameMin, CollectiveNameMax))
+	e.AddIf("name", lengthProblem(c.Name, CollectiveNameMin, CollectiveNameMax))
 	switch {
 	case c.NameKey == "":
 		e.Add("name_key", MsgRequired)
@@ -279,7 +287,7 @@ func (t Token) Validate() error {
 	}
 	switch {
 	case t.Purpose == TokenPurposeChangeEmail:
-		e.addIf("new_email", emailProblem(t.NewEmail, true))
+		e.AddIf("new_email", emailProblem(t.NewEmail, true))
 	case t.NewEmail != "":
 		e.Add("new_email", msgNewEmailOnly)
 	}
@@ -311,8 +319,8 @@ func (s Session) Validate() error {
 // case but must not have surrounding space.
 func (m OutboxMessage) Validate() error {
 	var e FieldErrors
-	e.addIf("to", emailProblem(m.To, false))
-	e.addIf("subject", lengthProblem(m.Subject, 1, OutboxSubjectMax))
+	e.AddIf("to", emailProblem(m.To, false))
+	e.AddIf("subject", lengthProblem(m.Subject, 1, OutboxSubjectMax))
 	if strings.TrimSpace(m.Text) == "" {
 		e.Add("text", MsgRequired)
 	}
@@ -336,10 +344,120 @@ func (e AuditEntry) Validate() error {
 	if e.ActorID == "" {
 		f.Add("actor_id", MsgRequired)
 	}
-	f.addIf("actor_name", lengthProblem(e.ActorName, 0, UserNameMax))
-	f.addIf("user_name", lengthProblem(e.UserName, 0, UserNameMax))
-	f.addIf("collective_name", lengthProblem(e.CollectiveName, 0, CollectiveNameMax))
-	f.addIf("detail", lengthProblem(e.Detail, 0, AuditTextMax))
-	f.addIf("reason", lengthProblem(e.Reason, 0, AuditTextMax))
+	f.AddIf("actor_name", lengthProblem(e.ActorName, 0, UserNameMax))
+	f.AddIf("user_name", lengthProblem(e.UserName, 0, UserNameMax))
+	f.AddIf("collective_name", lengthProblem(e.CollectiveName, 0, CollectiveNameMax))
+	f.AddIf("detail", lengthProblem(e.Detail, 0, AuditTextMax))
+	f.AddIf("reason", lengthProblem(e.Reason, 0, AuditTextMax))
+	return f.Err()
+}
+
+// TextProblem checks free text typed in a form: valid UTF-8 (MsgInvalid), no
+// control character, and a length of min to max runes after trimming surrounding
+// space (see lengthProblem; a min of 0 makes the text optional). It returns the
+// pt-BR message for the field, or "". A single-line text may hold no control
+// character at all (MsgControl); a multi-line one may hold line feeds and tabs
+// (msgTextControl for any other). The control check runs on s as given, so a
+// line break at the end is refused in a single line even though the length
+// ignores it. A carriage return is a control character: a caller that takes text
+// from a browser textarea turns CRLF into LF first.
+func TextProblem(s string, min, max int, multiline bool) string {
+	switch {
+	case !utf8.ValidString(s):
+		return MsgInvalid
+	case multiline && strings.ContainsFunc(s, func(r rune) bool { return unicode.IsControl(r) && r != '\n' && r != '\t' }):
+		return msgTextControl
+	case !multiline && strings.ContainsFunc(s, unicode.IsControl):
+		return MsgControl
+	}
+	return lengthProblem(s, min, max)
+}
+
+// otherProblem checks the text that goes with a choice of "outros": it is
+// required, and a single line, when chosen, and must be empty when not.
+// msgUnused is the message for text with no choice of "outros" to explain.
+func otherProblem(chosen bool, s, msgUnused string) string {
+	switch {
+	case chosen:
+		return TextProblem(s, 1, EventOtherMax, false)
+	case s != "":
+		return msgUnused
+	}
+	return ""
+}
+
+// TicketURLProblem accepts no link, or an absolute http or https one with a host
+// and no whitespace anywhere. It is the one rule of the ticket link: Event.Validate
+// applies it to what is stored and the event form to what is typed (already
+// trimmed there).
+func TicketURLProblem(s string) string {
+	if s == "" {
+		return ""
+	}
+	if msg := TextProblem(s, 0, EventURLMax, false); msg != "" {
+		return msg
+	}
+	if strings.ContainsFunc(s, unicode.IsSpace) {
+		return msgTicketURL
+	}
+	u, err := url.Parse(s)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" {
+		return msgTicketURL
+	}
+	return ""
+}
+
+// stateProblem accepts exactly two ASCII uppercase letters, the UF of a state.
+func stateProblem(s string) string {
+	if len(s) != 2 || strings.ContainsFunc(s, func(r rune) bool { return r < 'A' || r > 'Z' }) {
+		return msgState
+	}
+	return ""
+}
+
+// Validate checks the shape of the fields of an event: what the data format
+// needs, not what the product allows. It does not check ID, which the backend
+// assigns, the references (CollectiveID, CreatedBy, UpdatedBy), which the
+// backend checks against the rows, nor Version and UpdatedAt, which the backend
+// sets. The catalog of styles, the rule that a new event is not in the past and
+// who may write an event belong to the event service.
+func (e Event) Validate() error {
+	var f FieldErrors
+	if e.CollectiveID == "" {
+		f.Add("collective_id", MsgRequired)
+	}
+	f.AddIf("name", TextProblem(e.Name, EventNameMin, EventNameMax, false))
+	if !e.Type.Valid() {
+		f.Add("type", MsgInvalid)
+	}
+	f.AddIf("type_other", otherProblem(e.Type == EventTypeOutros, e.TypeOther, msgTypeOtherOnly))
+	if e.StartsAt.IsZero() {
+		f.Add("starts_at", MsgRequired)
+	}
+	if e.DurationMin < EventDurationMin || e.DurationMin > EventDurationMax {
+		f.Add("duration_min", fmt.Sprintf("use de %d a %d minutos", EventDurationMin, EventDurationMax))
+	}
+	switch {
+	case e.Free && e.PriceCents != 0:
+		f.Add("price_cents", msgFreePrice)
+	case !e.Free && (e.PriceCents < 1 || e.PriceCents > EventPriceMax):
+		f.Add("price_cents", MsgPriceRange)
+	}
+	f.AddIf("ticket_url", TicketURLProblem(e.TicketURL))
+	f.AddIf("style", TextProblem(e.Style, 1, EventStyleMax, false))
+	if e.Style == StyleOther && e.Substyle != "" {
+		f.Add("substyle", msgSubstyleOutros)
+	} else {
+		f.AddIf("substyle", TextProblem(e.Substyle, 0, EventStyleMax, false))
+	}
+	f.AddIf("style_other", otherProblem(e.Style == StyleOther, e.StyleOther, msgStyleOtherOnly))
+	f.AddIf("state", stateProblem(e.State))
+	f.AddIf("city", TextProblem(e.City, 1, EventCityMax, false))
+	f.AddIf("venue", TextProblem(e.Venue, 0, EventVenueMax, false))
+	f.AddIf("artists", TextProblem(e.Artists, 0, EventArtistsMax, true))
+	f.AddIf("description", TextProblem(e.Description, 0, EventDescriptionMax, true))
+	if e.CreatedAt.IsZero() {
+		f.Add("created_at", MsgRequired)
+	}
 	return f.Err()
 }

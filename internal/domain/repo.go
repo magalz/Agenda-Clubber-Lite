@@ -36,10 +36,11 @@ import (
 //     left pointing at a deleted user or collective.
 //   - Serialization of collectives: an operation that depends on the state of a
 //     collective (a join decision, a role change, a rename, a join request, a
-//     change of the blocks) runs in Store.WithTx, reads the collective there and
-//     calls Collectives.Update on it in the same transaction. Update always
-//     writes, so two such transactions on one collective conflict, the backend
-//     retries one of them and that one reads the result of the other.
+//     change of the blocks, the creation, edit or deletion of an event) runs in
+//     Store.WithTx, reads the collective there and calls Collectives.Update on it
+//     in the same transaction. Update always writes, so two such transactions on
+//     one collective conflict, the backend retries one of them and that one reads
+//     the result of the other.
 //   - The generic Update methods (Collectives.Update, Memberships.Update) replace
 //     the mutable fields with the values given. Callers call them only inside
 //     WithTx, after reading the document in that same transaction, so they never
@@ -115,8 +116,9 @@ type Users interface {
 	// Delete removes the user and, with it, the user's sessions, tokens and
 	// memberships. Every "who did it" reference to the user then reads as empty:
 	// User.ApprovedBy, Collective.CreatedBy, Collective.ApprovedBy,
-	// Membership.AdminApprovedBy and Membership.OwnerApprovedBy. The collectives
-	// and the other users that pointed at it stay. A missing user is ErrNotFound.
+	// Membership.AdminApprovedBy, Membership.OwnerApprovedBy, Event.CreatedBy and
+	// Event.UpdatedBy. The collectives, the events and the other users that
+	// pointed at it stay. A missing user is ErrNotFound.
 	Delete(ctx context.Context, id string) error
 }
 
@@ -215,18 +217,21 @@ type Collectives interface {
 	// conventions above).
 	Update(ctx context.Context, c Collective) error
 
-	// Delete removes the collective and its memberships; the users stay. A
-	// missing collective is ErrNotFound.
+	// Delete removes the collective, its memberships and its events; the users
+	// stay. A missing collective is ErrNotFound.
 	Delete(ctx context.Context, id string) error
 }
 
 // MembershipView is a membership with the fields of its collective that a list
-// of the user's memberships shows.
+// of the user's memberships shows. CollectiveEventsBlocked is the collective's
+// EventsBlocked, filled by Memberships.ListByUser and Memberships.ListAwaitingAdmin,
+// the two methods that return a MembershipView.
 type MembershipView struct {
 	Membership
-	CollectiveName   string
-	CollectiveKind   CollectiveKind
-	CollectiveStatus CollectiveStatus
+	CollectiveName          string
+	CollectiveKind          CollectiveKind
+	CollectiveStatus        CollectiveStatus
+	CollectiveEventsBlocked bool
 }
 
 // MemberView is a membership with the fields of its user that the member list
@@ -288,6 +293,57 @@ type Memberships interface {
 	UserCanCreateEvents(ctx context.Context, userID string) (bool, error)
 }
 
+// Events stores the events of the collectives. The store checks the shape
+// (Event.Validate), the references and the version; who may write an event, the
+// catalog of styles and the dates a new event may have are the event service's
+// rules.
+type Events interface {
+	// Create validates e and returns its FieldErrors, assigns e.ID (an ID the
+	// caller set is ignored), sets e.Version to 1 and stores every other field as
+	// given. It returns ErrNotFound, and stores nothing, when the collective
+	// e.CollectiveID does not exist, when e.CreatedBy names no user (an empty
+	// CreatedBy included: a new event always has a creator) or when e.UpdatedBy
+	// is not empty and names no user. The collective's status and EventsBlocked
+	// are not checked.
+	Create(ctx context.Context, e *Event) error
+
+	// ByID returns the event with the name of its collective, or ErrNotFound.
+	ByID(ctx context.Context, id string) (EventView, error)
+
+	// Update validates e and returns its FieldErrors, then stores Name, Type,
+	// TypeOther, StartsAt, DurationMin, Free, PriceCents, TicketURL, Style,
+	// Substyle, StyleOther, State, City, Venue, Artists, Description, UpdatedBy
+	// and UpdatedAt on the event e.ID, and sets its Version to e.Version+1, only
+	// when the stored Version equals e.Version. A stored Version that differs (the
+	// event was edited since the caller read it) is ErrConflict and nothing
+	// changes. CollectiveID, CreatedBy and CreatedAt never change. It returns
+	// ErrNotFound when the event does not exist or when e.UpdatedBy names no user
+	// (an empty UpdatedBy included: an edit always has an editor); that check
+	// comes before the version check.
+	Update(ctx context.Context, e Event) error
+
+	// Delete removes the event. A missing event is ErrNotFound.
+	Delete(ctx context.Context, id string) error
+
+	// ListBetween returns the events with f.From <= StartsAt < f.To, the earliest
+	// StartsAt first (ties by ID), at most limit of them, with limit clamped to the
+	// range 1 to ListLimitMax. A f.State that is not empty keeps only the events
+	// of that state, and so does a f.City for that city. A f.City without a
+	// f.State, or a f.From that is not before f.To, is a FieldErrors. The
+	// collective's status is not considered.
+	ListBetween(ctx context.Context, f EventFilter, limit int) ([]EventView, error)
+
+	// ListByCollectives returns the events of the collectives with these IDs, the
+	// latest StartsAt first (ties by ID descending), at most limit of them, with
+	// limit clamped to the range 1 to ListLimitMax. No IDs, or only IDs that name
+	// no collective (malformed ones included), give an empty list.
+	ListByCollectives(ctx context.Context, ids []string, limit int) ([]EventView, error)
+
+	// ListPlaces returns every distinct (State, City) pair of the stored events,
+	// ordered by State and then City (byte order).
+	ListPlaces(ctx context.Context) ([]Place, error)
+}
+
 // AuditEntries stores the audit log: one entry for each decision or request.
 type AuditEntries interface {
 	// Create validates e and returns its FieldErrors, assigns e.ID (an ID the
@@ -337,6 +393,7 @@ type Repos struct {
 	Sessions     Sessions
 	Collectives  Collectives
 	Memberships  Memberships
+	Events       Events
 	Outbox       Outbox
 	AuditEntries AuditEntries
 }

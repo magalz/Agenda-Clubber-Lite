@@ -587,6 +587,33 @@ func RunUsers(t *testing.T, newStore NewStore) {
 				t.Errorf("Membership.AdminApprovedBy, OwnerApprovedBy = %q, %q, want both empty (membership %+v)", v.AdminApprovedBy, v.OwnerApprovedBy, v.Membership)
 			}
 		}},
+		{"Delete keeps the events and empties their CreatedBy and UpdatedBy", func(t *testing.T, e env) {
+			gone, ana := e.user("gone"), e.user("ana")
+			c := e.collective("Casa Azul", coletivo, cApproved)
+			byGone := e.event(c.ID, gone.ID, eventNamed("Criada por gone"))
+			editedByGone := e.event(c.ID, ana.ID, func(ev *domain.Event) {
+				ev.Name = "Editada por gone"
+				ev.UpdatedBy = gone.ID
+			})
+			bothGone := e.event(c.ID, gone.ID, func(ev *domain.Event) {
+				ev.Name = "Criada e editada por gone"
+				ev.UpdatedBy = gone.ID
+			})
+			byAna := e.event(c.ID, ana.ID, eventNamed("Criada por ana"))
+
+			noErr(t, "Delete", e.r.Users.Delete(e.ctx, gone.ID))
+
+			byGone.CreatedBy = ""
+			editedByGone.UpdatedBy = ""
+			bothGone.CreatedBy, bothGone.UpdatedBy = "", ""
+			for _, want := range []domain.Event{byGone, editedByGone, bothGone, byAna} {
+				got := e.eventView("ByID of "+want.Name, want.ID)
+				wantEqual(t, want.Name, normEvent(got.Event), normEvent(want))
+				if got.CollectiveName != c.Name {
+					t.Errorf("%s: CollectiveName = %q, want %q", want.Name, got.CollectiveName, c.Name)
+				}
+			}
+		}},
 		{"Delete frees the email", func(t *testing.T, e env) {
 			gone := e.user("ana")
 			noErr(t, "Delete", e.r.Users.Delete(e.ctx, gone.ID))

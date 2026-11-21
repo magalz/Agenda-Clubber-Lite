@@ -58,8 +58,8 @@ func (r memberships) Create(ctx context.Context, m domain.Membership) error {
 	return nil
 }
 
-// ListByUser joins each membership with its collective and sorts by the
-// collective's name key.
+// ListByUser joins each membership with its collective, with the flag that
+// blocks the collective's events, and sorts by the collective's name key.
 func (r memberships) ListByUser(ctx context.Context, userID string) ([]domain.MembershipView, error) {
 	oid, err := parseID(userID)
 	if err != nil {
@@ -92,10 +92,11 @@ func membershipViews(ctx context.Context, cur *mongo.Cursor, what string) ([]dom
 	views := make([]domain.MembershipView, len(docs))
 	for i, d := range docs {
 		views[i] = domain.MembershipView{
-			Membership:       d.Membership.membership(),
-			CollectiveName:   d.Collective.Name,
-			CollectiveKind:   domain.CollectiveKind(d.Collective.Kind),
-			CollectiveStatus: domain.CollectiveStatus(d.Collective.Status),
+			Membership:              d.Membership.membership(),
+			CollectiveName:          d.Collective.Name,
+			CollectiveKind:          domain.CollectiveKind(d.Collective.Kind),
+			CollectiveStatus:        domain.CollectiveStatus(d.Collective.Status),
+			CollectiveEventsBlocked: d.Collective.EventsBlocked,
 		}
 	}
 	return views, nil

@@ -70,6 +70,17 @@ func NewRenderer(fsys fs.FS, assets *Assets, loc *time.Location, log *slog.Logge
 		"asset": assets.URL,
 		"year":  func() int { return r.now().In(loc).Year() },
 		"dict":  dict,
+
+		"date":      func(t time.Time) string { return fmtDate(t, loc) },
+		"dateLong":  func(t time.Time) string { return fmtDateLong(t, loc) },
+		"monthYear": func(t time.Time) string { return fmtMonthYear(t, loc) },
+		"clock":     func(t time.Time) string { return fmtClock(t, loc) },
+		"until":     func(start time.Time, durationMin int) string { return fmtUntil(start, durationMin, loc) },
+		"duration":  fmtDuration,
+		"price":     fmtPrice,
+
+		"eventType":  fmtEventType,
+		"eventStyle": fmtEventStyle,
 	}
 
 	// Glob only fails on a malformed pattern, and these are constants.

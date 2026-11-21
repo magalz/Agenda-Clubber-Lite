@@ -1,0 +1,13 @@
+{{/* Analisar Data (GET /eventos/dia), for every signed-in person: the events already on a day, so a collective sees the date
+     clashes before it creates an event. Data is a dayList (internal/web/routes_day.go): Date (the day, zero when the date asked
+     for is not valid), Back (the calendar's month of that day, with the filter kept) and what partials/day-list.html shows. The
+     page reads ?data= (AAAA-MM-DD or dd/mm/aaaa), ?uf= and ?cidade= (the calendar's filter) and ?destaque_uf= and
+     ?destaque_cidade= (the city to put first); an invalid date is a 422 with the message and no list.
+     CSS: section-heading, section-heading__sub, stack (components.css). */}}
+{{define "content"}}<div class="section-heading">
+  <h1 class="section-heading__title text-glow"><span class="section-heading__prompt" aria-hidden="true">~/ </span>{{if .Data.Date.IsZero}}analisar data{{else}}{{dateLong .Data.Date}}{{end}}</h1>
+  <p class="section-heading__sub"><a href="{{.Data.Back}}">[←] calendário</a></p>
+</div>
+{{with .Data}}<div class="stack stack--lg">
+  {{template "day-list" .}}
+</div>{{end}}{{end}}

@@ -96,6 +96,7 @@ func (s *Store) Repos() domain.Repos {
 		Sessions:     sessions{s},
 		Collectives:  collectives{s},
 		Memberships:  memberships{s},
+		Events:       events{s},
 		Outbox:       outbox{s},
 		AuditEntries: auditEntries{s},
 	}
@@ -157,6 +158,20 @@ func (s *Store) exists(ctx context.Context, collection string, id bson.ObjectID)
 		return false, fmt.Errorf("mongostore: look up in %s: %w", collection, err)
 	}
 	return n > 0, nil
+}
+
+// notMatched says why a guarded update of one document matched nothing: the
+// document is gone (domain.ErrNotFound), or it is there and its status or version
+// no longer fits the filter (domain.ErrConflict).
+func (s *Store) notMatched(ctx context.Context, collection string, id bson.ObjectID) error {
+	found, err := s.exists(ctx, collection, id)
+	if err != nil {
+		return err
+	}
+	if !found {
+		return domain.ErrNotFound
+	}
+	return domain.ErrConflict
 }
 
 // mustExist returns domain.ErrNotFound when the reference id (an optional

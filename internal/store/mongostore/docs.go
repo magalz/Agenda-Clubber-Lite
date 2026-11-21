@@ -23,6 +23,7 @@ const (
 	colSessions    = "sessions"
 	colCollectives = "collectives"
 	colMemberships = "memberships"
+	colEvents      = "events"
 	colOutbox      = "outbox"
 
 	colAuditEntries = "audit_entries"
@@ -299,6 +300,93 @@ func (d membershipDoc) membership() domain.Membership {
 		OwnerApprovedAt: d.OwnerApprovedAt,
 		RequestedAt:     d.RequestedAt,
 		DecidedAt:       d.DecidedAt,
+	}
+}
+
+// --- events ---
+
+// eventDoc is the document of an event. Version is the optimistic lock the
+// domain sees: Create sets it to 1 and every edit adds 1. An event may outlive
+// the user that wrote it, so created_by and updated_by are left out when empty.
+type eventDoc struct {
+	ID           bson.ObjectID  `bson:"_id"`
+	CollectiveID bson.ObjectID  `bson:"collective_id"`
+	Name         string         `bson:"name"`
+	Type         string         `bson:"type"`
+	TypeOther    string         `bson:"type_other,omitempty"`
+	StartsAt     time.Time      `bson:"starts_at"`
+	DurationMin  int            `bson:"duration_min"`
+	Free         bool           `bson:"free"`
+	PriceCents   int64          `bson:"price_cents"`
+	TicketURL    string         `bson:"ticket_url,omitempty"`
+	Style        string         `bson:"style"`
+	Substyle     string         `bson:"substyle,omitempty"`
+	StyleOther   string         `bson:"style_other,omitempty"`
+	State        string         `bson:"state"`
+	City         string         `bson:"city"`
+	Venue        string         `bson:"venue,omitempty"`
+	Artists      string         `bson:"artists,omitempty"`
+	Description  string         `bson:"description,omitempty"`
+	CreatedBy    *bson.ObjectID `bson:"created_by,omitempty"`
+	UpdatedBy    *bson.ObjectID `bson:"updated_by,omitempty"`
+	CreatedAt    time.Time      `bson:"created_at"`
+	UpdatedAt    time.Time      `bson:"updated_at"`
+	Version      int64          `bson:"version"`
+}
+
+func eventToDoc(e domain.Event, oid, collectiveID bson.ObjectID, createdBy, updatedBy *bson.ObjectID) eventDoc {
+	return eventDoc{
+		ID:           oid,
+		CollectiveID: collectiveID,
+		Name:         e.Name,
+		Type:         string(e.Type),
+		TypeOther:    e.TypeOther,
+		StartsAt:     e.StartsAt,
+		DurationMin:  e.DurationMin,
+		Free:         e.Free,
+		PriceCents:   e.PriceCents,
+		TicketURL:    e.TicketURL,
+		Style:        e.Style,
+		Substyle:     e.Substyle,
+		StyleOther:   e.StyleOther,
+		State:        e.State,
+		City:         e.City,
+		Venue:        e.Venue,
+		Artists:      e.Artists,
+		Description:  e.Description,
+		CreatedBy:    createdBy,
+		UpdatedBy:    updatedBy,
+		CreatedAt:    e.CreatedAt,
+		UpdatedAt:    e.UpdatedAt,
+		Version:      e.Version,
+	}
+}
+
+func (d eventDoc) event() domain.Event {
+	return domain.Event{
+		ID:           d.ID.Hex(),
+		CollectiveID: d.CollectiveID.Hex(),
+		Name:         d.Name,
+		Type:         domain.EventType(d.Type),
+		TypeOther:    d.TypeOther,
+		StartsAt:     d.StartsAt,
+		DurationMin:  d.DurationMin,
+		Free:         d.Free,
+		PriceCents:   d.PriceCents,
+		TicketURL:    d.TicketURL,
+		Style:        d.Style,
+		Substyle:     d.Substyle,
+		StyleOther:   d.StyleOther,
+		State:        d.State,
+		City:         d.City,
+		Venue:        d.Venue,
+		Artists:      d.Artists,
+		Description:  d.Description,
+		CreatedBy:    hexOrEmpty(d.CreatedBy),
+		UpdatedBy:    hexOrEmpty(d.UpdatedBy),
+		CreatedAt:    d.CreatedAt,
+		UpdatedAt:    d.UpdatedAt,
+		Version:      d.Version,
 	}
 }
 

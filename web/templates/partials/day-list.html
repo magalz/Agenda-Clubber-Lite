@@ -1,0 +1,29 @@
+{{/* The events of one day ("Analisar Data"): app/dia includes it, and GET /eventos/dia answers with it alone for HTMX, which
+     the event form's side panel loads. Data is a dayList (internal/web/routes_day.go): Rows (a dayRow each: the event, with
+     Name, Type, TypeOther, Style, StartsAt, DurationMin, City, State and CollectiveName, plus SameCity, set for an event held
+     in the form's city, and Href, its page), Truncated and Limit, or Error when the date is not valid.
+     The list has a stable id (#day-list) in every state, so a script can swap it. A row with SameCity carries the badge
+     "mesma cidade" and the list starts with those. A day with no row says so, and Truncated says the list may miss events.
+     CSS: stack, status, status--warn, status--error, item-list (the rows), badge, badge--accent, empty (components.css). */}}
+{{define "day-list"}}<div class="stack" id="day-list">
+  {{if .Error}}<p class="status status--error" role="alert">[erro] {{.Error}}</p>
+  {{else}}
+  {{if .Truncated}}<p class="status status--warn" role="status">mostrando só os primeiros {{.Limit}} eventos deste dia</p>
+  {{end}}
+  {{if .Rows}}<ul class="item-list">
+    {{range .Rows}}<li class="item-list__item">
+      <div class="item-list__main">
+        <p class="item-list__title"><a href="{{.Href}}">{{.Name}}</a></p>
+        <p class="item-list__meta">{{clock .StartsAt}}, {{until .StartsAt .DurationMin}}</p>
+        <p class="item-list__meta">{{eventStyle .Style .Substyle .StyleOther}} · {{.CollectiveName}} · {{.City}}/{{.State}}</p>
+      </div>
+      <span class="badge badge--accent item-list__status">{{eventType .Type .TypeOther}}</span>
+      {{if .SameCity}}<span class="badge item-list__status">mesma cidade</span>
+      {{end}}
+    </li>
+    {{end}}
+  </ul>
+  {{else}}<div class="empty">Nenhum evento nesta data.</div>
+  {{end}}
+  {{end}}
+</div>{{end}}

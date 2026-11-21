@@ -80,17 +80,6 @@ func (a *App) collectivesRoutes(public, authed *gin.RouterGroup) {
 	authed.POST("/coletivos/novo", a.collectivesNew)
 }
 
-// collectivesUser is the signed-in person. The authed group guarantees there is
-// one, so a miss is a bug: it is logged and answered with a 500.
-func (a *App) collectivesUser(c *gin.Context) (domain.User, bool) {
-	u, ok := a.currentUser(c)
-	if !ok {
-		a.Log.Error("collectives: no signed-in user on an authed route")
-		c.String(http.StatusInternalServerError, "erro interno")
-	}
-	return u, ok
-}
-
 // collectivesRender answers with the page: the person's memberships, plus what
 // the answer carries (the form to refill, its field errors, a notice or an
 // alert). Memberships that cannot be read are a logged 500.
@@ -168,7 +157,7 @@ func membershipStatus(v domain.MembershipView) (status, badge string) {
 // collectivesShow lists the person's collectives and offers the two request
 // forms. Only the fixed text a known ?msg= code stands for is shown.
 func (a *App) collectivesShow(c *gin.Context) {
-	u, ok := a.collectivesUser(c)
+	u, ok := a.signedInUser(c, "collectives")
 	if !ok {
 		return
 	}
@@ -211,7 +200,7 @@ func (a *App) collectivesNew(c *gin.Context) {
 // their list and what they typed. On success it redirects to to. The log names
 // the person and the error, never what was typed.
 func (a *App) collectivesSubmit(c *gin.Context, logMsg, to string, do func(context.Context, domain.User, url.Values, time.Time) error) {
-	u, ok := a.collectivesUser(c)
+	u, ok := a.signedInUser(c, "collectives")
 	if !ok {
 		return
 	}

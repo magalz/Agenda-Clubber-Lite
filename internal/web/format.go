@@ -1,0 +1,107 @@
+package web
+
+import (
+	"fmt"
+	"time"
+
+	"github.com/magalz/agenda-clubber-lite/internal/catalog"
+	"github.com/magalz/agenda-clubber-lite/internal/domain"
+	"github.com/magalz/agenda-clubber-lite/internal/events"
+)
+
+// The pt-BR formatting the templates use. Every function takes a time.Time
+// (the store keeps UTC) and shows it in loc, the configured APP_TZ. The names
+// come from the tables below, not from time.Format, so the output does not
+// depend on the operating system's locale.
+
+// weekdaysPT is indexed by time.Weekday, which starts on Sunday.
+var weekdaysPT = [...]string{
+	"domingo", "segunda-feira", "terça-feira", "quarta-feira", "quinta-feira", "sexta-feira", "sábado",
+}
+
+// monthsPT is indexed by time.Month-1 and already uppercase, because the
+// labels are uppercase text and not a CSS effect.
+var monthsPT = [...]string{
+	"JANEIRO", "FEVEREIRO", "MARÇO", "ABRIL", "MAIO", "JUNHO",
+	"JULHO", "AGOSTO", "SETEMBRO", "OUTUBRO", "NOVEMBRO", "DEZEMBRO",
+}
+
+// fmtDate is "14/11/2026".
+func fmtDate(t time.Time, loc *time.Location) string {
+	return t.In(loc).Format(events.DateLayout)
+}
+
+// fmtDateLong is "sábado, 14/11/2026".
+func fmtDateLong(t time.Time, loc *time.Location) string {
+	l := t.In(loc)
+	return weekdaysPT[l.Weekday()] + ", " + l.Format(events.DateLayout)
+}
+
+// fmtMonthYear is "NOVEMBRO 2026".
+func fmtMonthYear(t time.Time, loc *time.Location) string {
+	l := t.In(loc)
+	return monthsPT[l.Month()-1] + " " + l.Format("2006")
+}
+
+// fmtClock is "22:00" (24 h).
+func fmtClock(t time.Time, loc *time.Location) string {
+	return t.In(loc).Format("15:04")
+}
+
+// fmtUntil is the end of an event that starts at start and lasts durationMin
+// minutes: "até 23:30", or "até 06:00 (+1)" when the end falls on the next
+// calendar day in loc. The domain keeps the duration under a day, so +1 is
+// the most there is.
+func fmtUntil(start time.Time, durationMin int, loc *time.Location) string {
+	s := start.In(loc)
+	end := s.Add(time.Duration(durationMin) * time.Minute)
+	out := "até " + end.Format("15:04")
+	sy, sm, sd := s.Date()
+	if ey, em, ed := end.Date(); ey != sy || em != sm || ed != sd {
+		out += " (+1)"
+	}
+	return out
+}
+
+// fmtDuration is "45min", "6h", "6h30" or "1h05".
+func fmtDuration(minutes int) string {
+	h, m := minutes/60, minutes%60
+	switch {
+	case h == 0:
+		return fmt.Sprintf("%dmin", m)
+	case m == 0:
+		return fmt.Sprintf("%dh", h)
+	}
+	return fmt.Sprintf("%dh%02d", h, m)
+}
+
+// fmtPrice is "Free" for a free event, else reais with a dot for thousands
+// and a comma for cents: "R$ 1.234,56".
+func fmtPrice(free bool, cents int64) string {
+	if free {
+		return "Free"
+	}
+	return "R$ " + events.FormatCents(cents)
+}
+
+// fmtEventType is the label of an event's type, as the badges show it: the text
+// the person typed for "Outros", or the type's pt-BR label from the catalog.
+func fmtEventType(t domain.EventType, other string) string {
+	if t == domain.EventTypeOutros && other != "" {
+		return other
+	}
+	return catalog.TypeLabel(t)
+}
+
+// fmtEventStyle is an event's style as the pages show it: the text the person
+// typed for the style "outros", or the catalog's label followed by the substyle
+// after " · " when there is one.
+func fmtEventStyle(style, substyle, other string) string {
+	switch {
+	case style == domain.StyleOther && other != "":
+		return other
+	case substyle != "":
+		return style + " · " + substyle
+	}
+	return style
+}

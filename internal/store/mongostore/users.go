@@ -103,7 +103,7 @@ func (r users) MarkEmailVerified(ctx context.Context, id string, now time.Time) 
 	if res.MatchedCount > 0 {
 		return nil
 	}
-	return r.notMatched(ctx, oid)
+	return r.s.notMatched(ctx, colUsers, oid)
 }
 
 // ChangePassword is one update with an aggregation pipeline, so the hash that
@@ -201,8 +201,9 @@ func (r users) ListAdminEmails(ctx context.Context) ([]string, error) {
 }
 
 // Delete removes the user, the user's sessions, tokens and memberships, and
-// clears every reference to the user, in one transaction (the caller's, when it
-// has one).
+// clears every reference to the user (the creator and editor of the events
+// included: the events stay), in one transaction (the caller's, when it has
+// one).
 func (r users) Delete(ctx context.Context, id string) error {
 	oid, err := parseID(id)
 	if err != nil {
@@ -227,6 +228,8 @@ func (r users) Delete(ctx context.Context, id string) error {
 			{colCollectives, "approved_by"},
 			{colMemberships, "admin_approved_by"},
 			{colMemberships, "owner_approved_by"},
+			{colEvents, "created_by"},
+			{colEvents, "updated_by"},
 		} {
 			if err := r.s.clearRef(ctx, ref.collection, ref.field, oid); err != nil {
 				return err
@@ -304,18 +307,5 @@ func (r users) Approve(ctx context.Context, id, by string, now time.Time) error 
 	if res.MatchedCount > 0 {
 		return nil
 	}
-	return r.notMatched(ctx, oid)
-}
-
-// notMatched says why a guarded update on the user matched nothing: there is no
-// such user (ErrNotFound), or it is in the wrong status (ErrConflict).
-func (r users) notMatched(ctx context.Context, oid bson.ObjectID) error {
-	found, err := r.s.exists(ctx, colUsers, oid)
-	if err != nil {
-		return err
-	}
-	if !found {
-		return domain.ErrNotFound
-	}
-	return domain.ErrConflict
+	return r.s.notMatched(ctx, colUsers, oid)
 }

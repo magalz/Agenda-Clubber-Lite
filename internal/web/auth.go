@@ -106,6 +106,18 @@ func (a *App) currentUser(c *gin.Context) (domain.User, bool) {
 	return u, ok
 }
 
+// signedInUser returns the user requireAuth put on the request, for the
+// handlers of authed routes. When there is none (a route registered outside the
+// authed group by mistake), it logs which flow asked and answers 500.
+func (a *App) signedInUser(c *gin.Context, flow string) (domain.User, bool) {
+	u, ok := a.currentUser(c)
+	if !ok {
+		a.Log.Error("no signed-in user on an authed route", "flow", flow)
+		c.String(http.StatusInternalServerError, "erro interno")
+	}
+	return u, ok
+}
+
 // sessionToken returns the raw session cookie value of the signed-in user, or
 // "" for an anonymous request. Handlers pass it to auth.RevokeOtherSessions.
 func (a *App) sessionToken(c *gin.Context) string {

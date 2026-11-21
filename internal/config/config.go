@@ -18,6 +18,10 @@ import (
 // to it too.
 const DefaultAddr = ":8120"
 
+// DefaultTZ is the IANA zone when APP_TZ is unset. The seed-dev subcommand, which
+// reads APP_TZ without loading the full Config, falls back to it too.
+const DefaultTZ = "America/Fortaleza"
+
 // DefaultSMTPFrom is the sender address when SMTP_FROM is unset.
 const DefaultSMTPFrom = "IgnisDev <ignisdev@magalz.space>"
 
@@ -159,7 +163,7 @@ func Load(getenv func(string) string) (Config, error) {
 		return Config{}, fmt.Errorf("APP_ORIGIN: %w", err)
 	}
 
-	if cfg.Location, err = time.LoadLocation(get("APP_TZ", "America/Fortaleza")); err != nil {
+	if cfg.Location, err = time.LoadLocation(get("APP_TZ", DefaultTZ)); err != nil {
 		return Config{}, fmt.Errorf("APP_TZ: unknown IANA time zone")
 	}
 

@@ -106,8 +106,8 @@ func (r collectives) list(ctx context.Context, filter bson.M, limit int, op stri
 	return found, nil
 }
 
-// Delete removes the collective and its memberships in one transaction (the
-// caller's, when it has one).
+// Delete removes the collective, its memberships and its events in one
+// transaction (the caller's, when it has one).
 func (r collectives) Delete(ctx context.Context, id string) error {
 	oid, err := parseID(id)
 	if err != nil {
@@ -123,6 +123,9 @@ func (r collectives) Delete(ctx context.Context, id string) error {
 		}
 		if _, err := r.s.db.Collection(colMemberships).DeleteMany(ctx, bson.M{"collective_id": oid}); err != nil {
 			return wrap("delete the memberships of a collective", err)
+		}
+		if _, err := r.s.db.Collection(colEvents).DeleteMany(ctx, bson.M{"collective_id": oid}); err != nil {
+			return wrap("delete the events of a collective", err)
 		}
 		return nil
 	})

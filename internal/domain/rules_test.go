@@ -16,7 +16,8 @@ import (
 //   - uniqueness (an email that differs only in case, a collective name that is
 //     taken), references (an unknown approver, user, collective or creator) and
 //     cascades: the backend contract suite, internal/store/storetest;
-//   - events: phase 4.
+//   - for events, also the catalog of styles and of event types, the rule that a
+//     new event is not in the past and who may write one: the event service.
 //
 // An email that is not in normalized form is a field error here, a rule of its
 // own.
@@ -343,6 +344,293 @@ func TestAuditEntryValidate(t *testing.T) {
 	runChecks(t, baseAuditEntry, AuditEntry.Validate, cases)
 }
 
+func TestTextProblem(t *testing.T) {
+	const (
+		control   = "não use quebras de linha nem caracteres de controle"
+		textOnly  = "use só texto, sem caracteres de controle"
+		atMost5   = "use no máximo 5 caracteres"
+		between25 = "use de 2 a 5 caracteres"
+	)
+	for _, tc := range []struct {
+		name      string
+		s         string
+		min, max  int
+		multiline bool
+		want      string
+	}{
+		{"single line in range", "abc", 1, 5, false, ""},
+		{"single line of exactly max runes", rep("ç", 5), 1, 5, false, ""},
+		{"single line of max plus one runes", rep("ç", 6), 1, 5, false, atMost5},
+		{"single line empty and required", "", 1, 5, false, MsgRequired},
+		{"single line of spaces and required", "   ", 1, 5, false, MsgRequired},
+		{"single line empty and optional", "", 0, 5, false, ""},
+		{"single line of spaces and optional", "   ", 0, 5, false, ""},
+		{"single line optional but too long", "abcdef", 0, 5, false, atMost5},
+		{"single line counted after trimming", "  abcde  ", 1, 5, false, ""},
+		{"single line below a minimum of 2", "a", 2, 5, false, between25},
+		{"single line above a minimum of 2", "abcdef", 2, 5, false, between25},
+		{"single line at a minimum of 2", "ab", 2, 5, false, ""},
+
+		{"single line with a line break inside", "a\nb", 1, 5, false, control},
+		{"single line with a trailing line break", "abc\n", 1, 5, false, control},
+		{"single line with a carriage return", "a\rb", 1, 5, false, control},
+		{"single line with a tab", "a\tb", 1, 5, false, control},
+		{"single line with a NUL", "a\x00b", 1, 5, false, control},
+		{"single line with a DEL", "a\x7fb", 1, 5, false, control},
+		{"single line with a C1 control", "a\u0085b", 1, 5, false, control},
+		{"single line that is only a line break", "\n", 0, 5, false, control},
+		{"single line with a control character and too long", "a\nbcdefg", 1, 5, false, control},
+		{"single line that is not UTF-8", "a\xffb", 1, 5, false, MsgInvalid},
+		{"single line that is not UTF-8 and has a line break", "\xff\n", 1, 5, false, MsgInvalid},
+		{"single line with non-ASCII letters and a space", "são josé", 1, 20, false, ""},
+
+		{"multi-line in range", "abc", 1, 5, true, ""},
+		{"multi-line with a line break and a tab", "a\tb\nc", 1, 20, true, ""},
+		{"multi-line with a trailing line break", "abc\n", 1, 3, true, ""},
+		{"multi-line empty and optional", "", 0, 5, true, ""},
+		{"multi-line empty and required", "", 1, 5, true, MsgRequired},
+		{"multi-line of only line breaks and required", "\n\n \t", 1, 5, true, MsgRequired},
+		{"multi-line of max runes", rep("ç", 5), 1, 5, true, ""},
+		{"multi-line of max plus one runes", rep("ç", 6), 1, 5, true, atMost5},
+		{"multi-line below a minimum of 2", "a", 2, 5, true, between25},
+		{"multi-line with a carriage return", "a\r\nb", 1, 20, true, textOnly},
+		{"multi-line with a lone carriage return", "a\rb", 1, 20, true, textOnly},
+		{"multi-line with a NUL", "a\x00b", 1, 20, true, textOnly},
+		{"multi-line with a DEL", "a\x7fb", 1, 20, true, textOnly},
+		{"multi-line with a vertical tab", "a\vb", 1, 20, true, textOnly},
+		{"multi-line with a C1 control", "a\u0085b", 1, 20, true, textOnly},
+		{"multi-line with a control character and too long", "a\x00bcdefg", 1, 5, true, textOnly},
+		{"multi-line that is not UTF-8", "a\xffb", 1, 20, true, MsgInvalid},
+		{"multi-line that is not UTF-8 and has a NUL", "\xff\x00", 1, 20, true, MsgInvalid},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := TextProblem(tc.s, tc.min, tc.max, tc.multiline); got != tc.want {
+				t.Errorf("TextProblem(%q, %d, %d, %v) = %q, want %q", tc.s, tc.min, tc.max, tc.multiline, got, tc.want)
+			}
+		})
+	}
+}
+
+func baseEvent() Event {
+	return Event{
+		ID: "e1", CollectiveID: "c1", Name: "Noite Verde", Type: EventTypeFesta,
+		StartsAt: t0.Add(48 * time.Hour), DurationMin: 240, PriceCents: 3000,
+		TicketURL: "https://example.com/ingressos", Style: "Techno", Substyle: "Melodic",
+		State: "CE", City: "Fortaleza", Venue: "Casa Azul", Artists: "DJ Ana\nDJ Bia",
+		Description: "Uma noite de techno.\n\nPortão às 22h.",
+		CreatedBy:   "u1", UpdatedBy: "u1", CreatedAt: t0, UpdatedAt: t0, Version: 1,
+	}
+}
+
+func TestEventValidate(t *testing.T) {
+	const (
+		maxPrice = 9_999_999
+		urlBase  = "https://example.com/"
+	)
+	cases := []check[Event]{
+		c[Event]("valid event", nil),
+		c("entity ID is assigned by the backend", func(e *Event) { e.ID = "" }),
+		c("only the required fields", func(e *Event) {
+			*e = Event{
+				CollectiveID: "c1", Name: "Rave", Type: EventTypeRave, StartsAt: t0, DurationMin: 15, Free: true,
+				Style: "Techno", State: "PE", City: "Recife", CreatedAt: t0,
+			}
+		}),
+		c("references that the store checks are not checked", func(e *Event) { e.CollectiveID, e.CreatedBy = "gone-1", "gone-2" }),
+		c("a creator and an editor that were deleted", func(e *Event) { e.CreatedBy, e.UpdatedBy = "", "" }),
+		c("version and update time are not checked", func(e *Event) { e.Version, e.UpdatedAt = 0, time.Time{} }),
+
+		c("missing collective", func(e *Event) { e.CollectiveID = "" }, "collective_id"),
+		c("zero start time", func(e *Event) { e.StartsAt = time.Time{} }, "starts_at"),
+		c("zero creation time", func(e *Event) { e.CreatedAt = time.Time{} }, "created_at"),
+
+		c("empty name", func(e *Event) { e.Name = "" }, "name"),
+		c("name of only spaces", func(e *Event) { e.Name = "   \t" }, "name"),
+		c("name of 1 rune", func(e *Event) { e.Name = "x" }, "name"),
+		c("name of 2 runes", func(e *Event) { e.Name = "xy" }),
+		c("name of 120 runes", func(e *Event) { e.Name = rep("ç", 120) }),
+		c("name of 121 runes", func(e *Event) { e.Name = rep("ç", 121) }, "name"),
+		c("name counted after trimming", func(e *Event) { e.Name = "  " + rep("x", 120) + "  " }),
+		c("name with a line break", func(e *Event) { e.Name = "Noite\nVerde" }, "name"),
+		c("name with a tab", func(e *Event) { e.Name = "Noite\tVerde" }, "name"),
+		c("name that is not UTF-8", func(e *Event) { e.Name = "Noite\xff" }, "name"),
+
+		c("empty type", func(e *Event) { e.Type = "" }, "type"),
+		c("type unknown", func(e *Event) { e.Type = "show" }, "type"),
+		c("type in the wrong case", func(e *Event) { e.Type = "Festa" }, "type"),
+		c("type outros with its name", func(e *Event) { e.Type, e.TypeOther = EventTypeOutros, "Sarau" }),
+		c("type outros without its name", func(e *Event) { e.Type, e.TypeOther = EventTypeOutros, "" }, "type_other"),
+		c("type outros with a name of only spaces", func(e *Event) { e.Type, e.TypeOther = EventTypeOutros, "  " }, "type_other"),
+		c("type_other of 40 runes", func(e *Event) { e.Type, e.TypeOther = EventTypeOutros, rep("ç", 40) }),
+		c("type_other of 41 runes", func(e *Event) { e.Type, e.TypeOther = EventTypeOutros, rep("ç", 41) }, "type_other"),
+		c("type_other with a line break", func(e *Event) { e.Type, e.TypeOther = EventTypeOutros, "Sa\nrau" }, "type_other"),
+		c("type_other with another type", func(e *Event) { e.TypeOther = "Sarau" }, "type_other"),
+		c("type_other of spaces with another type", func(e *Event) { e.TypeOther = " " }, "type_other"),
+
+		c("duration of 14 minutes", func(e *Event) { e.DurationMin = 14 }, "duration_min"),
+		c("duration of 15 minutes", func(e *Event) { e.DurationMin = 15 }),
+		c("duration of 1439 minutes", func(e *Event) { e.DurationMin = 1439 }),
+		c("duration of 1440 minutes", func(e *Event) { e.DurationMin = 1440 }, "duration_min"),
+		c("duration of 0 minutes", func(e *Event) { e.DurationMin = 0 }, "duration_min"),
+		c("negative duration", func(e *Event) { e.DurationMin = -60 }, "duration_min"),
+
+		c("free with no price", func(e *Event) { e.Free, e.PriceCents = true, 0 }),
+		c("free with a price", func(e *Event) { e.Free, e.PriceCents = true, 1 }, "price_cents"),
+		c("free with a negative price", func(e *Event) { e.Free, e.PriceCents = true, -1 }, "price_cents"),
+		c("paid with no price", func(e *Event) { e.Free, e.PriceCents = false, 0 }, "price_cents"),
+		c("paid with a price of 1 cent", func(e *Event) { e.PriceCents = 1 }),
+		c("paid with the greatest price", func(e *Event) { e.PriceCents = maxPrice }),
+		c("paid with a price above the greatest", func(e *Event) { e.PriceCents = maxPrice + 1 }, "price_cents"),
+		c("paid with a negative price", func(e *Event) { e.PriceCents = -100 }, "price_cents"),
+
+		c("no ticket URL", func(e *Event) { e.TicketURL = "" }),
+		c("ticket URL over http", func(e *Event) { e.TicketURL = "http://example.com/x?a=1#b" }),
+		c("ticket URL with a port", func(e *Event) { e.TicketURL = "https://example.com:8443/x" }),
+		c("ticket URL with an uppercase scheme", func(e *Event) { e.TicketURL = "HTTPS://example.com" }),
+		c("ticket URL with a javascript scheme", func(e *Event) { e.TicketURL = "javascript:alert(1)" }, "ticket_url"),
+		c("ticket URL with a data scheme", func(e *Event) { e.TicketURL = "data:text/html,x" }, "ticket_url"),
+		c("ticket URL with an ftp scheme", func(e *Event) { e.TicketURL = "ftp://example.com/x" }, "ticket_url"),
+		c("ticket URL with a mailto scheme", func(e *Event) { e.TicketURL = "mailto:a@example.com" }, "ticket_url"),
+		c("ticket URL without a scheme", func(e *Event) { e.TicketURL = "example.com/x" }, "ticket_url"),
+		c("ticket URL relative to the scheme", func(e *Event) { e.TicketURL = "//example.com/x" }, "ticket_url"),
+		c("ticket URL that is a path", func(e *Event) { e.TicketURL = "/ingressos" }, "ticket_url"),
+		c("ticket URL without a host", func(e *Event) { e.TicketURL = "http://" }, "ticket_url"),
+		c("ticket URL with an empty host and a path", func(e *Event) { e.TicketURL = "https:///x" }, "ticket_url"),
+		c("ticket URL with only a port", func(e *Event) { e.TicketURL = "https://:8443/x" }, "ticket_url"),
+		c("ticket URL with a space in the host", func(e *Event) { e.TicketURL = "http://exa mple.com" }, "ticket_url"),
+		c("ticket URL with a leading space", func(e *Event) { e.TicketURL = " https://example.com" }, "ticket_url"),
+		c("ticket URL with a trailing line break", func(e *Event) { e.TicketURL = "https://example.com/\n" }, "ticket_url"),
+		c("ticket URL with a space in the path", func(e *Event) { e.TicketURL = "https://a.example/x y" }, "ticket_url"),
+		c("ticket URL with a tab in the path", func(e *Event) { e.TicketURL = "https://a.example/x\ty" }, "ticket_url"),
+		c("ticket URL with a no-break space in the path", func(e *Event) { e.TicketURL = "https://a.example/x y" }, "ticket_url"),
+		c("ticket URL with an ideographic space in the query", func(e *Event) { e.TicketURL = "https://a.example/?q=a　b" }, "ticket_url"),
+		c("ticket URL that does not parse", func(e *Event) { e.TicketURL = "https://exa%zzmple.com" }, "ticket_url"),
+		c("ticket URL of 2048 characters", func(e *Event) { e.TicketURL = urlBase + rep("a", 2048-len(urlBase)) }),
+		c("ticket URL of 2049 characters", func(e *Event) { e.TicketURL = urlBase + rep("a", 2049-len(urlBase)) }, "ticket_url"),
+
+		c("empty style", func(e *Event) { e.Style = "" }, "style"),
+		c("style of only spaces", func(e *Event) { e.Style = " " }, "style"),
+		c("style of 60 runes", func(e *Event) { e.Style = rep("ç", 60) }),
+		c("style of 61 runes", func(e *Event) { e.Style = rep("ç", 61) }, "style"),
+		c("style with a line break", func(e *Event) { e.Style = "Tech\nno" }, "style"),
+		c("style Outros with a capital is an ordinary style", func(e *Event) { e.Style, e.Substyle = "Outros", "" }),
+
+		c("style outros with its name", func(e *Event) { e.Style, e.Substyle, e.StyleOther = StyleOther, "", "Brega funk" }),
+		c("style outros without its name", func(e *Event) { e.Style, e.Substyle = StyleOther, "" }, "style_other"),
+		c("style outros with a name of only spaces", func(e *Event) { e.Style, e.Substyle, e.StyleOther = StyleOther, "", "  " }, "style_other"),
+		c("style outros with a substyle", func(e *Event) { e.Style, e.StyleOther = StyleOther, "Brega funk" }, "substyle"),
+		c("style_other of 40 runes", func(e *Event) { e.Style, e.Substyle, e.StyleOther = StyleOther, "", rep("ç", 40) }),
+		c("style_other of 41 runes", func(e *Event) { e.Style, e.Substyle, e.StyleOther = StyleOther, "", rep("ç", 41) }, "style_other"),
+		c("style_other with a line break", func(e *Event) { e.Style, e.Substyle, e.StyleOther = StyleOther, "", "Brega\nfunk" }, "style_other"),
+		c("style_other with another style", func(e *Event) { e.StyleOther = "Brega funk" }, "style_other"),
+		c("style_other of spaces with another style", func(e *Event) { e.StyleOther = " " }, "style_other"),
+
+		c("no substyle", func(e *Event) { e.Substyle = "" }),
+		c("substyle of 60 runes", func(e *Event) { e.Substyle = rep("ç", 60) }),
+		c("substyle of 61 runes", func(e *Event) { e.Substyle = rep("ç", 61) }, "substyle"),
+		c("substyle with a line break", func(e *Event) { e.Substyle = "Melodic\nHouse" }, "substyle"),
+
+		c("empty state", func(e *Event) { e.State = "" }, "state"),
+		c("state of one letter", func(e *Event) { e.State = "C" }, "state"),
+		c("state of three letters", func(e *Event) { e.State = "CEE" }, "state"),
+		c("state in lowercase", func(e *Event) { e.State = "ce" }, "state"),
+		c("state in mixed case", func(e *Event) { e.State = "Ce" }, "state"),
+		c("state with a digit", func(e *Event) { e.State = "C1" }, "state"),
+		c("state with a space", func(e *Event) { e.State = "C " }, "state"),
+		c("state with a non-ASCII uppercase letter", func(e *Event) { e.State = "ÇE" }, "state"),
+		c("state with a trailing line break", func(e *Event) { e.State = "CE\n" }, "state"),
+		c("state PE", func(e *Event) { e.State = "PE" }),
+
+		c("empty city", func(e *Event) { e.City = "" }, "city"),
+		c("city of only spaces", func(e *Event) { e.City = "  " }, "city"),
+		c("city of 60 runes", func(e *Event) { e.City = rep("ã", 60) }),
+		c("city of 61 runes", func(e *Event) { e.City = rep("ã", 61) }, "city"),
+		c("city with a line break", func(e *Event) { e.City = "São\nJosé" }, "city"),
+		c("city with spaces and accents", func(e *Event) { e.City = "São José do Egito" }),
+
+		c("no venue", func(e *Event) { e.Venue = "" }),
+		c("venue of 120 runes", func(e *Event) { e.Venue = rep("ç", 120) }),
+		c("venue of 121 runes", func(e *Event) { e.Venue = rep("ç", 121) }, "venue"),
+		c("venue with a line break", func(e *Event) { e.Venue = "Casa\nAzul" }, "venue"),
+
+		c("no artists", func(e *Event) { e.Artists = "" }),
+		c("artists of 2000 runes", func(e *Event) { e.Artists = rep("ç", 2000) }),
+		c("artists of 2001 runes", func(e *Event) { e.Artists = rep("ç", 2001) }, "artists"),
+		c("artists with line breaks and tabs", func(e *Event) { e.Artists = "DJ Ana\n\tDJ Bia\n" }),
+		c("artists with a carriage return", func(e *Event) { e.Artists = "DJ Ana\r\nDJ Bia" }, "artists"),
+		c("artists with a NUL", func(e *Event) { e.Artists = "DJ\x00Ana" }, "artists"),
+		c("artists that are not UTF-8", func(e *Event) { e.Artists = "DJ \xffAna" }, "artists"),
+
+		c("no description", func(e *Event) { e.Description = "" }),
+		c("description of 4000 runes", func(e *Event) { e.Description = rep("ç", 4000) }),
+		c("description of 4001 runes", func(e *Event) { e.Description = rep("ç", 4001) }, "description"),
+		c("description with paragraphs", func(e *Event) { e.Description = "Primeira linha.\n\nSegunda\tlinha." }),
+		c("description with a bell", func(e *Event) { e.Description = "ding\x07" }, "description"),
+
+		c("every failing field is reported", func(e *Event) {
+			*e = Event{
+				Name: "x", Type: "?", DurationMin: 0, PriceCents: -1, TicketURL: "javascript:x",
+				Style: "", State: "c", City: "", Venue: rep("x", 121), Artists: rep("x", 2001),
+				Description: rep("x", 4001),
+			}
+		}, "collective_id", "name", "type", "starts_at", "created_at", "duration_min", "price_cents", "ticket_url",
+			"style", "state", "city", "venue", "artists", "description"),
+	}
+	for _, typ := range []EventType{EventTypeFesta, EventTypeRave, EventTypeFestival, EventTypeWorkshop, EventTypeFeira} {
+		cases = append(cases, c("type "+string(typ), func(e *Event) { e.Type = typ }))
+	}
+	runChecks(t, baseEvent, Event.Validate, cases)
+}
+
+// TestTicketURLProblem pins the rule the form and the store share, and its
+// message: any whitespace anywhere in the link is refused with the same text as
+// a link that is not an http or https address.
+func TestTicketURLProblem(t *testing.T) {
+	const msg = "informe um endereço que comece com http:// ou https://"
+	tests := []struct {
+		name, in, want string
+	}{
+		{"empty", "", ""},
+		{"https", "https://a.example/x?a=1#b", ""},
+		{"http with a port", "http://localhost:8080/x", ""},
+		{"percent-encoded space", "https://a.example/x%20y", ""},
+		{"space in the path", "https://a.example/x y", msg},
+		{"space in the host", "http://exa mple.com", msg},
+		{"no-break space in the path", "https://a.example/x y", msg},
+		{"ideographic space in the query", "https://a.example/?q=a　b", msg},
+		{"leading space", " https://a.example", msg},
+		{"no scheme", "a.example/x", msg},
+		{"javascript scheme", "javascript:alert(1)", msg},
+		{"no host", "https:///x", msg},
+		{"does not parse", "https://exa%zzmple.com", msg},
+		{"tab in the path", "https://a.example/x\ty", MsgControl},
+		{"line break", "https://a.example/\n", MsgControl},
+		{"not UTF-8", "https://a.example/\xff", MsgInvalid},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := TicketURLProblem(tc.in); got != tc.want {
+				t.Errorf("TicketURLProblem(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestMsgPriceRange pins the text of the price message and that Event.Validate
+// answers with it.
+func TestMsgPriceRange(t *testing.T) {
+	const want = "informe um preço de R$ 0,01 a R$ 99999,99"
+	if MsgPriceRange != want {
+		t.Errorf("MsgPriceRange = %q, want %q", MsgPriceRange, want)
+	}
+	e := baseEvent()
+	e.PriceCents = EventPriceMax + 1
+	var fe FieldErrors
+	if err := e.Validate(); !errors.As(err, &fe) || fe["price_cents"] != want {
+		t.Errorf("Validate() = %v, want price_cents %q", err, want)
+	}
+}
+
 func TestFieldErrors(t *testing.T) {
 	var _ error = FieldErrors(nil)
 
@@ -368,6 +656,19 @@ func TestFieldErrors(t *testing.T) {
 		}
 		if got["name"] != "obrigatório" || got["email"] != "informe um e-mail válido" || len(got) != 2 {
 			t.Errorf("fields = %v", got)
+		}
+	})
+
+	t.Run("AddIf records only a message", func(t *testing.T) {
+		var fe FieldErrors
+		fe.AddIf("name", "")
+		if err := fe.Err(); err != nil {
+			t.Fatalf("Err() = %v after AddIf with no message, want nil", err)
+		}
+		fe.AddIf("name", "obrigatório")
+		fe.AddIf("email", "")
+		if len(fe) != 1 || fe["name"] != "obrigatório" {
+			t.Errorf("fields = %v, want only name", fe)
 		}
 	})
 

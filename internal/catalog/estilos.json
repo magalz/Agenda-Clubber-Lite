@@ -1,0 +1,263 @@
+{
+  "techno": [
+    "acid techno",
+    "ambient techno",
+    "deep techno",
+    "dub techno",
+    "experimental techno",
+    "hard techno",
+    "hypnotic techno",
+    "industrial techno",
+    "melodic techno",
+    "minimal techno",
+    "raw techno"
+  ],
+  "house": [
+    "acid house",
+    "afro house",
+    "bass house",
+    "deep house",
+    "disco house",
+    "electro house",
+    "french house",
+    "funky house",
+    "future house",
+    "garage house",
+    "hard house",
+    "hip house",
+    "jackin' house",
+    "jazz house",
+    "latin house",
+    "lo-fi house",
+    "microhouse",
+    "organic house",
+    "piano house",
+    "progressive house",
+    "slap house",
+    "soulful house",
+    "tech house",
+    "tribal house",
+    "tropical house"
+  ],
+  "trance": [
+    "acid trance",
+    "balearic trance",
+    "goa trance",
+    "hard trance",
+    "progressive trance",
+    "psytrance",
+    "tech trance",
+    "uplifting trance",
+    "vocal trance"
+  ],
+  "drum and bass": [
+    "dancefloor drum and bass",
+    "darkstep",
+    "drumfunk",
+    "jungle",
+    "liquid drum and bass",
+    "neurofunk"
+  ],
+  "breakbeat": [
+    "big beat",
+    "breaks",
+    "funky breaks",
+    "hardcore breaks",
+    "progressive breaks",
+    "psybreaks"
+  ],
+  "uk garage": [
+    "2-step",
+    "bassline",
+    "future garage",
+    "speed garage",
+    "uk funky"
+  ],
+  "dubstep": [
+    "brostep",
+    "deep dubstep",
+    "deathstep",
+    "melodic dubstep",
+    "riddim dubstep"
+  ],
+  "bass music": [
+    "electronic trap",
+    "experimental bass",
+    "future bass",
+    "glitch hop",
+    "miami bass",
+    "psybass",
+    "uk bass",
+    "wave"
+  ],
+  "hardstyle": [
+    "euphoric hardstyle",
+    "jumpstyle"
+  ],
+  "hardcore eletrônico": [
+    "breakcore",
+    "digital hardcore",
+    "frenchcore",
+    "gabber",
+    "happy hardcore",
+    "industrial hardcore",
+    "makina",
+    "speedcore",
+    "uptempo hardcore"
+  ],
+  "tekno": [
+    "acidcore",
+    "hardtekk",
+    "raggatek"
+  ],
+  "electro": [
+    "electroclash",
+    "electro funk"
+  ],
+  "disco": [
+    "dark disco",
+    "hi-nrg",
+    "italo disco",
+    "nu disco",
+    "space disco"
+  ],
+  "dance": [
+    "dance pop",
+    "eurodance",
+    "freestyle",
+    "hard bass",
+    "italo dance"
+  ],
+  "electronica": [
+    "chiptune",
+    "electro swing",
+    "experimental electronic",
+    "glitch",
+    "idm",
+    "indietronica"
+  ],
+  "downtempo": [
+    "balearic",
+    "chillout",
+    "chillstep",
+    "lo-fi beats",
+    "lounge",
+    "psychill",
+    "trip hop"
+  ],
+  "ambient": [
+    "dark ambient",
+    "drone ambient",
+    "space ambient"
+  ],
+  "industrial": [
+    "dark electro",
+    "ebm",
+    "electro-industrial",
+    "power electronics",
+    "power noise"
+  ],
+  "synthpop": [
+    "electropop",
+    "minimal synth"
+  ],
+  "synthwave": [
+    "chillsynth",
+    "darksynth"
+  ],
+  "vaporwave": [
+    "chillwave",
+    "future funk"
+  ],
+  "darkwave": [
+    "coldwave",
+    "ethereal wave",
+    "witch house"
+  ],
+  "club": [
+    "deconstructed club",
+    "footwork",
+    "jersey club"
+  ],
+  "phonk": [
+    "brazilian phonk",
+    "drift phonk"
+  ],
+  "funk carioca": [
+    "brega funk",
+    "funk mandelao",
+    "funk melody",
+    "funk mtg"
+  ],
+  "eletrônica latina": [
+    "dembow",
+    "electro latino",
+    "guaracha",
+    "moombahton",
+    "nu-cumbia",
+    "reggaeton",
+    "rkt",
+    "tecnobrega"
+  ],
+  "eletrônica africana": [
+    "amapiano",
+    "gqom",
+    "kuduro",
+    "kwaito",
+    "singeli"
+  ],
+  "hip hop": [
+    "drill",
+    "grime",
+    "trap"
+  ],
+  "pop": [],
+  "rock": [],
+  "punk": [],
+  "metal": [],
+  "r&b": [],
+  "soul": [],
+  "funk": [],
+  "jazz": [],
+  "blues": [],
+  "country": [],
+  "folk": [],
+  "reggae": [
+    "dancehall",
+    "dub",
+    "ska"
+  ],
+  "afrobeat e afropop": [],
+  "música brasileira": [
+    "arrocha",
+    "axé",
+    "bossa nova",
+    "brega",
+    "carimbó",
+    "choro",
+    "forró",
+    "frevo",
+    "maracatu",
+    "mpb",
+    "pagode",
+    "samba",
+    "sertanejo"
+  ],
+  "música latina e caribenha": [
+    "bachata",
+    "bolero",
+    "cumbia",
+    "merengue",
+    "salsa",
+    "tango",
+    "zouk"
+  ],
+  "música clássica": [],
+  "músicas tradicionais e regionais": [],
+  "música religiosa": [],
+  "música infantil": [],
+  "trilhas sonoras e musicais": [],
+  "new age e meditação": [],
+  "experimental e noise": [],
+  "áudio não musical": []
+}
