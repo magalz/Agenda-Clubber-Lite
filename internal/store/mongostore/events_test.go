@@ -188,8 +188,9 @@ func TestEventUpdateRemovesTheFieldsThatBecameEmpty(t *testing.T) {
 	}
 }
 
-// An event that outlives its collective (the cascade is a later task, and a race
-// can leave one behind) is still read, with no collective name.
+// An event that outlives its collective (Collectives.Delete removes its events,
+// but a Create that runs at the same time can leave one behind) is still read,
+// with no collective name.
 func TestEventByIDWithoutItsCollectiveHasAnEmptyName(t *testing.T) {
 	s, ana, _, c := eventsFixture(t)
 	repo := s.Repos().Events

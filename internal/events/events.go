@@ -12,7 +12,8 @@
 //     and the day list.
 //   - Creating needs an active account that is an approved Administrador (the
 //     stored role owner) of an approved collective without the event block
-//     (Collective.EventsBlocked). The form offers only such collectives.
+//     (Collective.EventsBlocked); the block never stops the site admin. The form
+//     offers only collectives without the block, to the admin too.
 //   - Editing and deleting need an approved Administrador of the event's
 //     collective, or the site admin (User.IsAdmin). The event block stops the
 //     Administradores from editing and deleting too; it never stops the admin.

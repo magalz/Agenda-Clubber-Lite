@@ -210,7 +210,7 @@ func TestEvfNewPage(t *testing.T) {
 	}
 	wantAll(t, "the type select", evfSelect(t, body, "type"), `>Festa</option>`, `>Outros</option>`)
 
-	// The fields a later task binds to, and how a browser should treat them.
+	// The fields the form's script components bind to, and how a browser should treat them.
 	wantAll(t, "date", evfInput(t, body, "date"), `id="date"`, `type="text"`, `inputmode="numeric"`, `placeholder="dd/mm/aaaa"`)
 	wantAll(t, "time", evfInput(t, body, "time"), `placeholder="HH:MM"`)
 	wantAll(t, "hours", evfInput(t, body, "duration_hours"), `type="number"`, `min="0"`, `max="23"`)

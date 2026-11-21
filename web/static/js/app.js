@@ -1078,8 +1078,8 @@
     });
 
     // The calendar page (pages/app/home): the month as an app, over markup that already works as plain links. The root
-    // (.calendar-page) wraps the month (#calendar-month) and the sheet (<dialog id="evento-sheet">), so the listeners
-    // are delegated and the HTML a swap brings needs no setup. Only a plain left click is taken: a modifier key, the
+    // (the x-data element, which init marks calendar-page--js) wraps the month (#calendar-month) and the sheet
+    // (<dialog id="evento-sheet">), so the listeners are delegated and the HTML a swap brings needs no setup. Only a plain left click is taken: a modifier key, the
     // middle button, no script or a request that fails all follow the link instead.
     //  - A chip loads the event (the HTMX answer of GET /eventos/:id) into the sheet and opens it. Closing it, by Esc or
     //    [✕], gives the focus back to the chip, or to the same event's chip in the month that replaced it, or to the day

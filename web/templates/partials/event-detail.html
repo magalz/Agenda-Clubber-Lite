@@ -1,8 +1,8 @@
 {{/* The content of an event: the answer to an HTMX GET /eventos/:id (the calendar's sheet) and the body of the event page.
      Data is an eventDetailData: the event (Name, Type, TypeOther, StartsAt, DurationMin, Free, PriceCents, Style, Substyle,
      StyleOther, State, City, Venue, Artists, Description, CollectiveName), CanEdit and CanDelete (the same people),
-     EditURL and DeleteURL (the escaped paths of the edit page and of the deletion), Blocked (the collective's events are
-     blocked), TicketHref (an http or https link, or empty), BlockedNote (tell an Administrador why the event is read-only)
+     EditURL and DeleteURL (the escaped paths of the edit page and of the deletion), EditBlocked (mayEdit refused the viewer
+     only because of the block), TicketHref (an http or https link, or empty), BlockedNote (tell an Administrador why the event is read-only)
      and Alert (the reason a refused deletion gives; it replaces the note).
      Everything the people wrote is escaped by html/template and shown with its line breaks (.text-pre-line); the ticket link
      is the only link from user data, and carries the rel and target the project requires. The delete form is inside a
