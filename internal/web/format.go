@@ -2,12 +2,11 @@ package web
 
 import (
 	"fmt"
-	"strconv"
-	"strings"
 	"time"
 
 	"github.com/magalz/agenda-clubber-lite/internal/catalog"
 	"github.com/magalz/agenda-clubber-lite/internal/domain"
+	"github.com/magalz/agenda-clubber-lite/internal/events"
 )
 
 // The pt-BR formatting the templates use. Every function takes a time.Time
@@ -29,13 +28,13 @@ var monthsPT = [...]string{
 
 // fmtDate is "14/11/2026".
 func fmtDate(t time.Time, loc *time.Location) string {
-	return t.In(loc).Format("02/01/2006")
+	return t.In(loc).Format(events.DateLayout)
 }
 
 // fmtDateLong is "sábado, 14/11/2026".
 func fmtDateLong(t time.Time, loc *time.Location) string {
 	l := t.In(loc)
-	return weekdaysPT[l.Weekday()] + ", " + l.Format("02/01/2006")
+	return weekdaysPT[l.Weekday()] + ", " + l.Format(events.DateLayout)
 }
 
 // fmtMonthYear is "NOVEMBRO 2026".
@@ -82,15 +81,7 @@ func fmtPrice(free bool, cents int64) string {
 	if free {
 		return "Free"
 	}
-	reais := strconv.FormatInt(cents/100, 10)
-	var b strings.Builder
-	for i := 0; i < len(reais); i++ {
-		if i > 0 && (len(reais)-i)%3 == 0 {
-			b.WriteByte('.')
-		}
-		b.WriteByte(reais[i])
-	}
-	return fmt.Sprintf("R$ %s,%02d", b.String(), cents%100)
+	return "R$ " + events.FormatCents(cents)
 }
 
 // fmtEventType is the label of an event's type, as the badges show it: the text

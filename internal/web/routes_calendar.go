@@ -13,9 +13,9 @@ import (
 )
 
 // The month calendar. GET / is the page and GET /calendario is only its month
-// (the filter and the grid), for the HTMX swap a later task adds. Both read
-// ?mes=AAAA-MM, ?uf= and ?cidade=. Everything works as plain links and a GET
-// form, so the page is usable without JavaScript.
+// (the filter and the grid), which the page's script swaps in without a reload.
+// Both read ?mes=AAAA-MM, ?uf= and ?cidade=. Everything works as plain links and
+// a GET form, so the page is usable without JavaScript.
 
 // calendarNotices are the texts ?msg= can show on the page. Only a code in this
 // list shows anything, and the code itself is never echoed.
