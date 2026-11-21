@@ -2,7 +2,6 @@ package web
 
 import (
 	"bytes"
-	"io/fs"
 	"log/slog"
 	"net/http"
 	"regexp"
@@ -10,7 +9,6 @@ import (
 	"testing"
 
 	"github.com/magalz/agenda-clubber-lite/internal/config"
-	webfs "github.com/magalz/agenda-clubber-lite/web"
 )
 
 // navItems are the sidebar entries in order: Nav key, label and target.
@@ -241,40 +239,100 @@ func TestAppShellMarksTheActiveItem(t *testing.T) {
 }
 
 // The Alpine CSP build has no expression evaluator: every Alpine attribute in a
-// template must name a property or method that app.js registers.
+// template must name a property or method of a component whose x-data scope
+// encloses it. Alpine merges nested scopes, so the shell's members are available
+// inside every component on the page. Checked on each page with Alpine markup
+// that has a fixture here: the calendar and the event form's create and edit.
 func TestAlpineAttributesNameRegisteredMembers(t *testing.T) {
-	js, err := fs.ReadFile(webfs.Static, "static/js/app.js")
-	if err != nil {
-		t.Fatal(err)
+	js := dynRead(t, "static/js/app.js")
+	scopes := dynScopes(js)
+	if len(scopes) == 0 {
+		t.Fatal("dynScopes found no Alpine.data components in app.js")
 	}
-	app := newTestApp(t)
-	body := renderHome(t, app, "calendario", &ViewUser{ID: "u1", Name: "Ana", IsAdmin: true, CanCreateEvents: true})
-
 	attr := regexp.MustCompile(`\s(x-[a-z-]+|@[a-z.]+|:[a-z-]+)="([^"]*)"`)
 	ident := regexp.MustCompile(`^[A-Za-z_$][A-Za-z0-9_$]*$`)
-	matches := attr.FindAllStringSubmatch(body, -1)
-	if len(matches) == 0 {
-		t.Fatal("no Alpine attribute found; the check would pass vacuously")
+
+	app := newTestApp(t)
+	forms := ewRender(t, newEvfEnv(t))
+	pages := []struct {
+		name    string
+		body    string
+		widgets bool // the event form must carry all four widget components
+	}{
+		{"home", renderHome(t, app, "calendario", &ViewUser{ID: "u1", Name: "Ana", IsAdmin: true, CanCreateEvents: true}), false},
+		{"create form", forms.create, true},
+		{"edit form", forms.edit, true},
 	}
-	for _, m := range matches {
-		name, value := m[1], m[2]
-		if !ident.MatchString(value) {
-			t.Errorf(`%s="%s" is an expression; the CSP build only takes a property or method name`, name, value)
-			continue
-		}
-		switch {
-		case name == "x-data":
-			if !strings.Contains(string(js), "Alpine.data('"+value+"'") {
-				t.Errorf("x-data=%q is not registered with Alpine.data in app.js", value)
+
+	for _, p := range pages {
+		t.Run(p.name, func(t *testing.T) {
+			if p.widgets {
+				for _, c := range ewComponents {
+					if !strings.Contains(p.body, `x-data="`+c+`"`) {
+						t.Errorf("the form has no x-data=%q", c)
+					}
+				}
 			}
-		case name == "x-ref":
-		default:
-			// A member is a property ("open:"), a getter ("get expanded()") or a method ("toggle()").
-			member := regexp.MustCompile(`(?m)^\s*(get\s+)?` + regexp.QuoteMeta(value) + `\s*[(:]`)
-			if !member.Match(js) {
-				t.Errorf(`%s="%s" is not a member of the component in app.js`, name, value)
+
+			// Each x-data element opens a scope that runs to the end of its tag.
+			type scope struct {
+				start, end int
+				name       string
 			}
-		}
+			var xdata []scope
+			for _, m := range attr.FindAllStringSubmatchIndex(p.body, -1) {
+				if p.body[m[2]:m[3]] != "x-data" {
+					continue
+				}
+				name := p.body[m[4]:m[5]]
+				if !ident.MatchString(name) {
+					t.Errorf(`x-data="%s" is not a component name`, name)
+					continue
+				}
+				if !strings.Contains(js, "Alpine.data('"+name+"'") {
+					t.Errorf("x-data=%q is not registered with Alpine.data in app.js", name)
+					continue
+				}
+				start := strings.LastIndex(p.body[:m[0]+1], "<")
+				xdata = append(xdata, scope{start: start, end: dynClose(t, p.body, start), name: name})
+			}
+			if len(xdata) == 0 {
+				t.Fatal("no x-data element found; the check would pass vacuously")
+			}
+
+			found := 0
+			for _, m := range attr.FindAllStringSubmatchIndex(p.body, -1) {
+				name, value := p.body[m[2]:m[3]], p.body[m[4]:m[5]]
+				found++
+				if !ident.MatchString(value) {
+					t.Errorf(`%s="%s" is an expression; the CSP build only takes a property or method name`, name, value)
+					continue
+				}
+				if name == "x-data" || name == "x-ref" {
+					continue
+				}
+				var enclosing []string
+				members := map[string]bool{}
+				for _, s := range xdata {
+					if s.start <= m[0] && m[0] < s.end {
+						enclosing = append(enclosing, s.name)
+						for _, member := range scopes[s.name] {
+							members[member] = true
+						}
+					}
+				}
+				if len(enclosing) == 0 {
+					t.Errorf(`%s="%s" is outside every x-data scope`, name, value)
+					continue
+				}
+				if !members[value] {
+					t.Errorf(`%s="%s" is not a member of any enclosing component %v`, name, value, enclosing)
+				}
+			}
+			if found < 5 {
+				t.Errorf("only %d Alpine attributes found; the check would be weak", found)
+			}
+		})
 	}
 }
 

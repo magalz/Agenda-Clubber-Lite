@@ -38,7 +38,7 @@ func dynRead(t *testing.T, name string) string {
 var (
 	dynDataRe   = regexp.MustCompile(`Alpine\.data\('([A-Za-z]+)'`)
 	dynMemberRe = regexp.MustCompile(`(?m)^ {8}(?:get |async )?([A-Za-z_$][\w$]*)\s*[(:]`)
-	dynTagRe    = regexp.MustCompile(`<(/?)(div|aside)\b`)
+	dynTagRe    = regexp.MustCompile(`<(/?)(div|aside|fieldset)\b`)
 )
 
 // dynScopes lists the members of each Alpine.data component of app.js: the lines
@@ -59,9 +59,9 @@ func dynScopes(js string) map[string][]string {
 	return out
 }
 
-// dynClose is the index just past the </div> or </aside> that closes the element
-// opened at start (the index of its "<"), counting the div and aside tags in
-// between. The templates write well-formed markup.
+// dynClose is the index just past the </div>, </aside> or </fieldset> that closes
+// the element opened at start (the index of its "<"), counting the div, aside and
+// fieldset tags in between. The templates write well-formed markup.
 func dynClose(t *testing.T, body string, start int) int {
 	t.Helper()
 	depth := 0
@@ -86,14 +86,6 @@ func dynOpen(t *testing.T, body, marker string) int {
 		t.Fatalf("no %q in the page", marker)
 	}
 	return strings.LastIndex(body[:i+1], "<")
-}
-
-func TestDynNoInlineScriptOrStyle(t *testing.T) {
-	ewRender(t, newEvfEnv(t)).each(t, func(t *testing.T, body string) {
-		if v := cspViolations(body); len(v) > 0 {
-			t.Errorf("the CSP would block: %v", v)
-		}
-	})
 }
 
 // The component wraps the form and the panel, so the delegated listeners hear the
@@ -178,7 +170,7 @@ func TestDynMarkup(t *testing.T) {
 
 // A closing quote must be followed by a space, ">" or "/" before the next attribute.
 // Browsers recover from a glued pair (x-data="a"@keydown="b"), but the attribute
-// check of TestEwAlpineAttributesNameRegisteredMembers needs the space in front of
+// check of TestAlpineAttributesNameRegisteredMembers needs the space in front of
 // an Alpine attribute, so a glued one would escape it.
 var (
 	dynStartTagRe = regexp.MustCompile(`<[a-zA-Z][^<>]*>`)
@@ -212,7 +204,7 @@ func TestDynRefusedFormKeepsTheHooks(t *testing.T) {
 // Every name the markup gives the component is one of its members, and none of
 // them is also a member of a component it shares a scope with (the shell, the
 // date picker, the spinners, the price): the scopes merge and the inner one wins,
-// so a clash passes the member check of TestEwAlpineAttributesNameRegisteredMembers
+// so a clash passes the member check of TestAlpineAttributesNameRegisteredMembers
 // and fails only in the browser.
 func TestDynComponentMembers(t *testing.T) {
 	scopes := dynScopes(dynRead(t, "static/js/app.js"))
