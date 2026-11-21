@@ -8,7 +8,6 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/http"
-	"net/http/httptest"
 	"net/url"
 	"regexp"
 	"slices"
@@ -27,48 +26,19 @@ import (
 
 // --- helpers (prefix cal) ---
 
-// calEnv is the shared cast and a router. Everyone signed in sees the same
-// calendar, so the requests go out as the Outsider, who owns nothing.
-type calEnv struct {
-	evWorld
-	r http.Handler
-}
+// calEnv is the shared cast with the calendar's own way to name an instant.
+// Everyone signed in sees the same calendar, so its requests go out through body,
+// as the Outsider, who owns nothing.
+type calEnv struct{ evWorld }
 
 func newCalEnv(t *testing.T) calEnv {
 	t.Helper()
-	w := newEvWorld(t)
-	return calEnv{evWorld: w, r: w.App.Router()}
+	return calEnv{newEvWorld(t)}
 }
 
 // at is the instant of a day of 2026 at the hour, in the app's zone.
 func (e calEnv) at(month time.Month, day, hour int) time.Time {
 	return time.Date(2026, month, day, hour, 0, 0, 0, e.App.Cfg.Location).UTC()
-}
-
-// event stores an event of Alfa called name that starts at the instant.
-func (e calEnv) event(t *testing.T, name string, starts time.Time, mutate ...func(*domain.Event)) domain.Event {
-	t.Helper()
-	set := func(ev *domain.Event) { ev.Name, ev.StartsAt = name, starts }
-	return evEvent(t, e.Store, e.Alfa.ID, e.Owner.ID, append([]func(*domain.Event){set}, mutate...)...)
-}
-
-// calPlace puts the event in a place.
-func calPlace(state, city string) func(*domain.Event) {
-	return func(ev *domain.Event) { ev.State, ev.City = state, city }
-}
-
-func (e calEnv) get(target string, mod ...func(*http.Request)) *httptest.ResponseRecorder {
-	return serve(e.r, http.MethodGet, target, append([]func(*http.Request){withCookie(e.Cookie[e.Outsider.ID])}, mod...)...)
-}
-
-// body answers the GET and fails unless it is a 200.
-func (e calEnv) body(t *testing.T, target string, mod ...func(*http.Request)) string {
-	t.Helper()
-	rec := e.get(target, mod...)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("GET %s: %d %q; want 200", target, rec.Code, rec.Body)
-	}
-	return rec.Body.String()
 }
 
 // calCell is the <td> of a day, its opening tag included, or a failed test.
@@ -96,31 +66,6 @@ func calNames(s string) []string {
 // calChips are the opening tags of the chips (the links to an event) in s.
 func calChips(s string) []string {
 	return regexp.MustCompile(`<a [^>]*class="calendar__chip"[^>]*>`).FindAllString(s, -1)
-}
-
-// calHref is the href of the first link in s whose text starts with prefix,
-// read the way a browser does: unescaped, then parsed.
-func calHref(t *testing.T, s, prefix string) *url.URL {
-	t.Helper()
-	m := regexp.MustCompile(`<a ([^>]*)>\s*` + regexp.QuoteMeta(prefix)).FindStringSubmatch(s)
-	if m == nil {
-		t.Fatalf("no link whose text starts with %q in:\n%s", prefix, s)
-	}
-	return calAttrURL(t, m[1], "href")
-}
-
-// calAttrURL reads an attribute of a tag as a URL.
-func calAttrURL(t *testing.T, tag, name string) *url.URL {
-	t.Helper()
-	m := regexp.MustCompile(`(?:^|\s)` + name + `="([^"]*)"`).FindStringSubmatch(tag)
-	if m == nil {
-		t.Fatalf("no %s in %q", name, tag)
-	}
-	u, err := url.Parse(html.UnescapeString(m[1]))
-	if err != nil {
-		t.Fatalf("%s=%q: %v", name, m[1], err)
-	}
-	return u
 }
 
 // calMonthView is the grid of November 2026 (Sunday 01/11 to Saturday 05/12)
@@ -164,7 +109,7 @@ func TestCalendarShowsTheMonth(t *testing.T) {
 	night := evEvent(t, e.Store, e.Alfa.ID, e.Owner.ID) // Saturday 14/11 at 22:00, a Festa
 	next := e.event(t, "Feira de Natal", e.at(time.December, 2, 9), func(ev *domain.Event) { ev.Type = domain.EventTypeFeira })
 
-	rec := e.get("/")
+	rec := e.get(e.Outsider, "/")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("GET /: %d %q", rec.Code, rec.Body)
 	}
@@ -176,7 +121,7 @@ func TestCalendarShowsTheMonth(t *testing.T) {
 	// The bar: [‹] MÊS AAAA [›] and Hoje, each a link to a month.
 	inOrder(t, body, "[‹]", ">NOVEMBRO 2026</h2>", "[›]")
 	for prefix, want := range map[string]string{"[‹]": "2026-10", "[›]": "2026-12", "Hoje": "2026-11"} {
-		u := calHref(t, body, prefix)
+		u := evHref(t, body, prefix)
 		if u.Path != "/" || u.Query().Get("mes") != want {
 			t.Errorf("%s links to %q, want / with mes=%s", prefix, u, want)
 		}
@@ -202,7 +147,7 @@ func TestCalendarShowsTheMonth(t *testing.T) {
 	if len(chips) != 1 {
 		t.Fatalf("the 14th has %d chips, want 1: %s", len(chips), cell)
 	}
-	if got := calAttrURL(t, chips[0], "href"); got.Path != "/eventos/"+night.ID || got.RawQuery != "" {
+	if got := evAttrURL(t, chips[0], "href"); got.Path != "/eventos/"+night.ID || got.RawQuery != "" {
 		t.Errorf("the chip links to %q, want /eventos/%s", got, night.ID)
 	}
 	wantAll(t, "the chip", cell, ">22:00<", ">Noite Verde<", ">Festa<")
@@ -269,13 +214,13 @@ func TestCalendarMonthParameter(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			body := e.body(t, "/"+tt.query)
 			wantAll(t, "title", body, ">"+tt.title+"</h2>")
-			if got := calHref(t, body, "[‹]").Query().Get("mes"); got != tt.prev {
+			if got := evHref(t, body, "[‹]").Query().Get("mes"); got != tt.prev {
 				t.Errorf("previous = %q, want %q", got, tt.prev)
 			}
-			if got := calHref(t, body, "[›]").Query().Get("mes"); got != tt.next {
+			if got := evHref(t, body, "[›]").Query().Get("mes"); got != tt.next {
 				t.Errorf("next = %q, want %q", got, tt.next)
 			}
-			if got := calHref(t, body, "Hoje").Query().Get("mes"); got != "2026-11" {
+			if got := evHref(t, body, "Hoje").Query().Get("mes"); got != "2026-11" {
 				t.Errorf("Hoje = %q, want 2026-11", got)
 			}
 			names := calNames(body)
@@ -291,7 +236,7 @@ func TestCalendarMonthParameter(t *testing.T) {
 	// A month far out of range still answers: the grid reaches the store with
 	// dates it must accept.
 	for _, q := range []string{"?mes=0001-01", "?mes=9999-12"} {
-		if rec := e.get("/" + q); rec.Code != http.StatusOK {
+		if rec := e.get(e.Outsider, "/"+q); rec.Code != http.StatusOK {
 			t.Errorf("GET /%s: %d, want 200", q, rec.Code)
 		}
 	}
@@ -313,7 +258,7 @@ func TestCalendarListsEachDayInOrderAndCapsTheCell(t *testing.T) {
 		t.Errorf("the 21st lists %q, want %q (the first three by start time)", got, want)
 	}
 	// +N counts the rest and links to that day's list.
-	more := calHref(t, full, "+2")
+	more := evHref(t, full, "+2")
 	if more.Path != "/eventos/dia" || more.Query().Get("data") != "2026-11-21" {
 		t.Errorf("+2 links to %q, want /eventos/dia?data=2026-11-21", more)
 	}
@@ -332,7 +277,7 @@ func TestCalendarListsEachDayInOrderAndCapsTheCell(t *testing.T) {
 
 	// Each day number links to that day's list, for the compact grid.
 	for _, day := range []string{"2026-11-21", "2026-11-23", "2026-12-05"} {
-		u := calHref(t, calCell(t, body, day), "<")
+		u := evHref(t, calCell(t, body, day), "<")
 		if u.Path != "/eventos/dia" || u.Query().Get("data") != day {
 			t.Errorf("the number of %s links to %q", day, u)
 		}
@@ -364,11 +309,11 @@ func TestCalendarDayLinksKeepTheFilter(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			body := e.body(t, "/"+tt.query)
 			links := map[string]*url.URL{
-				"the number of the 21st": calHref(t, calCell(t, body, "2026-11-21"), "<"),
-				"the number of the 23rd": calHref(t, calCell(t, body, "2026-11-23"), "<"),
+				"the number of the 21st": evHref(t, calCell(t, body, "2026-11-21"), "<"),
+				"the number of the 23rd": evHref(t, calCell(t, body, "2026-11-23"), "<"),
 			}
 			if tt.more {
-				links["+2"] = calHref(t, calCell(t, body, "2026-11-21"), "+2")
+				links["+2"] = evHref(t, calCell(t, body, "2026-11-21"), "+2")
 			} else if strings.Contains(calCell(t, body, "2026-11-21"), "calendar__more") {
 				t.Errorf("the 21st shows +N under %s", tt.query)
 			}
@@ -437,15 +382,17 @@ func TestCalendarFilter(t *testing.T) {
 			// The state options: todos first, then exactly the states that have events
 			// (the state being filtered is kept, so the select shows what the grid shows).
 			wantAll(t, "state options", state, `<option value="">todos os estados</option>`)
-			if got := calOptions(state); !slices.Equal(got, tt.states) {
-				t.Errorf("state options = %q, want %q", got, tt.states)
+			states, selectedState := evValues(state)
+			if want := append([]string{""}, tt.states...); !slices.Equal(states, want) {
+				t.Errorf("state options = %q, want %q", states, want)
 			}
 			wantAll(t, "city options", city, `<option value="">todas as cidades</option>`)
-			if got := calSelected(state); got != tt.state {
-				t.Errorf("selected state = %q, want %q", got, tt.state)
+			cities, selectedCity := evValues(city)
+			if selectedState != tt.state {
+				t.Errorf("selected state = %q, want %q", selectedState, tt.state)
 			}
-			if got := calSelected(city); got != tt.city {
-				t.Errorf("selected city = %q, want %q", got, tt.city)
+			if selectedCity != tt.city {
+				t.Errorf("selected city = %q, want %q", selectedCity, tt.city)
 			}
 			// The city options are the cities with events in the chosen state; with no
 			// state the select is disabled, so the browser does not send it.
@@ -464,30 +411,11 @@ func TestCalendarFilter(t *testing.T) {
 					t.Errorf("the hint about choosing a state shows with state %s", tt.state)
 				}
 			}
-			if got := calOptions(city); !slices.Equal(got, tt.cities) {
-				t.Errorf("city options = %q, want %q", got, tt.cities)
+			if want := append([]string{""}, tt.cities...); !slices.Equal(cities, want) {
+				t.Errorf("city options = %q, want %q", cities, want)
 			}
 		})
 	}
-}
-
-// calSelected is the value of the option marked selected in a select, "" for none
-// (todos has the empty value).
-func calSelected(sel string) string {
-	m := regexp.MustCompile(`<option value="([^"]*)" selected`).FindStringSubmatch(sel)
-	if m == nil {
-		return ""
-	}
-	return html.UnescapeString(m[1])
-}
-
-// calOptions are the values of a select's options other than todos.
-func calOptions(sel string) []string {
-	var out []string
-	for _, m := range regexp.MustCompile(`<option value="([^"]+)"`).FindAllStringSubmatch(sel, -1) {
-		out = append(out, html.UnescapeString(m[1]))
-	}
-	return out
 }
 
 // The month links and Hoje keep the filter, and the form keeps the month, so
@@ -498,7 +426,7 @@ func TestCalendarLinksKeepTheFilterAndTheMonth(t *testing.T) {
 	body := e.body(t, "/?mes=2026-12&uf=CE&cidade=Sobral")
 
 	for prefix, mes := range map[string]string{"[‹]": "2026-11", "[›]": "2027-01", "Hoje": "2026-11"} {
-		u := calHref(t, body, prefix)
+		u := evHref(t, body, prefix)
 		q := u.Query()
 		if u.Path != "/" || q.Get("mes") != mes || q.Get("uf") != "CE" || q.Get("cidade") != "Sobral" || len(q) != 3 {
 			t.Errorf("%s links to %q, want / with mes=%s&uf=CE&cidade=Sobral", prefix, u, mes)
@@ -512,7 +440,7 @@ func TestCalendarLinksKeepTheFilterAndTheMonth(t *testing.T) {
 
 	// Without a filter the links carry only the month.
 	body = e.body(t, "/")
-	if got := calHref(t, body, "[›]"); got.RawQuery != "mes=2026-12" {
+	if got := evHref(t, body, "[›]"); got.RawQuery != "mes=2026-12" {
 		t.Errorf("[›] without a filter links to %q, want /?mes=2026-12", got)
 	}
 }
@@ -534,7 +462,7 @@ func TestCalendarEveryoneSignedInSeesEveryEvent(t *testing.T) {
 		user domain.User
 	}{{"admin", e.Admin}, {"owner", e.Owner}, {"member", e.Member}, {"outsider", e.Outsider}} {
 		t.Run(who.name, func(t *testing.T) {
-			rec := serve(e.r, http.MethodGet, "/", withCookie(e.Cookie[who.user.ID]))
+			rec := e.get(who.user, "/")
 			if rec.Code != http.StatusOK {
 				t.Fatalf("GET /: %d %q; want 200", rec.Code, rec.Body)
 			}
@@ -544,13 +472,13 @@ func TestCalendarEveryoneSignedInSeesEveryEvent(t *testing.T) {
 			}
 			var links []string
 			for _, chip := range calChips(body) {
-				links = append(links, calAttrURL(t, chip, "href").Path)
+				links = append(links, evAttrURL(t, chip, "href").Path)
 			}
 			if !slices.Equal(links, wantLinks) {
 				t.Errorf("chip links = %q, want %q", links, wantLinks)
 			}
 			// The month swap answers the same.
-			rec = serve(e.r, http.MethodGet, "/calendario", withCookie(e.Cookie[who.user.ID]))
+			rec = e.get(who.user, "/calendario")
 			if got := calNames(rec.Body.String()); rec.Code != http.StatusOK || !slices.Equal(got, wantNames) {
 				t.Errorf("GET /calendario: %d, events %q; want 200 and %q", rec.Code, got, wantNames)
 			}
@@ -569,7 +497,7 @@ func TestCalendarPartial(t *testing.T) {
 		t.Run(query, func(t *testing.T) {
 			page := e.body(t, "/"+query)
 			for _, mod := range [][]func(*http.Request){nil, {hx}} {
-				rec := e.get("/calendario"+query, mod...)
+				rec := e.get(e.Outsider, "/calendario"+query, mod...)
 				if rec.Code != http.StatusOK {
 					t.Fatalf("GET /calendario%s: %d %q", query, rec.Code, rec.Body)
 				}
@@ -717,7 +645,7 @@ func TestCalendarEscapesWhatItShows(t *testing.T) {
 	if len(chips) != 1 {
 		t.Fatalf("%d chips, want 1: %s", len(chips), cell)
 	}
-	u := calAttrURL(t, chips[0], "href")
+	u := evAttrURL(t, chips[0], "href")
 	if u.EscapedPath() != "/eventos/a%2Fb%3Fc=d&e%23f" || u.RawQuery != "" || u.Fragment != "" {
 		t.Errorf("the chip links to %q, want the ID escaped as one path segment", u)
 	}
@@ -739,7 +667,7 @@ func TestCalendarServerError(t *testing.T) {
 	for _, target := range []string{"/", "/calendario", "/?mes=2026-12&uf=CE"} {
 		t.Run(target, func(t *testing.T) {
 			logs.Reset()
-			rec := e.get(target)
+			rec := e.get(e.Outsider, target)
 			if rec.Code != http.StatusInternalServerError || rec.Body.String() != "erro interno" {
 				t.Fatalf("GET %s: %d %q; want 500 erro interno", target, rec.Code, rec.Body)
 			}

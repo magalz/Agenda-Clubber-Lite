@@ -22,12 +22,11 @@ const (
 	evdNoID        = "000000000000000000000000"
 )
 
-// evdEnv is the shared cast (evWorld) behind a router, plus Dora, a Membro of
-// Delta (evWorld has no Membro there): Delta's events are blocked, so she is the
-// one who must not see the Administrador's note.
+// evdEnv is the shared cast (evWorld), plus Dora, a Membro of Delta (evWorld has
+// no Membro there): Delta's events are blocked, so she is the one who must not
+// see the Administrador's note.
 type evdEnv struct {
 	evWorld
-	r    http.Handler
 	dora domain.User
 }
 
@@ -37,16 +36,12 @@ func newEvdEnv(t *testing.T) evdEnv {
 	dora := insertWebUser(t, w.Store, "dora@agenda.test", func(u *domain.User) { u.Name = "Dora Teste" })
 	evMember(t, w.Store, dora.ID, w.Delta.ID, domain.RoleMember)
 	w.Cookie[dora.ID] = loginAs(t, w.App, dora)
-	return evdEnv{evWorld: w, r: w.App.Router(), dora: dora}
-}
-
-func (e evdEnv) get(u domain.User, target string, mod ...func(*http.Request)) *httptest.ResponseRecorder {
-	return serve(e.r, http.MethodGet, target, append([]func(*http.Request){withCookie(e.Cookie[u.ID])}, mod...)...)
+	return evdEnv{evWorld: w, dora: dora}
 }
 
 // del posts the deletion of the event id as u, from the app's own origin.
 func (e evdEnv) del(u domain.User, id string, mod ...func(*http.Request)) *httptest.ResponseRecorder {
-	return post(e.r, "/eventos/"+id+"/excluir", "", append([]func(*http.Request){withCookie(e.Cookie[u.ID])}, mod...)...)
+	return e.send(u, "/eventos/"+id+"/excluir", nil, mod...)
 }
 
 // exists reports whether the store still holds the event id.
