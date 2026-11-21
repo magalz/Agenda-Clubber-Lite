@@ -88,14 +88,6 @@ func dynOpen(t *testing.T, body, marker string) int {
 	return strings.LastIndex(body[:i+1], "<")
 }
 
-func TestDynNoInlineScriptOrStyle(t *testing.T) {
-	ewRender(t, newEvfEnv(t)).each(t, func(t *testing.T, body string) {
-		if v := cspViolations(body); len(v) > 0 {
-			t.Errorf("the CSP would block: %v", v)
-		}
-	})
-}
-
 // The component wraps the form and the panel, so the delegated listeners hear the
 // fields and the panel is in its scope; the other widgets sit inside it.
 func TestDynWrapsTheFormAndThePanel(t *testing.T) {
@@ -178,7 +170,7 @@ func TestDynMarkup(t *testing.T) {
 
 // A closing quote must be followed by a space, ">" or "/" before the next attribute.
 // Browsers recover from a glued pair (x-data="a"@keydown="b"), but the attribute
-// check of TestEwAlpineAttributesNameRegisteredMembers needs the space in front of
+// check of TestAlpineAttributesNameRegisteredMembers needs the space in front of
 // an Alpine attribute, so a glued one would escape it.
 var (
 	dynStartTagRe = regexp.MustCompile(`<[a-zA-Z][^<>]*>`)
@@ -212,7 +204,7 @@ func TestDynRefusedFormKeepsTheHooks(t *testing.T) {
 // Every name the markup gives the component is one of its members, and none of
 // them is also a member of a component it shares a scope with (the shell, the
 // date picker, the spinners, the price): the scopes merge and the inner one wins,
-// so a clash passes the member check of TestEwAlpineAttributesNameRegisteredMembers
+// so a clash passes the member check of TestAlpineAttributesNameRegisteredMembers
 // and fails only in the browser.
 func TestDynComponentMembers(t *testing.T) {
 	scopes := dynScopes(dynRead(t, "static/js/app.js"))

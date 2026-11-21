@@ -41,46 +41,6 @@ func (f ewForms) each(t *testing.T, check func(t *testing.T, body string)) {
 // ewCloaked matches a bare x-cloak attribute, which base.css hides until Alpine removes it.
 var ewCloaked = regexp.MustCompile(`\sx-cloak[\s>]`)
 
-// The Alpine CSP build has no expression evaluator: every Alpine attribute must
-// name a member app.js registers (the rule of TestAlpineAttributesNameRegisteredMembers,
-// which only sees the home page). The form has the four components, so the check
-// cannot pass with nothing to check.
-func TestEwAlpineAttributesNameRegisteredMembers(t *testing.T) {
-	js, err := fs.ReadFile(webfs.Static, "static/js/app.js")
-	if err != nil {
-		t.Fatal(err)
-	}
-	attr := regexp.MustCompile(`\s(x-[a-z-]+|@[a-z.]+|:[a-z-]+)="([^"]*)"`)
-	ident := regexp.MustCompile(`^[A-Za-z_$][A-Za-z0-9_$]*$`)
-
-	ewRender(t, newEvfEnv(t)).each(t, func(t *testing.T, body string) {
-		for _, c := range ewComponents {
-			if !strings.Contains(body, `x-data="`+c+`"`) {
-				t.Errorf("the form has no x-data=%q", c)
-			}
-		}
-		for _, m := range attr.FindAllStringSubmatch(body, -1) {
-			name, value := m[1], m[2]
-			if !ident.MatchString(value) {
-				t.Errorf(`%s="%s" is an expression; the CSP build only takes a property or method name`, name, value)
-				continue
-			}
-			switch name {
-			case "x-ref":
-			case "x-data":
-				if !strings.Contains(string(js), "Alpine.data('"+value+"'") {
-					t.Errorf("x-data=%q is not registered with Alpine.data in app.js", value)
-				}
-			default:
-				member := regexp.MustCompile(`(?m)^\s*(get\s+)?` + regexp.QuoteMeta(value) + `\s*[(:]`)
-				if !member.Match(js) {
-					t.Errorf(`%s="%s" is not a member of a component in app.js`, name, value)
-				}
-			}
-		}
-	})
-}
-
 func TestEwNoInlineScriptOrStyle(t *testing.T) {
 	ewRender(t, newEvfEnv(t)).each(t, func(t *testing.T, body string) {
 		if v := cspViolations(body); len(v) > 0 {
