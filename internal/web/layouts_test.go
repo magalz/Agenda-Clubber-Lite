@@ -238,43 +238,6 @@ func TestAppShellMarksTheActiveItem(t *testing.T) {
 	}
 }
 
-// alpClose is the index just past the closing tag of the element opened at start.
-// It counts that element's own tag name, so it also spans the <fieldset> that
-// holds the duration spinner (dynClose only counts div and aside).
-func alpClose(t *testing.T, body string, start int) int {
-	t.Helper()
-	open := regexp.MustCompile(`<([a-zA-Z][a-zA-Z0-9]*)\b`).FindStringSubmatchIndex(body[start:])
-	if open == nil {
-		t.Fatalf("no tag at %d", start)
-	}
-	tag := body[start+open[2] : start+open[3]]
-	starts := regexp.MustCompile(`<` + tag + `\b`)
-	ends := regexp.MustCompile(`</` + tag + `>`)
-	depth := 0
-	for pos := start; pos < len(body); {
-		o, c := starts.FindStringIndex(body[pos:]), ends.FindStringIndex(body[pos:])
-		switch {
-		case c == nil:
-			if o == nil {
-				t.Fatalf("the <%s> at %d is never closed", tag, start)
-			}
-			depth++
-			pos += o[1]
-		case o == nil || c[0] < o[0]:
-			depth--
-			pos += c[1]
-			if depth == 0 {
-				return pos
-			}
-		default:
-			depth++
-			pos += o[1]
-		}
-	}
-	t.Fatalf("the <%s> at %d is never closed", tag, start)
-	return 0
-}
-
 // The Alpine CSP build has no expression evaluator: every Alpine attribute in a
 // template must name a property or method of a component whose x-data scope
 // encloses it. Alpine merges nested scopes, so the shell's members are available
@@ -331,7 +294,7 @@ func TestAlpineAttributesNameRegisteredMembers(t *testing.T) {
 					continue
 				}
 				start := strings.LastIndex(p.body[:m[0]+1], "<")
-				xdata = append(xdata, scope{start: start, end: alpClose(t, p.body, start), name: name})
+				xdata = append(xdata, scope{start: start, end: dynClose(t, p.body, start), name: name})
 			}
 			if len(xdata) == 0 {
 				t.Fatal("no x-data element found; the check would pass vacuously")

@@ -38,7 +38,7 @@ func dynRead(t *testing.T, name string) string {
 var (
 	dynDataRe   = regexp.MustCompile(`Alpine\.data\('([A-Za-z]+)'`)
 	dynMemberRe = regexp.MustCompile(`(?m)^ {8}(?:get |async )?([A-Za-z_$][\w$]*)\s*[(:]`)
-	dynTagRe    = regexp.MustCompile(`<(/?)(div|aside)\b`)
+	dynTagRe    = regexp.MustCompile(`<(/?)(div|aside|fieldset)\b`)
 )
 
 // dynScopes lists the members of each Alpine.data component of app.js: the lines
@@ -59,9 +59,9 @@ func dynScopes(js string) map[string][]string {
 	return out
 }
 
-// dynClose is the index just past the </div> or </aside> that closes the element
-// opened at start (the index of its "<"), counting the div and aside tags in
-// between. The templates write well-formed markup.
+// dynClose is the index just past the </div>, </aside> or </fieldset> that closes
+// the element opened at start (the index of its "<"), counting the div, aside and
+// fieldset tags in between. The templates write well-formed markup.
 func dynClose(t *testing.T, body string, start int) int {
 	t.Helper()
 	depth := 0
