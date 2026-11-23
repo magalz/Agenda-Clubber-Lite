@@ -62,6 +62,18 @@ type Users interface {
 	// that cannot be normalized, or that nobody uses, is ErrNotFound.
 	ByEmail(ctx context.Context, email string) (User, error)
 
+	// UpdateProfile sets Name, Phone, PhoneIsWhatsApp and UpdatedAt (to now) on
+	// the user id and changes no other field. It is a filtered update: the
+	// values are the service's to validate, not the store's. A missing user is
+	// ErrNotFound.
+	UpdateProfile(ctx context.Context, id, name, phone string, phoneIsWhatsApp bool, now time.Time) error
+
+	// SetEmail sets Email to the NormalizeEmail form of email and UpdatedAt (to
+	// now) on the user id. An email that cannot be normalized, or a missing user,
+	// is ErrNotFound. Another user already using the email is ErrEmailTaken, the
+	// same error Create returns: uniqueness ignores the account being updated.
+	SetEmail(ctx context.Context, id, email string, now time.Time) error
+
 	// SetStatus sets Status and UpdatedAt (to now). A status that is not defined
 	// is a FieldErrors with the key "status". A missing user is ErrNotFound.
 	SetStatus(ctx context.Context, id string, status UserStatus, now time.Time) error
@@ -74,15 +86,31 @@ type Users interface {
 	// ChangePassword makes newHash the current hash and keeps the hash it
 	// replaces as the single previous one (the one before that is forgotten). It
 	// sets PasswordChangedAt and UpdatedAt (to now), sets FailedLogins to 0 and
-	// clears LockedUntil. An empty newHash is a FieldErrors with the key
-	// "password_hash". A missing user is ErrNotFound.
+	// clears LockedUntil. It also resets PasswordRemindedAt. An empty newHash is
+	// a FieldErrors with the key "password_hash". A missing user is ErrNotFound.
 	ChangePassword(ctx context.Context, id, newHash string, now time.Time) error
+
+	// MarkPasswordReminded sets PasswordRemindedAt (to now) on the user id. A
+	// missing user is ErrNotFound.
+	MarkPasswordReminded(ctx context.Context, id string, now time.Time) error
 
 	// ListByStatus returns the users with this status, the oldest CreatedAt first
 	// (ties by ID), at most limit of them, with limit clamped to the range 1 to
 	// ListLimitMax. A status that is not defined is a FieldErrors with the key
 	// "status".
 	ListByStatus(ctx context.Context, status UserStatus, limit int) ([]User, error)
+
+	// ListByStatusCreatedBefore returns the users with this status whose
+	// CreatedAt is before cutoff (strictly), the oldest CreatedAt first (ties by
+	// ID), at most limit of them, with limit clamped to the range 1 to
+	// ListLimitMax.
+	ListByStatusCreatedBefore(ctx context.Context, status UserStatus, cutoff time.Time, limit int) ([]User, error)
+
+	// ListActivePasswordChangedBetween returns the users with status active
+	// whose PasswordChangedAt is in [from, to), the end excluded, the earliest
+	// PasswordChangedAt first (ties by ID), at most limit of them, with limit
+	// clamped to the range 1 to ListLimitMax.
+	ListActivePasswordChangedBetween(ctx context.Context, from, to time.Time, limit int) ([]User, error)
 
 	// Approve moves the user from pending_approval to active and sets ApprovedBy
 	// (to by), ApprovedAt and UpdatedAt (to now). A user in any other status is
@@ -224,8 +252,8 @@ type Collectives interface {
 
 // MembershipView is a membership with the fields of its collective that a list
 // of the user's memberships shows. CollectiveEventsBlocked is the collective's
-// EventsBlocked, filled by Memberships.ListByUser and Memberships.ListAwaitingAdmin,
-// the two methods that return a MembershipView.
+// EventsBlocked, filled by Memberships.ListByUser and
+// Memberships.ListAwaitingAdmin, the two methods that return a MembershipView.
 type MembershipView struct {
 	Membership
 	CollectiveName          string
