@@ -414,6 +414,7 @@ func msPtr(t *time.Time) *time.Time {
 
 func normUser(u domain.User) domain.User {
 	u.PasswordChangedAt = ms(u.PasswordChangedAt)
+	u.PasswordRemindedAt = msPtr(u.PasswordRemindedAt)
 	u.LockedUntil = msPtr(u.LockedUntil)
 	u.EmailVerifiedAt = msPtr(u.EmailVerifiedAt)
 	u.ApprovedAt = msPtr(u.ApprovedAt)
