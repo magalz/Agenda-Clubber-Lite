@@ -538,14 +538,15 @@ func RunUsers(t *testing.T, newStore NewStore) {
 
 			ties := []string{tieA.ID, tieB.ID}
 			slices.Sort(ties)
-			all := append(append([]string{oldest.ID}, ties...), atCutoff.ID)
+			before := append([]string{oldest.ID}, ties...)
+			all := append(append([]string{}, before...), atCutoff.ID, later.ID)
 			got, err := e.r.Users.ListByStatusCreatedBefore(e.ctx, uPendingApproval, at(time.Hour), 10)
 			noErr(t, "ListByStatusCreatedBefore", err)
-			wantStrings(t, "IDs", userIDs(got), append(all, later.ID)...)
+			wantStrings(t, "IDs", userIDs(got), all...)
 
 			got, err = e.r.Users.ListByStatusCreatedBefore(e.ctx, uPendingApproval, at(0), 10)
 			noErr(t, "ListByStatusCreatedBefore at the cutoff", err)
-			wantStrings(t, "IDs before the cutoff", userIDs(got), all...)
+			wantStrings(t, "IDs before the cutoff", userIDs(got), before...)
 		}},
 		{"ListByStatusCreatedBefore clamps the limit to the range 1 to ListLimitMax", func(t *testing.T, e env) {
 			var ids []string
