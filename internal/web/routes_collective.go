@@ -100,7 +100,8 @@ func (a *App) collectiveShow(c *gin.Context) {
 // collectiveAct is the flow the five actions share. do runs the action of
 // internal/approvals, which decides for itself whether the person may take it; the
 // handler checks the person's tie to the collective first, so that somebody who is
-// not in it gets the 404 of the page, and not a 403 that says it exists. limited
+// not an approved Administrador of it gets the 404 of the page, and not a 403 that
+// says it exists. limited
 // counts the post against the person's budget (Limits.Requests) before the body is
 // read. A refused or failed post answers with the page, so the person sees the
 // current state. On success it redirects to the page with the notice code, or, when
@@ -127,7 +128,8 @@ func (a *App) collectiveAct(logMsg, code, selfCode string, limited bool, do func
 			c.String(http.StatusInternalServerError, "erro interno")
 			return
 		case m.Status != domain.MembershipStatusApproved || m.Role != domain.RoleOwner:
-			c.String(http.StatusForbidden, approvalsMsgNotAllowed)
+			// The page is 404 for them; a post must not say the collective exists.
+			answerNotFound(c)
 			return
 		}
 		now := a.Now()
