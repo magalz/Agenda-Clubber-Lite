@@ -8,6 +8,10 @@
   // The sidebar is a column from this width and a drawer below it (components.css).
   const DESKTOP = '(min-width: 1024px)';
 
+  // The tab stops the open drawer keeps the focus inside. Hidden controls are filtered out by the handler.
+  const FOCUSABLE =
+    'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
   // Phone: DDD + number, 10 or 11 digits (internal/domain PhoneMin, PhoneMax).
   const PHONE_MAX = 11;
 
@@ -331,9 +335,12 @@
     Alpine.data('shell', () => {
       let query;
       let onBreakpoint;
+      let onKeydown;
 
       return {
         open: false,
+        // The sidebar is a column from DESKTOP, so the drawer and its trap exist only while this is false.
+        wide: false,
         get expanded() {
           return this.open ? 'true' : 'false';
         },
@@ -343,6 +350,10 @@
         get toggleLabel() {
           return this.open ? '[✕] fechar' : '[≡] menu';
         },
+        // Main is inert only while the drawer covers the page; the wide sidebar is part of the page.
+        get mainInert() {
+          return this.open && !this.wide;
+        },
         toggle() {
           this.open = !this.open;
         },
@@ -351,16 +362,44 @@
           this.open = false;
           this.$refs.toggle.focus();
         },
+        // Tab wraps at the drawer's ends. Esc stays in the template's window handler and close() keeps the
+        // focus return. Focus arriving from the topbar is brought in, so it cannot wander through the page.
+        onDrawerKeydown(event) {
+          if (event.key !== 'Tab' || !this.mainInert) return;
+          const drawer = this.$root.querySelector('#menu-lateral');
+          const items = [...drawer.querySelectorAll(FOCUSABLE)].filter((item) => item.offsetParent !== null);
+          if (items.length === 0) return;
+          const first = items[0];
+          const last = items[items.length - 1];
+          const active = document.activeElement;
+          if (!drawer.contains(active)) {
+            event.preventDefault();
+            (event.shiftKey ? last : first).focus();
+            return;
+          }
+          if (event.shiftKey && active === first) {
+            event.preventDefault();
+            last.focus();
+          } else if (!event.shiftKey && active === last) {
+            event.preventDefault();
+            first.focus();
+          }
+        },
         // From 1024px the toggle is hidden, so close without moving focus to it.
         init() {
           query = window.matchMedia(DESKTOP);
+          this.wide = query.matches;
           onBreakpoint = (event) => {
+            this.wide = event.matches;
             if (event.matches) this.open = false;
           };
           query.addEventListener('change', onBreakpoint);
+          onKeydown = (event) => this.onDrawerKeydown(event);
+          window.addEventListener('keydown', onKeydown);
         },
         destroy() {
           query.removeEventListener('change', onBreakpoint);
+          window.removeEventListener('keydown', onKeydown);
         },
       };
     });

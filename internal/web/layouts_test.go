@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -86,7 +87,7 @@ func TestAppShellLoggedOut(t *testing.T) {
 		`<aside class="sidebar"`,
 		`</aside>`,
 		`<div class="sidebar-backdrop"`,
-		`<main id="conteudo" class="shell__main">`,
+		`<main id="conteudo" class="shell__main" :inert="mainInert">`,
 		"feito_por --dev=IgnisDev", // the footer sits inside main
 		`</main>`,
 	)
@@ -334,6 +335,84 @@ func TestAlpineAttributesNameRegisteredMembers(t *testing.T) {
 			}
 		})
 	}
+}
+
+// shellSource is the shell component of app.js, from Alpine.data('shell' to its closing. The checks below read only
+// it: a string the module's other components also hold would pass them whatever the shell does.
+func shellSource(t *testing.T, js string) string {
+	t.Helper()
+	shell := regexp.MustCompile(`(?s)Alpine\.data\('shell'.*?\n    \}\);\n`).FindString(js)
+	if shell == "" {
+		t.Fatalf("app.js has no shell component (Alpine.data('shell', ...) closed at 4 spaces)")
+	}
+	return shell
+}
+
+// shellMember is the member of shell called name (indented by 8 spaces), from its signature to its closing brace.
+func shellMember(t *testing.T, js, name string) string {
+	t.Helper()
+	member := regexp.MustCompile(`(?s)\n        (?:async )?` + regexp.QuoteMeta(name) + `\(.*?\n        \},\n`).FindString(shellSource(t, js))
+	if member == "" {
+		t.Fatalf("shell has no %s member", name)
+	}
+	return member
+}
+
+// wantBefore fails unless first comes before second in got.
+func wantBefore(t *testing.T, what, got, first, second string) {
+	t.Helper()
+	a, b := strings.Index(got, first), strings.Index(got, second)
+	if a < 0 || b < 0 || a > b {
+		t.Errorf("%s: %q must come before %q (at %d and %d): %s", what, first, second, a, b, got)
+	}
+}
+
+// While the drawer covers the page, main is inert so its controls are not tabbable or reachable by assistive tech.
+// The binding is a bare property name: the CSP build evaluates no expression in a template.
+func TestAppShellBindsMainInertOnMain(t *testing.T) {
+	app := newTestApp(t)
+	body := renderHome(t, app, "calendario", nil)
+	wantAll(t, "main", tagAttrs(t, body, `<main id="conteudo" ([^>]*)>`), `class="shell__main"`, `:inert="mainInert"`)
+
+	// The existing keyboard and aria contract stays untouched: the template still names the shell's own members.
+	wantAll(t, "shell", tagAttrs(t, body, `<div class="shell" ([^>]*)>`), `@keydown.escape.window="close"`)
+	wantAll(t, "topbar", tagAttrs(t, body, `(?s)<header class="topbar">(.*?)</header>`),
+		`aria-controls="menu-lateral"`, `:aria-expanded="expanded"`, `@click="toggle"`)
+}
+
+// mainInert is derived, not stored: the shell tracks the breakpoint flag its matchMedia handler already uses, so
+// crossing to the wide sidebar closes the drawer and lifts the inert in the same reactive update.
+func TestAppShellDerivesMainInertFromOpenAndBreakpoint(t *testing.T) {
+	js := dynRead(t, "static/js/app.js")
+	scopes := dynScopes(js)
+	for _, member := range []string{"mainInert", "wide", "onDrawerKeydown"} {
+		if !slices.Contains(scopes["shell"], member) {
+			t.Errorf("shell has no %s member (%v)", member, scopes["shell"])
+		}
+	}
+
+	shell := shellSource(t, js)
+	wantAll(t, "shell", shell, "wide: false,", "get mainInert() {", "return this.open && !this.wide;")
+	wantAll(t, "init", shellMember(t, js, "init"),
+		"this.wide = query.matches", "this.wide = event.matches", "if (event.matches) this.open = false;")
+}
+
+// Go cannot run the script, so pin the contract in its source: a window keydown listener owned by the shell, active
+// only while the drawer is open in drawer mode, wrapping Tab and Shift-Tab at the drawer's first and last tab stops.
+func TestAppShellTrapsTabInsideTheDrawer(t *testing.T) {
+	js := dynRead(t, "static/js/app.js")
+	wantAll(t, "app.js", js, "const FOCUSABLE =")
+	wantAll(t, "init", shellMember(t, js, "init"),
+		"onKeydown = (event) => this.onDrawerKeydown(event);", "window.addEventListener('keydown', onKeydown)")
+	wantAll(t, "destroy", shellMember(t, js, "destroy"), "window.removeEventListener('keydown', onKeydown)")
+
+	handler := shellMember(t, js, "onDrawerKeydown")
+	wantAll(t, "onDrawerKeydown", handler,
+		"event.key !== 'Tab'", "this.mainInert", "querySelector('#menu-lateral')", "querySelectorAll(FOCUSABLE)",
+		"event.shiftKey && active === first", "!event.shiftKey && active === last",
+		"event.preventDefault();", "last.focus();", "first.focus();")
+	wantBefore(t, "onDrawerKeydown", handler, "event.shiftKey && active === first", "last.focus();")
+	wantBefore(t, "onDrawerKeydown", handler, "!event.shiftKey && active === last", "first.focus();")
 }
 
 func TestAuthLayout(t *testing.T) {

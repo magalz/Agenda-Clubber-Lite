@@ -59,7 +59,7 @@ func TestExpiryBannerInTheAppLayout(t *testing.T) {
 
 			// The banner opens the main area, ahead of the page content and the footer.
 			inOrder(t, body,
-				`<main id="conteudo" class="shell__main">`,
+				`<main id="conteudo" class="shell__main" :inert="mainInert">`,
 				`role="status"`,
 				tt.want,
 				bannerLink,
