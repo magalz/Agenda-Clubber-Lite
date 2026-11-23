@@ -43,6 +43,28 @@ func renderCases() []renderCase {
 			phrases: []string{"Ana Souza", "24 horas"},
 		},
 		{
+			name:    "change email",
+			tmpl:    TemplateChangeEmail,
+			data:    ChangeEmailData{Name: "Ana Souza", Link: linkConfirm},
+			subject: "Confirme seu novo e-mail · Agenda Clubber",
+			links:   []string{linkConfirm},
+			button:  "Confirmar novo e-mail",
+			phrases: []string{"Ana Souza", "24 horas", "Ao confirmar, a troca de e-mail da sua conta é concluída."},
+		},
+		{
+			name:    "email change notice",
+			tmpl:    TemplateEmailChangeNotice,
+			data:    EmailChangeNoticeData{Name: "Ana Souza", NewEmail: "novo@example.com"},
+			subject: "Troca de e-mail pendente · Agenda Clubber",
+			phrases: []string{
+				"Ana Souza",
+				"Recebemos um pedido para trocar o e-mail da sua conta na Agenda Clubber para novo@example.com.",
+				"A troca só é concluída quando o novo endereço confirmar.",
+				"este endereço continua recebendo os e-mails da sua conta",
+				"troque sua senha",
+			},
+		},
+		{
 			name:    "existing account",
 			tmpl:    TemplateExistingAccount,
 			data:    ExistingAccountData{Name: "Ana Souza", LoginLink: linkLogin, ForgotPasswordLink: linkForgot},
@@ -254,6 +276,37 @@ func TestRender(t *testing.T) {
 	}
 }
 
+func TestRenderChangeEmailKeepsTheLinkInPlace(t *testing.T) {
+	data := ChangeEmailData{Name: "Ana Souza", Link: linkConfirm}
+	_, text, htmlBody, err := Render(TemplateChangeEmail, data)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	for _, view := range []struct{ name, body string }{{"text", text}, {"html", html.UnescapeString(htmlBody)}} {
+		itemsInOrder(t, view.name, view.body,
+			"Olá, Ana Souza!",
+			linkConfirm,
+			"O link vale por 24 horas",
+			"Ao confirmar, a troca de e-mail da sua conta é concluída.")
+	}
+}
+
+func TestRenderEmailChangeNoticeHasNoActionLink(t *testing.T) {
+	data := EmailChangeNoticeData{Name: "Ana Souza", NewEmail: "novo@example.com"}
+	_, text, htmlBody, err := Render(TemplateEmailChangeNotice, data)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	for _, view := range []struct{ name, body string }{{"text", text}, {"html", htmlBody}} {
+		if strings.Contains(view.body, "[→] ") {
+			t.Errorf("%s carries an action link, want a plain notice:\n%s", view.name, view.body)
+		}
+	}
+	if strings.Contains(htmlBody, "word-break:break-all") {
+		t.Errorf("html carries a copy-link fallback, want a plain notice")
+	}
+}
+
 func TestRenderEscapesUserText(t *testing.T) {
 	cases := []struct {
 		name      string
@@ -262,6 +315,8 @@ func TestRenderEscapesUserText(t *testing.T) {
 		inSubject bool // the subject carries user text
 	}{
 		{"verify email", TemplateVerifyEmail, VerifyEmailData{Name: xssName, Link: linkConfirm}, false},
+		{"change email", TemplateChangeEmail, ChangeEmailData{Name: xssName, Link: linkConfirm}, false},
+		{"email change notice", TemplateEmailChangeNotice, EmailChangeNoticeData{Name: xssName, NewEmail: xssName}, false},
 		{"existing account", TemplateExistingAccount, ExistingAccountData{Name: xssName, LoginLink: linkLogin, ForgotPasswordLink: linkForgot}, false},
 		{"password reset", TemplatePasswordReset, PasswordResetData{Name: xssName, Link: linkReset}, false},
 		{"admin new signup", TemplateAdminNewSignup, AdminNewSignupData{
@@ -537,6 +592,8 @@ func TestRenderRejectsBadInput(t *testing.T) {
 		{"nil data", TemplateVerifyEmail, nil},
 		{"wrong data type", TemplateVerifyEmail, "Ana"},
 		{"decision with another template's data", TemplateDecision, VerifyEmailData{Name: "Ana", Link: linkLogin}},
+		{"change email with the notice's data", TemplateChangeEmail, EmailChangeNoticeData{Name: "Ana", NewEmail: "novo@example.com"}},
+		{"email change notice with the change email's data", TemplateEmailChangeNotice, ChangeEmailData{Name: "Ana", Link: linkConfirm}},
 		{"admin request with another template's data", TemplateAdminRequest, OwnerJoinRequestData{CollectiveName: "Maré Alta", UserName: "Ana", Role: "Membro", Link: linkAdmin}},
 		{"decision with an unknown outcome", TemplateDecision, DecisionData{
 			Name: "Ana Souza", Link: linkLogin,

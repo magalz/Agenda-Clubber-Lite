@@ -1,0 +1,24 @@
+{{define "subject"}}Confirme seu novo e-mail · Agenda Clubber{{end}}
+
+{{define "text"}}$ confirmar_novo_email
+
+Olá, {{.Name}}! Recebemos um pedido para trocar o e-mail da sua conta na Agenda Clubber para este endereço.
+
+[→] {{.Link}}
+
+O link vale por 24 horas. Depois desse prazo ele deixa de funcionar.
+
+Ao confirmar, a troca de e-mail da sua conta é concluída.
+
+Não foi você? É só ignorar esta mensagem: nada acontece sem a confirmação.
+
+{{template "text_footer"}}
+{{end}}
+
+{{define "html"}}{{template "html_open" .}}<p style="margin:0 0 16px;font-family:'Space Mono',Menlo,Consolas,'Courier New',monospace;font-size:18px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;">$ confirmar_novo_email</p>
+<p style="margin:0 0 16px;">Olá, {{.Name}}! Recebemos um pedido para trocar o e-mail da sua conta na Agenda Clubber para este endereço.</p>
+{{template "html_button" btn "Confirmar novo e-mail" .Link}}
+<p style="margin:0 0 16px;">O link vale por 24 horas. Depois desse prazo ele deixa de funcionar.</p>
+<p style="margin:0 0 16px;">Ao confirmar, a troca de e-mail da sua conta é concluída.</p>
+<p style="margin:0;color:#8a8a92;">Não foi você? É só ignorar esta mensagem: nada acontece sem a confirmação.</p>
+{{template "html_close" .}}{{end}}
