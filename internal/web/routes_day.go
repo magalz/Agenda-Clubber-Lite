@@ -23,8 +23,9 @@ type dayRow struct {
 // dayList is the Data of the day-list partial and of app/dia: the events of a day
 // (Rows, in order of start time, the events held in the highlighted city first
 // with SameCity set), or Error and no rows when the date is not valid. Date is the
-// day, zero when it is not valid; Back is the calendar's month of that day with
-// the filter kept, which only the page shows.
+// day, zero when it is not valid; Back is the calendar's month of that day, or the
+// current month when the date is not valid, with the filter kept, which only the
+// page shows.
 type dayList struct {
 	Date      time.Time
 	Rows      []dayRow
@@ -48,12 +49,13 @@ func (a *App) dayRoutes(public, authed *gin.RouterGroup) {
 // city that is not in the catalog counts as none. A date that does not parse is a
 // 422 with its message and no list, never a 500.
 func (a *App) dayShow(c *gin.Context) {
+	filter := events.Filter(c.Query("uf"), c.Query("cidade"))
 	day, ok := events.ParseDay(c.Query("data"), a.Cfg.Location)
 	if !ok {
-		a.dayRender(c, http.StatusUnprocessableEntity, dayList{Error: dayDateMsg, Back: "/"})
+		back := calendarHref(a.Now().In(a.Cfg.Location).Format("2006-01"), filter)
+		a.dayRender(c, http.StatusUnprocessableEntity, dayList{Error: dayDateMsg, Back: back})
 		return
 	}
-	filter := events.Filter(c.Query("uf"), c.Query("cidade"))
 	view, err := events.Day(c.Request.Context(), a.Store, a.Cfg.Location, day, filter, events.Filter(c.Query("destaque_uf"), c.Query("destaque_cidade")))
 	if err != nil {
 		a.Log.Error("day list", "err", err)
