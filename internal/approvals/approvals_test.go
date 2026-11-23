@@ -97,8 +97,41 @@ func TestCheckReasonMessages(t *testing.T) {
 		t.Errorf("too long: err = %v, want reason: use no máximo 500 caracteres", err)
 	}
 	_, err = CheckReason("a\x00b")
-	if !errors.As(err, &fe) || fe["reason"] == "" || fe["reason"] == "use no máximo 500 caracteres" {
-		t.Errorf("control character: err = %v, want its own reason message", err)
+	if !errors.As(err, &fe) || fe["reason"] != "use só texto, sem caracteres de controle" {
+		t.Errorf("control character: err = %v, want reason: use só texto, sem caracteres de controle", err)
+	}
+	// The UTF-8 rule lives in domain.TextProblem, so an invalid reason gets
+	// the domain's message instead of the approvals-only one it used to have.
+	_, err = CheckReason("a\xffb")
+	if !errors.As(err, &fe) || fe["reason"] != domain.MsgInvalid {
+		t.Errorf("invalid UTF-8: err = %v, want reason: %s", err, domain.MsgInvalid)
+	}
+}
+
+func TestRequireActive(t *testing.T) {
+	tests := []struct {
+		name  string
+		actor domain.User
+		want  error
+	}{
+		{"active user", domain.User{ID: "u1", Status: domain.UserStatusActive}, nil},
+		{"disabled user", domain.User{ID: "u1", Status: domain.UserStatusDisabled}, ErrNotAllowed},
+		{"user awaiting approval", domain.User{ID: "u1", Status: domain.UserStatusPendingApproval}, ErrNotAllowed},
+		{"user awaiting email", domain.User{ID: "u1", Status: domain.UserStatusPendingEmail}, ErrNotAllowed},
+		{"nobody", domain.User{}, ErrNotAllowed},
+		{"active user without an ID", domain.User{Status: domain.UserStatusActive}, ErrNotAllowed},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := requireActive(tt.actor)
+			if tt.want == nil {
+				if err != nil {
+					t.Fatalf("err = %v, want nil", err)
+				}
+				return
+			}
+			requireErrorIs(t, err, tt.want)
+		})
 	}
 }
 

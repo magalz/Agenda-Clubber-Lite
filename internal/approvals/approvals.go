@@ -34,8 +34,6 @@ import (
 	"fmt"
 	"strings"
 	"time"
-	"unicode"
-	"unicode/utf8"
 
 	"github.com/magalz/agenda-clubber-lite/internal/domain"
 	"github.com/magalz/agenda-clubber-lite/internal/mail"
@@ -96,37 +94,38 @@ func RoleLabel(r domain.Role) string {
 }
 
 // CheckReason cleans the optional reason of a decision and returns it, or
-// domain.FieldErrors with the key "reason" when it cannot be stored. It trims
-// the text, turns CRLF and CR into LF and accepts at most domain.AuditTextMax
-// runes (counted after trimming) of valid UTF-8 without control characters,
-// except LF and tab inside the text. An empty reason is allowed.
+// domain.FieldErrors with the key "reason" when it cannot be stored. It turns
+// CRLF and CR into LF, then applies domain.TextProblem with no minimum,
+// domain.AuditTextMax as the maximum and multiline text (LF and tab allowed),
+// and returns the trimmed text. An empty reason is allowed.
 func CheckReason(reason string) (string, error) {
-	var fe domain.FieldErrors
-	if !utf8.ValidString(reason) {
-		fe.Add("reason", msgReasonText)
-		return "", fe.Err()
-	}
 	reason = strings.ReplaceAll(reason, "\r\n", "\n")
 	reason = strings.ReplaceAll(reason, "\r", "\n")
-	reason = strings.TrimSpace(reason)
-	if strings.ContainsFunc(reason, func(r rune) bool { return unicode.IsControl(r) && r != '\n' && r != '\t' }) {
-		fe.Add("reason", msgReasonText)
-		return "", fe.Err()
+	if problem := domain.TextProblem(reason, 0, domain.AuditTextMax, true); problem != "" {
+		return "", domain.FieldErrors{"reason": problem}.Err()
 	}
-	if utf8.RuneCountInString(reason) > domain.AuditTextMax {
-		fe.Add("reason", fmt.Sprintf("use no máximo %d caracteres", domain.AuditTextMax))
-		return "", fe.Err()
-	}
-	return reason, nil
+	return strings.TrimSpace(reason), nil
 }
 
-const msgReasonText = "use só texto, sem caracteres de controle"
+// requireActive returns ErrNotAllowed unless actor has an ID and an active
+// account. The caller passes the user it loaded for the request, so an account
+// disabled since the session started is refused here. This is the one actor
+// gate shared by requireAdmin, requireOwner and the request flows.
+func requireActive(actor domain.User) error {
+	if actor.ID == "" || actor.Status != domain.UserStatusActive {
+		return ErrNotAllowed
+	}
+	return nil
+}
 
 // requireAdmin returns ErrNotAllowed unless actor is an active site admin. The
 // caller passes the user it loaded for the request, so a user disabled since
 // the session started is refused here.
 func requireAdmin(actor domain.User) error {
-	if actor.ID == "" || !actor.IsAdmin || actor.Status != domain.UserStatusActive {
+	if err := requireActive(actor); err != nil {
+		return err
+	}
+	if !actor.IsAdmin {
 		return ErrNotAllowed
 	}
 	return nil
@@ -138,8 +137,8 @@ func requireAdmin(actor domain.User) error {
 // sees the role as it is now. Anything else, an unknown collective included, is
 // ErrNotAllowed: the caller never learns more than "not yours".
 func requireOwner(ctx context.Context, r domain.Repos, actor domain.User, collectiveID string) (domain.Membership, error) {
-	if actor.ID == "" || actor.Status != domain.UserStatusActive {
-		return domain.Membership{}, ErrNotAllowed
+	if err := requireActive(actor); err != nil {
+		return domain.Membership{}, err
 	}
 	m, err := r.Memberships.Get(ctx, actor.ID, collectiveID)
 	if errors.Is(err, domain.ErrNotFound) {
