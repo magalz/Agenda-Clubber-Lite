@@ -15,10 +15,12 @@ const (
 	xssName     = `<script>alert(1)</script>`
 
 	linkCollectives      = "https://agenda.example/coletivos"
+	linkSignup           = "https://agenda.example/cadastro"
 	linkOwnerRequests    = "https://agenda.example/coletivos/pedidos"
 	linkAdminCollectives = "https://agenda.example/admin/coletivos"
 	linkChangePassword   = "https://agenda.example/senha/trocar"
 	boldName             = `<b>negrito</b>`
+	pendingApprovalCopy  = "O link passa a funcionar assim que sua conta for aprovada."
 )
 
 // renderCase is one template with data that carries no markup.
@@ -121,14 +123,15 @@ func renderCases() []renderCase {
 			name: "decision approved",
 			tmpl: TemplateDecision,
 			data: DecisionData{
-				Name:  "Ana Souza",
-				Items: []DecisionItem{{What: "sua conta", Outcome: DecisionApproved}},
-				Link:  linkLogin,
+				Name:   "Ana Souza",
+				Items:  []DecisionItem{{What: "sua conta", Outcome: DecisionApproved}},
+				Link:   linkLogin,
+				Button: "Entrar",
 			},
 			subject: "Atualização do seu cadastro na Agenda Clubber",
 			links:   []string{linkLogin},
 			button:  "Entrar",
-			phrases: []string{"Ana Souza", "sua conta: aprovado"},
+			phrases: []string{"Ana Souza", "sua conta: aprovado", pendingApprovalCopy},
 			// "aprovado" is also the start of the waiting wording.
 			absent: []string{"recusado", "falta um administrador", "motivo"},
 		},
@@ -136,29 +139,31 @@ func renderCases() []renderCase {
 			name: "decision rejected with a reason",
 			tmpl: TemplateDecision,
 			data: DecisionData{
-				Name:  "Ana Souza",
-				Items: []DecisionItem{{What: "o coletivo Alfa", Outcome: DecisionRejected, Reason: "o nome já existe"}},
-				Link:  linkLogin,
+				Name:   "Ana Souza",
+				Items:  []DecisionItem{{What: "o coletivo Alfa", Outcome: DecisionRejected, Reason: "o nome já existe"}},
+				Link:   linkLogin,
+				Button: "Entrar",
 			},
 			subject: "Atualização do seu cadastro na Agenda Clubber",
 			links:   []string{linkLogin},
 			button:  "Entrar",
-			phrases: []string{"Ana Souza", "o coletivo Alfa: recusado", "motivo: o nome já existe"},
+			phrases: []string{"Ana Souza", "o coletivo Alfa: recusado", "motivo: o nome já existe", pendingApprovalCopy},
 			absent:  []string{"aprovado", "falta um administrador"},
 		},
 		{
 			name: "decision waiting",
 			tmpl: TemplateDecision,
 			data: DecisionData{
-				Name:  "Ana Souza",
-				Items: []DecisionItem{{What: "seu pedido para entrar em Beta como Membro", Outcome: DecisionWaiting}},
-				Link:  linkCollectives,
+				Name:   "Ana Souza",
+				Items:  []DecisionItem{{What: "seu pedido para entrar em Beta como Membro", Outcome: DecisionWaiting}},
+				Link:   linkCollectives,
+				Button: "Ver meus coletivos",
 			},
 			subject: "Atualização do seu cadastro na Agenda Clubber",
 			links:   []string{linkCollectives},
-			button:  "Entrar",
+			button:  "Ver meus coletivos",
 			phrases: []string{"seu pedido para entrar em Beta como Membro: aprovado pelo admin; falta um administrador do coletivo"},
-			absent:  []string{"recusado", "motivo"},
+			absent:  []string{"recusado", "motivo", pendingApprovalCopy},
 		},
 		{
 			name: "decision with several items",
@@ -170,16 +175,34 @@ func renderCases() []renderCase {
 					{What: "o coletivo Alfa", Outcome: DecisionRejected, Reason: "sem comprovação"},
 					{What: "seu pedido para entrar em Beta como Administrador", Outcome: DecisionWaiting},
 				},
-				Link: linkLogin,
+				Link:   linkLogin,
+				Button: "Entrar",
 			},
 			subject: "Atualização do seu cadastro na Agenda Clubber",
 			links:   []string{linkLogin},
+			button:  "Entrar",
 			phrases: []string{
 				"sua conta: aprovado",
 				"o coletivo Alfa: recusado",
 				"motivo: sem comprovação",
 				"seu pedido para entrar em Beta como Administrador: aprovado pelo admin; falta um administrador do coletivo",
+				pendingApprovalCopy,
 			},
+		},
+		{
+			name: "decision rejected with a sign-up link",
+			tmpl: TemplateDecision,
+			data: DecisionData{
+				Name:   "Ana Souza",
+				Items:  []DecisionItem{{What: "sua conta", Outcome: DecisionRejected, Reason: "dados incompletos"}},
+				Link:   linkSignup,
+				Button: "Criar conta",
+			},
+			subject: "Atualização do seu cadastro na Agenda Clubber",
+			links:   []string{linkSignup},
+			button:  "Criar conta",
+			phrases: []string{"sua conta: recusado", "motivo: dados incompletos"},
+			absent:  []string{pendingApprovalCopy},
 		},
 		{
 			name:    "owner join request as member",
@@ -297,6 +320,31 @@ func TestRender(t *testing.T) {
 	}
 }
 
+func TestRenderDecisionKeepsTheLinkInTextForEveryDestination(t *testing.T) {
+	for _, tc := range renderCases() {
+		if tc.tmpl != TemplateDecision {
+			continue
+		}
+		t.Run(tc.name, func(t *testing.T) {
+			_, text, htmlBody, err := Render(tc.tmpl, tc.data)
+			if err != nil {
+				t.Fatalf("Render: %v", err)
+			}
+			for _, link := range tc.links {
+				if !strings.Contains(text, "[→] "+link) {
+					t.Errorf("text lacks the plain action link %q:\n%s", link, text)
+				}
+			}
+			if !strings.Contains(htmlBody, "[→] "+tc.button) {
+				t.Errorf("html lacks the %q button", tc.button)
+			}
+			if !strings.Contains(htmlBody, "Se o botão não abrir, copie este link para o navegador:") {
+				t.Errorf("html lacks the copy-link fallback")
+			}
+		})
+	}
+}
+
 func TestRenderPasswordExpiringHasButtonAndCopyLinkFallback(t *testing.T) {
 	_, text, htmlBody, err := Render(TemplatePasswordExpiring, PasswordExpiringData{
 		Name: "Ana Souza", Days: 3, Link: linkChangePassword,
@@ -380,7 +428,8 @@ func TestRenderEscapesUserText(t *testing.T) {
 				{What: xssName, Outcome: DecisionRejected, Reason: xssName},
 				{What: xssName, Outcome: DecisionWaiting},
 			},
-			Link: linkLogin,
+			Link:   linkLogin,
+			Button: "Entrar",
 		}, false},
 		{"owner join request", TemplateOwnerJoinRequest, OwnerJoinRequestData{
 			CollectiveName: xssName, UserName: xssName, Role: xssName, Link: linkOwnerRequests,
@@ -484,7 +533,8 @@ func TestRenderDecisionKeepsEachReasonWithItsItem(t *testing.T) {
 			{What: "o coletivo Beta", Outcome: DecisionWaiting, Reason: "falta o contato"},
 			{What: "o coletivo Gama", Outcome: DecisionApproved},
 		},
-		Link: linkLogin,
+		Link:   linkLogin,
+		Button: "Entrar",
 	}
 	_, text, htmlBody, err := Render(TemplateDecision, data)
 	if err != nil {
@@ -506,9 +556,10 @@ func TestRenderDecisionReasonKeepsLineBreaks(t *testing.T) {
 	for _, sep := range []string{"\n", "\r\n"} {
 		t.Run(strings.NewReplacer("\r", "CR", "\n", "LF").Replace(sep), func(t *testing.T) {
 			data := DecisionData{
-				Name:  "Ana Souza",
-				Items: []DecisionItem{{What: "sua conta", Outcome: DecisionRejected, Reason: "primeira linha" + sep + "segunda " + boldName}},
-				Link:  linkLogin,
+				Name:   "Ana Souza",
+				Items:  []DecisionItem{{What: "sua conta", Outcome: DecisionRejected, Reason: "primeira linha" + sep + "segunda " + boldName}},
+				Link:   linkLogin,
+				Button: "Entrar",
 			}
 			_, text, htmlBody, err := Render(TemplateDecision, data)
 			if err != nil {
@@ -534,9 +585,10 @@ func TestRenderEscapesMarkupInNamesAndReasons(t *testing.T) {
 		data any
 	}{
 		{"decision", TemplateDecision, DecisionData{
-			Name:  boldName,
-			Items: []DecisionItem{{What: "o coletivo " + boldName, Outcome: DecisionRejected, Reason: "veja " + boldName}},
-			Link:  linkLogin,
+			Name:   boldName,
+			Items:  []DecisionItem{{What: "o coletivo " + boldName, Outcome: DecisionRejected, Reason: "veja " + boldName}},
+			Link:   linkLogin,
+			Button: "Entrar",
 		}},
 		{"owner join request", TemplateOwnerJoinRequest, OwnerJoinRequestData{
 			CollectiveName: boldName, UserName: boldName, Role: "Membro", Link: linkOwnerRequests,
@@ -644,15 +696,15 @@ func TestRenderRejectsBadInput(t *testing.T) {
 		{"password expiring with another template's data", TemplatePasswordExpiring, PasswordResetData{Name: "Ana", Link: linkReset}},
 		{"admin request with another template's data", TemplateAdminRequest, OwnerJoinRequestData{CollectiveName: "Maré Alta", UserName: "Ana", Role: "Membro", Link: linkAdmin}},
 		{"decision with an unknown outcome", TemplateDecision, DecisionData{
-			Name: "Ana Souza", Link: linkLogin,
+			Name: "Ana Souza", Link: linkLogin, Button: "Entrar",
 			Items: []DecisionItem{{What: "sua conta", Outcome: "maybe"}},
 		}},
 		{"decision with no outcome", TemplateDecision, DecisionData{
-			Name: "Ana Souza", Link: linkLogin,
+			Name: "Ana Souza", Link: linkLogin, Button: "Entrar",
 			Items: []DecisionItem{{What: "sua conta"}},
 		}},
 		{"decision with an unknown outcome after a good one", TemplateDecision, DecisionData{
-			Name: "Ana Souza", Link: linkLogin,
+			Name: "Ana Souza", Link: linkLogin, Button: "Entrar",
 			Items: []DecisionItem{{What: "sua conta", Outcome: DecisionApproved}, {What: "o coletivo Alfa", Outcome: "Approved"}},
 		}},
 		{"admin request with an unknown kind", TemplateAdminRequest, AdminRequestData{
