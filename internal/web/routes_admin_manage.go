@@ -255,7 +255,7 @@ func (a *App) adminHistory(c *gin.Context) {
 	}
 	data := manageHistoryPage{Entries: make([]manageHistoryRow, len(entries))}
 	for i, e := range entries {
-		parts := []string{e.At.In(a.Cfg.Location).Format("02/01/2006 15:04")}
+		parts := []string{fmtDate(e.At, a.Cfg.Location) + " " + fmtClock(e.At, a.Cfg.Location)}
 		if e.ActorName != "" {
 			parts = append(parts, "por "+e.ActorName)
 		}
