@@ -22,6 +22,9 @@ const (
 	TemplateDecision         Template = "decision"
 	TemplateOwnerJoinRequest Template = "owner_join_request"
 	TemplateAdminRequest     Template = "admin_request"
+
+	TemplateChangeEmail       Template = "change_email"
+	TemplateEmailChangeNotice Template = "email_change_notice"
 )
 
 // VerifyEmailData is the data of TemplateVerifyEmail. The link confirms the
@@ -66,6 +69,21 @@ type AdminNewSignupData struct {
 type PasswordResetData struct {
 	Name string
 	Link string
+}
+
+// ChangeEmailData is the data of TemplateChangeEmail, sent to the new address.
+// The link confirms the address and is good for 24 hours; confirming completes
+// the change of the account's email.
+type ChangeEmailData struct {
+	Name string
+	Link string
+}
+
+// EmailChangeNoticeData is the data of TemplateEmailChangeNotice, sent to the
+// old address while a change to NewEmail is pending.
+type EmailChangeNoticeData struct {
+	Name     string
+	NewEmail string
 }
 
 // Outcomes of a DecisionItem. Render refuses any other value.
@@ -172,6 +190,9 @@ var emails = map[Template]email{
 	TemplateDecision:         compile(TemplateDecision, DecisionData{}),
 	TemplateOwnerJoinRequest: compile(TemplateOwnerJoinRequest, OwnerJoinRequestData{}),
 	TemplateAdminRequest:     compile(TemplateAdminRequest, AdminRequestData{}),
+
+	TemplateChangeEmail:       compile(TemplateChangeEmail, ChangeEmailData{}),
+	TemplateEmailChangeNotice: compile(TemplateEmailChangeNotice, EmailChangeNoticeData{}),
 }
 
 // compile parses the shared layout and the template's own file. A parse error

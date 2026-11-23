@@ -1,0 +1,18 @@
+{{define "subject"}}Troca de e-mail pendente · Agenda Clubber{{end}}
+
+{{define "text"}}$ troca_de_email_pendente
+
+Olá, {{.Name}}! Recebemos um pedido para trocar o e-mail da sua conta na Agenda Clubber para {{.NewEmail}}.
+
+A troca só é concluída quando o novo endereço confirmar. Até lá, este endereço continua recebendo os e-mails da sua conta.
+
+Não foi você? Entre na sua conta e troque sua senha.
+
+{{template "text_footer"}}
+{{end}}
+
+{{define "html"}}{{template "html_open" .}}<p style="margin:0 0 16px;font-family:'Space Mono',Menlo,Consolas,'Courier New',monospace;font-size:18px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:#ff2040;">$ troca_de_email_pendente</p>
+<p style="margin:0 0 16px;">Olá, {{.Name}}! Recebemos um pedido para trocar o e-mail da sua conta na Agenda Clubber para {{.NewEmail}}.</p>
+<p style="margin:0 0 16px;">A troca só é concluída quando o novo endereço confirmar. Até lá, este endereço continua recebendo os e-mails da sua conta.</p>
+<p style="margin:0;color:#8a8a92;">Não foi você? Entre na sua conta e troque sua senha.</p>
+{{template "html_close" .}}{{end}}
