@@ -23,22 +23,28 @@ var ErrEmailChangeInvalid = errors.New("accounts: email change link invalid, use
 // profileMsgOwnEmail is shown next to an address the account already uses.
 const profileMsgOwnEmail = "este já é o seu e-mail"
 
-// UpdateProfile saves the person's own name and phone. The values are cleaned
-// the way signup cleans them and checked by Validate in the service, because
-// Users.UpdateProfile is a filtered write that only the service may validate.
-// Sessions are keyed by user id, so none of them changes here. Any other error
-// than the returned domain.FieldErrors is a server error.
+// UpdateProfile saves the person's own name and phone. The name follows the
+// signup rules, and Validate checks the remaining fields: Users.UpdateProfile
+// is a filtered write that only the service may validate. Sessions are keyed by
+// user id, so none of them changes here. Any other error than the returned
+// domain.FieldErrors is a server error.
 func UpdateProfile(ctx context.Context, store domain.Store, actor domain.User, name, phone string, phoneIsWhatsApp bool, now time.Time) error {
 	updated := actor
 	updated.Name = strings.TrimSpace(name)
 	updated.Phone = PhoneDigits(phone)
 	updated.PhoneIsWhatsApp = phoneIsWhatsApp
+	// TextProblem covers invalid UTF-8, any control character (a line feed
+	// included) and the length with signup's wording. Returning it directly
+	// keeps Validate from reporting the name a second time.
+	if msg := domain.TextProblem(updated.Name, domain.UserNameMin, domain.UserNameMax, false); msg != "" {
+		return domain.FieldErrors{"name": msg}
+	}
 	if err := updated.Validate(); err != nil {
 		return err
 	}
 	return store.WithTx(ctx, func(ctx context.Context, r domain.Repos) error {
 		if err := r.Users.UpdateProfile(ctx, actor.ID, updated.Name, updated.Phone, phoneIsWhatsApp, now); err != nil {
-			return fmt.Errorf("accounts: update profile: update profile: %w", err)
+			return fmt.Errorf("accounts: update profile: %w", err)
 		}
 		return nil
 	})
