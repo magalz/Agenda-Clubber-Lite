@@ -258,9 +258,11 @@
     return isoOf(date);
   }
 
-  // The day moves along, stopping at the end of a shorter month (31 Jan + 1 month = 28 Feb).
+  // The day moves along, stopping at the end of a shorter month (31 Jan + 1 month = 28 Feb). A day dayOf cannot build
+  // (a year below 100) has no date to move, so it answers null instead of throwing.
   function addMonths(iso, n) {
     const date = dayOf(iso);
+    if (!date) return null;
     const day = date.getUTCDate();
     date.setUTCDate(1);
     date.setUTCMonth(date.getUTCMonth() + n);
@@ -1420,7 +1422,14 @@
             event.preventDefault();
             const asked = latest();
             const rel = link.getAttribute('rel');
-            this.goTo({ ...asked, mes: rel ? addMonths(asked.mes + '-01', rel === 'next' ? 1 : -1).slice(0, 7) : todayOf() });
+            // dayOf has no Date for a year below 100, and its four-digit year rejects the one past 9999 as well. Either
+            // way the computed month cannot be used: hand the page to the link, as a failed request does.
+            const next = rel ? addMonths(asked.mes + '-01', rel === 'next' ? 1 : -1) : todayOf() + '-01';
+            if (dayOf(next)) {
+              this.goTo({ ...asked, mes: next.slice(0, 7) });
+            } else {
+              location.assign(link.href);
+            }
           } else if (link.classList.contains('calendar__daynum') && !matchMedia(WIDE).matches) {
             // While a month is out the day waits for it: its link carries the filter of the month in the page.
             event.preventDefault();
