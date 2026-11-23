@@ -177,9 +177,10 @@ func RejectJoin(ctx context.Context, store domain.Store, origin string, actor do
 //
 // It returns ErrNotAllowed when actor is not an approved Administrador of the
 // collective (the site admin is not one unless they are a member; an unknown
-// collective is this too) or the collective is not approved; ErrLocked when it is
-// locked; domain.ErrNotFound when userID is not in the collective; and ErrDecided
-// when their membership is not an approved Membro.
+// collective is this too), the collective is not approved, or the target's
+// account is not active; ErrLocked when it is locked; domain.ErrNotFound when
+// userID is not in the collective; and ErrDecided when their membership is not
+// an approved Membro.
 func Promote(ctx context.Context, store domain.Store, actor domain.User, userID, collectiveID string, now time.Time) error {
 	return store.WithTx(ctx, func(ctx context.Context, r domain.Repos) error {
 		const step = "promote member"
@@ -197,6 +198,9 @@ func Promote(ctx context.Context, store domain.Store, actor domain.User, userID,
 		u, err := joinMemberUser(ctx, r, userID, step)
 		if err != nil {
 			return err
+		}
+		if u.Status != domain.UserStatusActive {
+			return ErrNotAllowed
 		}
 		return joinChangeRole(ctx, r, domain.AuditMemberPromoted, actor, u, c, m, domain.RoleOwner, now, step)
 	})
