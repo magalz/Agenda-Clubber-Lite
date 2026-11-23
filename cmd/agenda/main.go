@@ -261,6 +261,10 @@ var dailyInterval = 24 * time.Hour
 // test can stand in for it without a database.
 var sendPasswordReminders = accounts.SendPasswordReminders
 
+// purgeUnconfirmedSignups is the service the daily job calls; a variable so a
+// test can stand in for it without a database.
+var purgeUnconfirmedSignups = func(context.Context, domain.Store, time.Time) (int, error) { return 0, nil }
+
 // newSender picks how outgoing mail leaves: the drop folder (dev only, which
 // config.Load enforces) when MAIL_DROP_DIR is set, else SMTP when SMTP_HOST is
 // set, else nothing: a nil sender and one warning. Each logs the kind of sender
@@ -344,6 +348,7 @@ func dailyLoop(ctx context.Context, log *slog.Logger, store domain.Store, origin
 		} else {
 			log.Info("daily: password reminders sent", "count", n)
 		}
+		_, _ = purgeUnconfirmedSignups(ctx, store, now)
 		select {
 		case <-ctx.Done():
 			return
