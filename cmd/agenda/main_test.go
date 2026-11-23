@@ -1078,7 +1078,7 @@ func (s *blockingSender) Send(ctx context.Context, _ domain.OutboxMessage) error
 // startTestJobs starts the jobs and stops them when the test ends.
 func startTestJobs(t *testing.T, log *slog.Logger, repos domain.Repos, sender mail.Sender) (stop func(time.Duration) bool) {
 	t.Helper()
-	stop = startJobs(context.Background(), log, repos, sender)
+	stop = startJobs(context.Background(), log, noStore{}, repos, "", sender)
 	t.Cleanup(func() { stop(5 * time.Second) })
 	return stop
 }
@@ -1184,6 +1184,121 @@ func TestPurgeExpiredLogsEachCountEvenWhenNothingWasRemoved(t *testing.T) {
 	for _, want := range []string{`level=INFO msg="cleanup: expired sessions removed" count=0`, `level=INFO msg="cleanup: expired tokens removed" count=0`} {
 		if !strings.Contains(buf.String(), want) {
 			t.Errorf("log = %q, want %q", buf.String(), want)
+		}
+	}
+}
+
+type reminderResult struct {
+	count int
+	err   error
+}
+
+// fakeReminders stands in for sendPasswordReminders: it records the arguments
+// of each pass, signals when one starts and returns a prepared count or error.
+// Past the prepared passes it repeats the last result, so a late tick cannot
+// change what the assertions expect.
+type fakeReminders struct {
+	calls   atomic.Int32
+	results []reminderResult
+	entered chan struct{} // gets a value when a pass starts, when set
+	store   domain.Store
+	origin  string
+	now     time.Time
+}
+
+func (f *fakeReminders) send(_ context.Context, store domain.Store, origin string, now time.Time) (int, error) {
+	i := int(f.calls.Add(1)) - 1
+	if f.entered != nil {
+		select {
+		case f.entered <- struct{}{}:
+		default:
+		}
+	}
+	f.store, f.origin, f.now = store, origin, now
+	if len(f.results) == 0 {
+		return 0, nil
+	}
+	if i >= len(f.results) {
+		i = len(f.results) - 1
+	}
+	return f.results[i].count, f.results[i].err
+}
+
+func TestStartJobsSendsPasswordRemindersDaily(t *testing.T) {
+	oldDaily := dailyInterval
+	dailyInterval = 20 * time.Millisecond
+	oldCleanup := cleanupInterval
+	cleanupInterval = time.Hour
+	oldSend := sendPasswordReminders
+	t.Cleanup(func() {
+		dailyInterval = oldDaily
+		cleanupInterval = oldCleanup
+		sendPasswordReminders = oldSend
+	})
+
+	fake := &fakeReminders{
+		results: []reminderResult{
+			{count: 3},
+			{err: errors.New("reminder boom")},
+			{count: 5},
+		},
+		entered: make(chan struct{}, 8),
+	}
+	sendPasswordReminders = fake.send
+
+	store := noStore{}
+	var buf bytes.Buffer
+	stop := startJobs(context.Background(), slog.New(slog.NewTextHandler(&buf, nil)),
+		store, domain.Repos{Sessions: &fakeSessions{}, Tokens: &fakeTokens{}}, "https://agenda.example", nil)
+	t.Cleanup(func() { stop(5 * time.Second) })
+
+	awaitPass := func(what string) {
+		t.Helper()
+		select {
+		case <-fake.entered:
+		case <-time.After(2 * time.Second):
+			t.Fatalf("timed out waiting for %s", what)
+		}
+	}
+	awaitPass("the immediate reminder pass")
+	awaitPass("the reminder pass on the first tick")
+	awaitPass("the reminder pass on the second tick")
+	if !stop(5 * time.Second) {
+		t.Fatal("stop(5s) = false, want the jobs to stop")
+	}
+	passes := fake.calls.Load()
+	time.Sleep(3 * dailyInterval)
+	if after := fake.calls.Load(); after != passes {
+		t.Errorf("%d reminder passes ran after stop, want none", after-passes)
+	}
+
+	if fake.store != store {
+		t.Error("the reminder service got a different store than the one serve uses")
+	}
+	if fake.origin != "https://agenda.example" {
+		t.Errorf("the reminder service got origin %q", fake.origin)
+	}
+	if fake.now.Location() != time.UTC {
+		t.Errorf("the reminder service got now in %v, want UTC", fake.now.Location())
+	}
+	logs := buf.String()
+	for _, want := range []string{
+		`level=INFO msg="daily: password reminders sent" count=3`,
+		`level=ERROR msg="daily: password reminders failed" err="reminder boom"`,
+		`level=INFO msg="daily: password reminders sent" count=5`,
+	} {
+		if !strings.Contains(logs, want) {
+			t.Errorf("log = %q, want %q", logs, want)
+		}
+	}
+	for _, line := range strings.Split(logs, "\n") {
+		if strings.Contains(line, "password reminders failed") && strings.Contains(line, "count=") {
+			t.Errorf("the failed pass also logged a count: %q", line)
+		}
+	}
+	for _, leak := range []string{"@example.com", "/senha/trocar", "https://agenda.example"} {
+		if strings.Contains(logs, leak) {
+			t.Errorf("log = %q, want no %q", logs, leak)
 		}
 	}
 }
