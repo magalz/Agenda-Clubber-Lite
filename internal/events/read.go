@@ -69,8 +69,10 @@ type MineItem struct {
 }
 
 // MineView is Meus Eventos: Upcoming is ascending by start time, Past descending.
+// Truncated says the store returned its limit, so the lists may miss events.
 type MineView struct {
 	Upcoming, Past []MineItem
+	Truncated      bool
 }
 
 // Mine returns the events of every collective where actor has an approved
@@ -100,7 +102,7 @@ func Mine(ctx context.Context, s domain.Store, actor domain.User, now time.Time)
 	if err != nil {
 		return MineView{}, fmt.Errorf("events: mine: events: %w", err)
 	}
-	var v MineView
+	v := MineView{Truncated: len(evs) >= domain.ListLimitMax}
 	for _, e := range evs {
 		m := approved[e.CollectiveID]
 		membership := m.Membership
