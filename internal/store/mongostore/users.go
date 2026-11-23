@@ -16,6 +16,10 @@ type users struct{ s *Store }
 
 var _ domain.Users = users{}
 
+// errACL101Stub marks the Phase 5 store methods ACL-101 will implement. Nothing
+// calls them yet, so a call fails loudly instead of silently doing nothing.
+var errACL101Stub = errors.New("mongostore: not implemented until ACL-101")
+
 func (r users) coll() *mongo.Collection { return r.s.db.Collection(colUsers) }
 
 func (r users) Create(ctx context.Context, u *domain.User) error {
@@ -308,4 +312,35 @@ func (r users) Approve(ctx context.Context, id, by string, now time.Time) error 
 		return nil
 	}
 	return r.s.notMatched(ctx, colUsers, oid)
+}
+
+// The methods below are stubs until ACL-101 implements the store side of the
+// Phase 5 profile contract.
+
+// UpdateProfile is a stub that ACL-101 replaces with the store implementation.
+func (r users) UpdateProfile(ctx context.Context, id, name, phone string, phoneIsWhatsApp bool, now time.Time) error {
+	return errACL101Stub
+}
+
+// SetEmail is a stub that ACL-101 replaces with the store implementation.
+func (r users) SetEmail(ctx context.Context, id, email string, now time.Time) error {
+	return errACL101Stub
+}
+
+// MarkPasswordReminded is a stub that ACL-101 replaces with the store
+// implementation.
+func (r users) MarkPasswordReminded(ctx context.Context, id string, now time.Time) error {
+	return errACL101Stub
+}
+
+// ListByStatusCreatedBefore is a stub that ACL-101 replaces with the store
+// implementation.
+func (r users) ListByStatusCreatedBefore(ctx context.Context, status domain.UserStatus, cutoff time.Time, limit int) ([]domain.User, error) {
+	return nil, errACL101Stub
+}
+
+// ListActivePasswordChangedBetween is a stub that ACL-101 replaces with the
+// store implementation.
+func (r users) ListActivePasswordChangedBetween(ctx context.Context, from, to time.Time, limit int) ([]domain.User, error) {
+	return nil, errACL101Stub
 }
