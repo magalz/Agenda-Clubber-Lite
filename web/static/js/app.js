@@ -52,6 +52,23 @@
     return text.length;
   }
 
+  // Where the caret goes after a mask rewrites the text: what survived before the caret keeps its place, what
+  // survived after it keeps its distance from the end, so a colon or a separator added at the edit point sits
+  // before the caret and a refused edit returns to where it was made. An edit that replaced text on both sides
+  // of the caret stays after the same digit.
+  function caretAfterRewrite(before, after, caret) {
+    if (before === after) return caret;
+    let prefix = 0;
+    while (prefix < before.length && prefix < after.length && before[prefix] === after[prefix]) prefix++;
+    let suffix = 0;
+    while (suffix < before.length - prefix && suffix < after.length - prefix &&
+      before[before.length - 1 - suffix] === after[after.length - 1 - suffix]) suffix++;
+    const tail = before.length - suffix;
+    if (caret < prefix) return caret;
+    if (caret >= tail) return Math.min(after.length, after.length - suffix + caret - tail);
+    return caretAfterDigits(after, before.slice(0, caret).replace(/\D/g, '').length);
+  }
+
   // The rules that need only the password; not_email is handled apart because it needs the e-mail.
   const PASSWORD_RULES = {
     min_length: (pw) => [...pw].length >= PASSWORD_MIN,
@@ -851,13 +868,21 @@
         },
         onInput(event) {
           if (event.isComposing) return;
+          const before = input.value;
+          const caret = input.selectionStart ?? before.length;
           const typed = typedClock(input.value, (event.inputType || '').startsWith('insert'));
           if (typed.error) {
             input.value = last;
+            const restored = caretAfterRewrite(before, last, caret);
+            if (document.activeElement === input) input.setSelectionRange(restored, restored);
             this.message = typed.error;
             return;
           }
-          if (input.value !== typed.text) input.value = typed.text;
+          if (input.value !== typed.text) {
+            input.value = typed.text;
+            const restored = caretAfterRewrite(before, typed.text, caret);
+            if (document.activeElement === input) input.setSelectionRange(restored, restored);
+          }
           last = typed.text;
           this.message = '';
         },
@@ -969,14 +994,22 @@
         },
         onInput(event) {
           if (event.target !== price) return;
+          const before = price.value;
+          const caret = price.selectionStart ?? before.length;
           const cents = Number(price.value.replace(/\D/g, ''));
           if (cents > PRICE_MAX) {
             price.value = last;
+            const restored = caretAfterRewrite(before, last, caret);
+            if (document.activeElement === price) price.setSelectionRange(restored, restored);
             this.message = MSG_PRICE_MAX;
             return;
           }
           last = formatCents(cents);
-          if (price.value !== last) price.value = last;
+          if (price.value !== last) {
+            price.value = last;
+            const restored = caretAfterRewrite(before, last, caret);
+            if (document.activeElement === price) price.setSelectionRange(restored, restored);
+          }
           this.message = '';
         },
         onChange(event) {
