@@ -221,12 +221,12 @@ type Collectives interface {
 	// ErrNotFound. Callers pass NameKey(name).
 	ByNameKey(ctx context.Context, key string) (Collective, error)
 
-	// SearchApproved returns the collectives with status approved whose NameKey
-	// contains NameKey(query) as a plain substring (an empty key matches all;
-	// the query is never a pattern, so ".", "(" or ".*" only match themselves).
-	// A kind that is not empty restricts the result to that kind. The result is
-	// in ascending NameKey order (byte order) and has at most limit entries,
-	// with limit clamped to the range SearchLimitMin to SearchLimitMax.
+	// SearchApproved returns the collectives with status approved and not locked
+	// whose NameKey contains NameKey(query) as a plain substring (an empty key
+	// matches all; the query is never a pattern, so ".", "(" or ".*" only match
+	// themselves). A kind that is not empty restricts the result to that kind.
+	// The result is in ascending NameKey order (byte order) and has at most limit
+	// entries, with limit clamped to the range SearchLimitMin to SearchLimitMax.
 	SearchApproved(ctx context.Context, query string, kind CollectiveKind, limit int) ([]Collective, error)
 
 	// ListByStatus returns the collectives with this status in ascending NameKey
