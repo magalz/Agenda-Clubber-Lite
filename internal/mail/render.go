@@ -25,6 +25,8 @@ const (
 
 	TemplateChangeEmail       Template = "change_email"
 	TemplateEmailChangeNotice Template = "email_change_notice"
+
+	TemplatePasswordExpiring Template = "password_expiring"
 )
 
 // VerifyEmailData is the data of TemplateVerifyEmail. The link confirms the
@@ -84,6 +86,15 @@ type ChangeEmailData struct {
 type EmailChangeNoticeData struct {
 	Name     string
 	NewEmail string
+}
+
+// PasswordExpiringData is the data of TemplatePasswordExpiring. Days is the
+// whole days left before the password expires; Link is the absolute change
+// password page URL ({APP_ORIGIN}/senha/trocar).
+type PasswordExpiringData struct {
+	Name string
+	Days int
+	Link string
 }
 
 // Outcomes of a DecisionItem. Render refuses any other value.
@@ -193,6 +204,8 @@ var emails = map[Template]email{
 
 	TemplateChangeEmail:       compile(TemplateChangeEmail, ChangeEmailData{}),
 	TemplateEmailChangeNotice: compile(TemplateEmailChangeNotice, EmailChangeNoticeData{}),
+
+	TemplatePasswordExpiring: compile(TemplatePasswordExpiring, PasswordExpiringData{}),
 }
 
 // compile parses the shared layout and the template's own file. A parse error
