@@ -5,9 +5,10 @@
      EditURL (its edit page), CanEdit and Note, the reason a row the person may not edit is read-only. The edit link is
      shown only when CanEdit; its accessible name carries the event's name.
      With no row in either list the page shows the empty state, and the way to create an event when .User.CanCreateEvents;
-     otherwise both headings are shown and a section with no row says so.
-     CSS: section-heading, stack, item-list (the rows), badge, badge--accent, empty, uppercase-label, muted, text-sm,
-     sr-only (components.css). */}}
+     otherwise both headings are shown and a section with no row says so. Truncated says the store returned its limit,
+     so a status note says the lists may miss events.
+     CSS: section-heading, stack, status, status--warn, item-list (the rows), badge, badge--accent, empty,
+     uppercase-label, muted, text-sm, sr-only (components.css). */}}
 {{define "my-event-row"}}<li class="item-list__item">
   <div class="item-list__main">
     <p class="item-list__title"><a href="{{.Href}}">{{.Name}}</a></p>
@@ -23,6 +24,8 @@
   <h1 class="section-heading__title text-glow"><span class="section-heading__prompt" aria-hidden="true">~/ </span>meus eventos</h1>
 </div>
 <div class="stack stack--lg">
+  {{if .Data.Truncated}}<p class="status status--warn" role="status">mostrando só os primeiros {{.Data.Limit}} eventos dos seus coletivos</p>
+  {{end}}
   {{if or .Data.Upcoming .Data.Past}}
   <section class="stack" aria-labelledby="proximos-titulo">
     <h2 class="uppercase-label" id="proximos-titulo">Próximos</h2>

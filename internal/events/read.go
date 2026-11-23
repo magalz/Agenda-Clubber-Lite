@@ -102,7 +102,7 @@ func Mine(ctx context.Context, s domain.Store, actor domain.User, now time.Time)
 	if err != nil {
 		return MineView{}, fmt.Errorf("events: mine: events: %w", err)
 	}
-	var v MineView
+	v := MineView{Truncated: len(evs) >= domain.ListLimitMax}
 	for _, e := range evs {
 		m := approved[e.CollectiveID]
 		membership := m.Membership
