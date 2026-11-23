@@ -486,3 +486,62 @@ func TestCuiNoInlineScriptOrStyle(t *testing.T) {
 		}
 	}
 }
+
+// --- the three ACL-98(i) races ---
+
+// A state change that is still out leaves the city list of the state the page shows in the page. A city picked from
+// that list carries the old state's city into the newest address, which has the new state: pairing the two is wrong, so
+// the city change is dropped while the two states differ.
+func TestCuiCityOfTheOldStateIsDropped(t *testing.T) {
+	js := dynRead(t, "static/js/app.js")
+	change := cuiMember(t, js, "onCalendarChange")
+	rule := "field.id === 'calendar-cidade' && queryOf(monthOf()).uf !== asked.uf"
+	wantAll(t, "onCalendarChange", change, rule)
+	cuiBefore(t, "onCalendarChange", change, "const asked = latest()", rule)
+	cuiBefore(t, "onCalendarChange", change, rule, "this.goTo(")
+}
+
+// cuiPopState is the popstate handler of calendarPage, from its assignment to its closing brace.
+func cuiPopState(t *testing.T, js string) string {
+	t.Helper()
+	handler := regexp.MustCompile(`(?s)\n          onPopState = \(\) => \{.*?\n          \};`).FindString(cuiPage(t, js))
+	if handler == "" {
+		t.Fatalf("calendarPage has no onPopState = () => { ... } handler")
+	}
+	return handler
+}
+
+// Back and forward take the address from the URL, which a person can edit. Only a value the page already offers may go
+// into the address: the states of the state select, and the cities of the city select for the state that select holds.
+// Anything else becomes the empty value, as a missing parameter does; there is no fetch to a catalog here.
+func TestCuiPopStateTakesOnlyValuesThePageOffers(t *testing.T) {
+	js := dynRead(t, "static/js/app.js")
+	wantAll(t, "app.js", js, "function offers(select, value) {", "[...select.options].some(")
+	pop := cuiPopState(t, js)
+	wantAll(t, "onPopState", pop,
+		"const uf = offers(ufSelect, wantedUf) ? wantedUf : ''",
+		"const cidade = uf === ufSelect.value && offers(citySelect, wantedCity) ? wantedCity : ''")
+	cuiBefore(t, "onPopState", pop, "const uf =", "this.goTo(")
+	cuiBefore(t, "onPopState", pop, "const cidade =", "this.goTo(")
+	if !regexp.MustCompile(`this\.goTo\(\{ mes: dayOf\(mes \+ '-01'\) \? mes : todayOf\(\), uf, cidade \}, false\)`).MatchString(pop) {
+		t.Errorf("onPopState does not pass the validated uf and cidade to goTo: %s", pop)
+	}
+}
+
+// A sheet may open while a month is out. Whether to slide that month is settled when its answer lands, not when the
+// request leaves: a check of the sheet at request time misses a sheet opened in between.
+func TestCuiSheetIsCheckedAtSwapTimeNotAtRequestTime(t *testing.T) {
+	js := dynRead(t, "static/js/app.js")
+	month := cuiMember(t, js, "showMonth")
+	wantAll(t, "showMonth", month, "htmx.ajax(")
+	swap := strings.Index(month, "'htmx:beforeSwap'")
+	if swap < 0 {
+		t.Fatalf("showMonth has no swap listener: %s", month)
+	}
+	if strings.Contains(month[:swap], ".open") {
+		t.Errorf("showMonth checks the sheet before the request: a sheet opened while it is out still gets the slide: %s", month[:swap])
+	}
+	rule := "if (!animate || root.querySelector('#evento-sheet').open) return;"
+	wantAll(t, "showMonth at swap time", month[swap:], rule)
+	cuiBefore(t, "showMonth at swap time", month[swap:], rule, "document.documentElement.dataset.calendarSlide = slide")
+}
