@@ -225,13 +225,3 @@ func RenameCollective(ctx context.Context, store domain.Store, origin string, ac
 		return audit(ctx, r, e)
 	})
 }
-
-// requireActive returns ErrNotAllowed unless actor has an ID and an active
-// account. The caller passes the user it loaded for the request, so an account
-// disabled since the session started is refused here.
-func requireActive(actor domain.User) error {
-	if actor.ID == "" || actor.Status != domain.UserStatusActive {
-		return ErrNotAllowed
-	}
-	return nil
-}
