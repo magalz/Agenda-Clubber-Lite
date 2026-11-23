@@ -1078,11 +1078,16 @@ func (s *blockingSender) Send(ctx context.Context, _ domain.OutboxMessage) error
 // startTestJobs starts the jobs and stops them when the test ends.
 func startTestJobs(t *testing.T, log *slog.Logger, repos domain.Repos, sender mail.Sender) (stop func(time.Duration) bool) {
 	t.Helper()
-	// These tests cover the job lifecycle, not the reminder service: noStore
-	// would panic if the real one ran, so give them a no-op reminder pass.
+	// These tests cover the job lifecycle, not the reminder or purge services:
+	// noStore would panic if either real one ran, so give them no-op passes.
 	oldSend := sendPasswordReminders
+	oldPurge := purgeUnconfirmedSignups
 	sendPasswordReminders = func(context.Context, domain.Store, string, time.Time) (int, error) { return 0, nil }
-	t.Cleanup(func() { sendPasswordReminders = oldSend })
+	purgeUnconfirmedSignups = func(context.Context, domain.Store, time.Time) (int, error) { return 0, nil }
+	t.Cleanup(func() {
+		sendPasswordReminders = oldSend
+		purgeUnconfirmedSignups = oldPurge
+	})
 	stop = startJobs(context.Background(), log, noStore{}, repos, "", sender)
 	t.Cleanup(func() { stop(5 * time.Second) })
 	return stop
@@ -1235,10 +1240,12 @@ func TestStartJobsSendsPasswordRemindersDaily(t *testing.T) {
 	oldCleanup := cleanupInterval
 	cleanupInterval = time.Hour
 	oldSend := sendPasswordReminders
+	oldPurge := purgeUnconfirmedSignups
 	t.Cleanup(func() {
 		dailyInterval = oldDaily
 		cleanupInterval = oldCleanup
 		sendPasswordReminders = oldSend
+		purgeUnconfirmedSignups = oldPurge
 	})
 
 	fake := &fakeReminders{
@@ -1250,6 +1257,9 @@ func TestStartJobsSendsPasswordRemindersDaily(t *testing.T) {
 		entered: make(chan struct{}, 8),
 	}
 	sendPasswordReminders = fake.send
+	// The same pass also purges signups; noStore cannot serve the real service,
+	// and this test is about the reminder pass alone.
+	purgeUnconfirmedSignups = func(context.Context, domain.Store, time.Time) (int, error) { return 0, nil }
 
 	store := noStore{}
 	var buf bytes.Buffer
@@ -1302,6 +1312,126 @@ func TestStartJobsSendsPasswordRemindersDaily(t *testing.T) {
 		}
 	}
 	for _, leak := range []string{"@example.com", "/senha/trocar", "https://agenda.example"} {
+		if strings.Contains(logs, leak) {
+			t.Errorf("log = %q, want no %q", logs, leak)
+		}
+	}
+}
+
+type purgeResult struct {
+	count int
+	err   error
+}
+
+// fakePurge stands in for purgeUnconfirmedSignups: it records the arguments of
+// each pass, signals when one starts and returns a prepared count or error.
+// Past the prepared passes it repeats the last result, so a late tick cannot
+// change what the assertions expect.
+type fakePurge struct {
+	calls   atomic.Int32
+	results []purgeResult
+	entered chan struct{} // gets a value when a pass starts, when set
+	store   domain.Store
+	now     time.Time
+}
+
+func (f *fakePurge) purge(_ context.Context, store domain.Store, now time.Time) (int, error) {
+	i := int(f.calls.Add(1)) - 1
+	if f.entered != nil {
+		select {
+		case f.entered <- struct{}{}:
+		default:
+		}
+	}
+	f.store, f.now = store, now
+	if len(f.results) == 0 {
+		return 0, nil
+	}
+	if i >= len(f.results) {
+		i = len(f.results) - 1
+	}
+	return f.results[i].count, f.results[i].err
+}
+
+func TestStartJobsPurgesUnconfirmedSignupsDaily(t *testing.T) {
+	oldDaily := dailyInterval
+	dailyInterval = 20 * time.Millisecond
+	oldCleanup := cleanupInterval
+	cleanupInterval = time.Hour
+	oldPurge := purgeUnconfirmedSignups
+	oldSend := sendPasswordReminders
+	t.Cleanup(func() {
+		dailyInterval = oldDaily
+		cleanupInterval = oldCleanup
+		purgeUnconfirmedSignups = oldPurge
+		sendPasswordReminders = oldSend
+	})
+	// The reminder service has its own test; here it must not touch the noStore
+	// the purge fake is given.
+	sendPasswordReminders = func(context.Context, domain.Store, string, time.Time) (int, error) { return 0, nil }
+
+	fake := &fakePurge{
+		results: []purgeResult{
+			{count: 2},
+			{err: errors.New("purge boom")},
+			{count: 4},
+		},
+		entered: make(chan struct{}, 8),
+	}
+	purgeUnconfirmedSignups = fake.purge
+
+	store := noStore{}
+	var buf bytes.Buffer
+	stop := startJobs(context.Background(), slog.New(slog.NewTextHandler(&buf, nil)),
+		store, domain.Repos{Sessions: &fakeSessions{}, Tokens: &fakeTokens{}}, "", nil)
+	t.Cleanup(func() { stop(5 * time.Second) })
+
+	awaitPass := func(what string) {
+		t.Helper()
+		select {
+		case <-fake.entered:
+		case <-time.After(2 * time.Second):
+			t.Fatalf("timed out waiting for %s", what)
+		}
+	}
+	awaitPass("the immediate purge pass")
+	awaitPass("the purge pass on the first tick")
+	awaitPass("the purge pass on the second tick")
+	if !stop(5 * time.Second) {
+		t.Fatal("stop(5s) = false, want the jobs to stop")
+	}
+	passes := fake.calls.Load()
+	time.Sleep(3 * dailyInterval)
+	if after := fake.calls.Load(); after != passes {
+		t.Errorf("%d purge passes ran after stop, want none", after-passes)
+	}
+
+	if fake.store != store {
+		t.Error("the purge service got a different store than the one serve uses")
+	}
+	if fake.now.IsZero() {
+		t.Error("the purge service got no time")
+	}
+	if fake.now.Location() != time.UTC {
+		t.Errorf("the purge service got now in %v, want UTC", fake.now.Location())
+	}
+
+	logs := buf.String()
+	for _, want := range []string{
+		`level=INFO msg="daily: unconfirmed signups purged" count=2`,
+		`level=ERROR msg="daily: unconfirmed signups failed" err="purge boom"`,
+		`level=INFO msg="daily: unconfirmed signups purged" count=4`,
+	} {
+		if !strings.Contains(logs, want) {
+			t.Errorf("log = %q, want %q", logs, want)
+		}
+	}
+	for _, line := range strings.Split(logs, "\n") {
+		if strings.Contains(line, "unconfirmed signups failed") && strings.Contains(line, "count=") {
+			t.Errorf("the failed pass also logged a count: %q", line)
+		}
+	}
+	for _, leak := range []string{"@", "id=", "email=", "name="} {
 		if strings.Contains(logs, leak) {
 			t.Errorf("log = %q, want no %q", logs, leak)
 		}
