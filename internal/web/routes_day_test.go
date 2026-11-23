@@ -343,9 +343,33 @@ func TestDayBackLinkKeepsTheMonthAndTheFilter(t *testing.T) {
 			}
 		})
 	}
-	// An invalid date has no month: the way back is the calendar.
-	if u := evHref(t, e.get(e.Outsider, "/eventos/dia?data=ontem").Body.String(), "[←] calendário"); u.Path != "/" || u.RawQuery != "" {
-		t.Errorf("the back link of an invalid date is %q, want /", u)
+	// An invalid date has no month of its own: the way back is the current one,
+	// with the filter kept. Compute the month the way the calendar route does.
+	currentMonth := e.App.Now().In(e.App.Cfg.Location).Format("2006-01")
+	invalid := []struct {
+		name, query, uf, city string
+	}{
+		{"no filter", "?data=ontem", "", ""},
+		{"a state", "?data=ontem&uf=PE", "PE", ""},
+		{"a state and a city", "?data=ontem&uf=CE&cidade=Fortaleza", "CE", "Fortaleza"},
+		{"a city that is not the state's", "?data=ontem&uf=CE&cidade=Recife", "CE", ""},
+		{"a state that does not exist", "?data=ontem&uf=XX&cidade=Fortaleza", "", ""},
+		{"the highlight is not the filter", "?data=ontem&destaque_uf=CE&destaque_cidade=Fortaleza", "", ""},
+	}
+	for _, tt := range invalid {
+		t.Run("invalid/"+tt.name, func(t *testing.T) {
+			u := evHref(t, e.get(e.Outsider, "/eventos/dia"+tt.query).Body.String(), "[←] calendário")
+			want := url.Values{"mes": {currentMonth}}
+			if tt.uf != "" {
+				want.Set("uf", tt.uf)
+			}
+			if tt.city != "" {
+				want.Set("cidade", tt.city)
+			}
+			if u.Path != "/" || u.Query().Encode() != want.Encode() {
+				t.Errorf("the back link of an invalid date is %q, want / with %s", u, want.Encode())
+			}
+		})
 	}
 }
 
