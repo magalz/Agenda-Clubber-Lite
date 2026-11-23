@@ -76,6 +76,7 @@ func (r collectives) SearchApproved(ctx context.Context, query string, kind doma
 	limit = min(max(limit, domain.SearchLimitMin), domain.SearchLimitMax)
 	filter := bson.M{
 		"status": string(domain.CollectiveStatusApproved),
+		"locked": bson.M{"$ne": true},
 		"$expr": bson.M{"$gte": bson.A{
 			bson.M{"$indexOfCP": bson.A{"$name_key", bson.M{"$literal": domain.NameKey(query)}}},
 			0,
