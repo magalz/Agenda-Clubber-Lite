@@ -2,6 +2,7 @@ package mail
 
 import (
 	"html"
+	"os"
 	"strings"
 	"testing"
 )
@@ -20,7 +21,7 @@ const (
 	linkAdminCollectives = "https://agenda.example/admin/coletivos"
 	linkChangePassword   = "https://agenda.example/senha/trocar"
 	boldName             = `<b>negrito</b>`
-	pendingApprovalCopy  = "O link passa a funcionar assim que sua conta for aprovada."
+	pendingApprovalCopy  = "se sua conta ainda aguarda aprovação, o link começa a funcionar depois que ela for aprovada."
 )
 
 // renderCase is one template with data that carries no markup.
@@ -707,6 +708,14 @@ func TestRenderRejectsBadInput(t *testing.T) {
 			Name: "Ana Souza", Link: linkLogin, Button: "Entrar",
 			Items: []DecisionItem{{What: "sua conta", Outcome: DecisionApproved}, {What: "o coletivo Alfa", Outcome: "Approved"}},
 		}},
+		{"decision with an unknown button", TemplateDecision, DecisionData{
+			Name: "Ana Souza", Link: linkLogin, Button: "Entrar!",
+			Items: []DecisionItem{{What: "sua conta", Outcome: DecisionApproved}},
+		}},
+		{"decision with no button", TemplateDecision, DecisionData{
+			Name: "Ana Souza", Link: linkLogin,
+			Items: []DecisionItem{{What: "sua conta", Outcome: DecisionApproved}},
+		}},
 		{"admin request with an unknown kind", TemplateAdminRequest, AdminRequestData{
 			Kind: "bogus", UserName: "Ana Souza", CollectiveName: "Maré Alta", Link: linkAdmin,
 		}},
@@ -718,6 +727,75 @@ func TestRenderRejectsBadInput(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			if _, _, _, err := Render(tc.tmpl, tc.data); err == nil {
 				t.Error("Render succeeded, want an error")
+			}
+		})
+	}
+}
+
+// TestRenderDecisionRejectsUnknownButton pins the decision template's rule for
+// Button: a label it does not know is an error, never a blank button (the same
+// fail pattern Outcome uses).
+func TestRenderDecisionRejectsUnknownButton(t *testing.T) {
+	for _, button := range []string{"", "Entrar!"} {
+		t.Run("button "+button, func(t *testing.T) {
+			_, _, _, err := Render(TemplateDecision, DecisionData{
+				Name: "Ana Souza", Link: linkLogin, Button: button,
+				Items: []DecisionItem{{What: "sua conta", Outcome: DecisionApproved}},
+			})
+			if err == nil {
+				t.Fatal("Render succeeded, want an error")
+			}
+			if !strings.Contains(err.Error(), "unknown button") {
+				t.Errorf("error = %q, want it to name the unknown button", err)
+			}
+		})
+	}
+}
+
+// TestDecisionButtonsFollowTheirDestinations pins the button assigned at each
+// decision call site. The email text carries only the link, so a mislabeled
+// button would pass every output test. Reading the three source files keeps the
+// destination-to-label mapping visible here, as the T5.25 source-shape pin does.
+func TestDecisionButtonsFollowTheirDestinations(t *testing.T) {
+	cases := []struct {
+		file, button, path string
+		count              int
+	}{
+		{"accounts.go", "Entrar", "pathLogin", 1},
+		{"accounts.go", "Ver meus coletivos", "pathCollectives", 1},
+		{"accounts.go", "Criar conta", "pathSignup", 1},
+		{"collectives.go", "Ver meus coletivos", "pathCollectives", 1},
+		{"collectives.go", "Entrar", "pathLogin", 1},
+		{"joins.go", "Ver meus coletivos", "pathCollectives", 3},
+	}
+	sources := make(map[string]string)
+	read := func(file string) string {
+		t.Helper()
+		if src, ok := sources[file]; ok {
+			return src
+		}
+		b, err := os.ReadFile("../approvals/" + file)
+		if err != nil {
+			t.Fatalf("read %s: %v", file, err)
+		}
+		sources[file] = string(b)
+		return sources[file]
+	}
+	for _, tc := range cases {
+		t.Run(tc.file+"/"+tc.path, func(t *testing.T) {
+			src := read(tc.file)
+			want := "d.button = \"" + tc.button + "\"\n\t\treturn d.send(ctx, r, origin+" + tc.path + ", now)"
+			if n := strings.Count(src, want); n != tc.count {
+				t.Errorf("%s: %q appears %d time(s), want %d", tc.file, want, n, tc.count)
+			}
+		})
+	}
+	for file, sends := range map[string]int{"accounts.go": 3, "collectives.go": 2, "joins.go": 3} {
+		t.Run(file+"/all sends pinned", func(t *testing.T) {
+			src := read(file)
+			const mark = "return d.send(ctx, r, origin+"
+			if n := strings.Count(src, mark); n != sends {
+				t.Errorf("%s: %d decision sends, want %d pinned", file, n, sends)
 			}
 		})
 	}
