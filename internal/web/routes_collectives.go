@@ -98,16 +98,21 @@ func (a *App) collectivesRender(c *gin.Context, u domain.User, status int, form 
 
 // collectiveItems lists the person's memberships as the rows of the page, in the
 // order the store returns them (by the collective's name). It reads each
-// collective for its creator, who is shown as the Master.
+// collective for its creator, who is shown as the Master. A collective deleted
+// after the membership list was read has no row: the cascade removes its
+// memberships, so the window is small, but the page must not fail on it.
 func (a *App) collectiveItems(ctx context.Context, u domain.User) ([]collectiveItem, error) {
 	repos := a.Store.Repos()
 	views, err := repos.Memberships.ListByUser(ctx, u.ID)
 	if err != nil {
 		return nil, fmt.Errorf("list memberships: %w", err)
 	}
-	items := make([]collectiveItem, len(views))
-	for i, v := range views {
+	items := make([]collectiveItem, 0, len(views))
+	for _, v := range views {
 		col, err := repos.Collectives.ByID(ctx, v.CollectiveID)
+		if errors.Is(err, domain.ErrNotFound) {
+			continue
+		}
 		if err != nil {
 			return nil, fmt.Errorf("read collective: %w", err)
 		}
@@ -120,7 +125,7 @@ func (a *App) collectiveItems(ctx context.Context, u domain.User) ([]collectiveI
 		if v.Status == domain.MembershipStatusApproved && v.CollectiveStatus == domain.CollectiveStatusApproved && v.Role == domain.RoleOwner {
 			item.Href = "/coletivo/" + v.CollectiveID
 		}
-		items[i] = item
+		items = append(items, item)
 	}
 	return items, nil
 }
