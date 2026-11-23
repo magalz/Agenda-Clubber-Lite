@@ -11,12 +11,15 @@ Olá, {{.Name}}! Há novidades sobre o seu cadastro na Agenda Clubber:
 {{if .Reason}}  motivo: {{.Reason}}
 {{end}}{{end}}
 [→] {{.Link}}
-
+{{if eq .Button "Entrar"}}
+O link passa a funcionar assim que sua conta for aprovada.
+{{end}}
 {{template "text_footer"}}
 {{end}}
 
 {{define "html"}}{{template "html_open" .}}<p style="margin:0 0 16px;font-family:'Space Mono',Menlo,Consolas,'Courier New',monospace;font-size:18px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;">$ atualizacao_cadastro</p>
 <p style="margin:0 0 16px;">Olá, {{.Name}}! Há novidades sobre o seu cadastro na Agenda Clubber:</p>
 {{range .Items}}<p style="margin:0 0 12px;">{{.What}}: {{template "outcome" .Outcome}}{{if .Reason}}<br><span style="color:#8a8a92;">motivo: {{range $i, $line := lines .Reason}}{{if $i}}<br>{{end}}{{$line}}{{end}}</span>{{end}}</p>
-{{end}}{{template "html_button" btn "Entrar" .Link}}
-{{template "html_close" .}}{{end}}
+{{end}}{{template "html_button" btn .Button .Link}}
+{{if eq .Button "Entrar"}}<p style="margin:0 0 16px;">O link passa a funcionar assim que sua conta for aprovada.</p>
+{{end}}{{template "html_close" .}}{{end}}

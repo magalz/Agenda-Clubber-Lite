@@ -59,6 +59,7 @@ func AdminApproveJoin(ctx context.Context, store domain.Store, origin string, ac
 		if err := adminApproveJoinTx(ctx, r, actor, requester, c, m, d, now); err != nil {
 			return err
 		}
+		d.button = "Ver meus coletivos"
 		return d.send(ctx, r, origin+pathCollectives, now)
 	})
 }
@@ -115,6 +116,7 @@ func OwnerApproveJoin(ctx context.Context, store domain.Store, origin string, ac
 		}
 		d := newDecision(requester.Email, requester.Name)
 		d.add(whatJoin(c.Name, m.Role), mail.DecisionApproved, "")
+		d.button = "Ver meus coletivos"
 		return d.send(ctx, r, origin+pathCollectives, now)
 	})
 }
@@ -166,6 +168,7 @@ func RejectJoin(ctx context.Context, store domain.Store, origin string, actor do
 		if err := rejectJoinTx(ctx, r, actor, requester, c, m, reason, d, now); err != nil {
 			return err
 		}
+		d.button = "Ver meus coletivos"
 		return d.send(ctx, r, origin+pathCollectives, now)
 	})
 }

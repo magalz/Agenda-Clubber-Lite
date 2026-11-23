@@ -201,6 +201,7 @@ func enqueue(ctx context.Context, r domain.Repos, to string, t mail.Template, da
 // before the transaction ends.
 type decision struct {
 	to, name string
+	button   string
 	items    []mail.DecisionItem
 }
 
@@ -224,7 +225,7 @@ func (d *decision) send(ctx context.Context, r domain.Repos, link string, now ti
 	if d.to == "" || len(d.items) == 0 {
 		return nil
 	}
-	return enqueue(ctx, r, d.to, mail.TemplateDecision, mail.DecisionData{Name: d.name, Items: d.items, Link: link}, now)
+	return enqueue(ctx, r, d.to, mail.TemplateDecision, mail.DecisionData{Name: d.name, Items: d.items, Link: link, Button: d.button}, now)
 }
 
 // notifyAdmins queues the request notice for every active site admin.
