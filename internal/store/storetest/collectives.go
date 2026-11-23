@@ -15,8 +15,9 @@ import (
 const serializationTimeout = 30 * time.Second
 
 // searchFixture stores the collectives the SearchApproved subtests look through:
-// five approved ones (their keys are acao direta, beco da casa, c.a. funk,
-// casa azul and casa verde) and three that are not approved.
+// five approved and unlocked ones (their keys are acao direta, beco da casa,
+// c.a. funk, casa azul and casa verde), one approved but locked (casa fechada)
+// and three that are not approved.
 func (e env) searchFixture() {
 	e.t.Helper()
 	e.collective("Casa Azul", coletivo, cApproved)
@@ -24,6 +25,7 @@ func (e env) searchFixture() {
 	e.collective("Beco da Casa", coletivo, cApproved)
 	e.collective("Ação Direta", coletivo, cApproved)
 	e.collective("C.A. Funk", produtora, cApproved)
+	e.collective("Casa Fechada", coletivo, cApproved, func(c *domain.Collective) { c.Locked = true })
 	e.collective("Casa Rosa", coletivo, cPending)
 	e.collective("Casa Preta", coletivo, cRejected)
 	e.collective("Casa Lilás", produtora, cPending)
@@ -220,6 +222,21 @@ func RunCollectives(t *testing.T, newStore NewStore) {
 			wantNames(t, "empty query", e.search("", "", domain.SearchLimitMax), all...)
 			wantNames(t, "blank query", e.search("   ", "", domain.SearchLimitMax), all...)
 		}},
+		{"SearchApproved omits approved collectives that are locked", func(t *testing.T, e env) {
+			e.searchFixture()
+			for _, tc := range []struct {
+				query string
+				kind  domain.CollectiveKind
+				want  []string
+			}{
+				{"fechada", "", nil},
+				{"casa", "", []string{"Beco da Casa", "Casa Azul", "Casa Verde"}},
+				{"", coletivo, []string{"Ação Direta", "Beco da Casa", "Casa Azul"}},
+				{"", produtora, []string{"C.A. Funk", "Casa Verde"}},
+			} {
+				wantNames(t, fmt.Sprintf("SearchApproved(%q, %q)", tc.query, tc.kind), e.search(tc.query, tc.kind, domain.SearchLimitMax), tc.want...)
+			}
+		}},
 		{"SearchApproved filters by kind", func(t *testing.T, e env) {
 			e.searchFixture()
 			wantNames(t, "coletivo", e.search("", coletivo, domain.SearchLimitMax), "Ação Direta", "Beco da Casa", "Casa Azul")
@@ -342,7 +359,7 @@ func RunCollectives(t *testing.T, newStore NewStore) {
 		{"ListByStatus returns the collectives with this status and no other", func(t *testing.T, e env) {
 			e.searchFixture()
 			all := domain.ListLimitMax
-			wantNames(t, "approved", e.listCollectives(cApproved, all), "Ação Direta", "Beco da Casa", "C.A. Funk", "Casa Azul", "Casa Verde")
+			wantNames(t, "approved", e.listCollectives(cApproved, all), "Ação Direta", "Beco da Casa", "C.A. Funk", "Casa Azul", "Casa Fechada", "Casa Verde")
 			wantNames(t, "pending", e.listCollectives(cPending, all), "Casa Lilás", "Casa Rosa")
 			wantNames(t, "rejected", e.listCollectives(cRejected, all), "Casa Preta")
 		}},
