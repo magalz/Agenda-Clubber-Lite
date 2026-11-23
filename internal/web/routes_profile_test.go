@@ -94,13 +94,23 @@ func (e profileEnv) askEmail(email string, mods ...func(*http.Request)) *httptes
 	return post(e.r, profileEmailPath, url.Values{"email": {email}}.Encode(), append([]func(*http.Request){withCookie(e.cookie)}, mods...)...)
 }
 
-// confirm clicks the mailed link, with or without a session.
-func (e profileEnv) confirm(raw string, cookie bool) *httptest.ResponseRecorder {
+// showLink opens the mailed link: a GET that only shows the button and must
+// spend nothing, with or without a session.
+func (e profileEnv) showLink(raw string, cookie bool) *httptest.ResponseRecorder {
 	target := profileConfirmURL + "?token=" + url.QueryEscape(raw)
 	if !cookie {
 		return serve(e.r, http.MethodGet, target)
 	}
 	return serve(e.r, http.MethodGet, target, withCookie(e.cookie))
+}
+
+// confirm clicks the button under the mailed link: this POST spends the token.
+func (e profileEnv) confirm(raw string, cookie bool) *httptest.ResponseRecorder {
+	body := url.Values{"token": {raw}}.Encode()
+	if !cookie {
+		return post(e.r, profileConfirmURL, body)
+	}
+	return post(e.r, profileConfirmURL, body, withCookie(e.cookie))
 }
 
 func (e profileEnv) storedUser(t *testing.T) domain.User {
@@ -198,7 +208,7 @@ func TestProfileNoticesComeFromTheFixedTable(t *testing.T) {
 
 func TestProfilePostsNeedTheAppsOrigin(t *testing.T) {
 	r := signupApp(t, stubStore{}).Router()
-	for _, path := range []string{profilePath, profileEmailPath} {
+	for _, path := range []string{profilePath, profileEmailPath, profileConfirmURL} {
 		for name, mod := range map[string]func(*http.Request){
 			"no Origin":    func(*http.Request) {},
 			"other Origin": header("Origin", "https://evil.test"),
@@ -333,7 +343,40 @@ func TestProfileEmailChangeRefusesTheCurrentAddress(t *testing.T) {
 	}
 }
 
-// --- GET /confirmar-email ---
+// --- the show page and POST /confirmar-email ---
+
+func TestProfileConfirmLinkShowsAButtonAndSpendsNothing(t *testing.T) {
+	// The stub store panics on any call: a 200 proves the GET never looks the
+	// token up, so a mail scanner's hit or a miss tells nothing.
+	r := signupApp(t, stubStore{}).Router()
+	good := confirmAssertPage(t, serve(r, http.MethodGet, profileConfirmURL+"?token=whatever"),
+		http.StatusOK, "Confirmar novo e-mail",
+		`<form method="post" action="/confirmar-email"`,
+		`<input type="hidden" name="token" value="whatever">`,
+		`[→] CONFIRMAR NOVO E-MAIL`)
+
+	bad := confirmAssertPage(t, serve(r, http.MethodGet, profileConfirmURL+"?token=not-a-token"),
+		http.StatusOK, "Confirmar novo e-mail",
+		`<input type="hidden" name="token" value="not-a-token">`)
+	stripToken := regexp.MustCompile(`value="[^"]*"`)
+	if stripToken.ReplaceAllString(good, `value="TOKEN"`) != stripToken.ReplaceAllString(bad, `value="TOKEN"`) {
+		t.Error("a good and a bad token get different GET answers: the page validates on a GET")
+	}
+
+	e := newProfileEnv(t)
+	e.askEmail(profileNewEmail)
+	raw := profileLinkToken(t, profileOutbox(t, e.store))
+	confirmAssertPage(t, e.showLink(raw, true), http.StatusOK, "Confirmar novo e-mail",
+		`<input type="hidden" name="token" value="`+raw+`">`)
+	if got := e.storedUser(t).Email; got != profileEmail {
+		t.Errorf("the GET changed the email to %q", got)
+	}
+	// The untouched token still works: the GET did not spend it.
+	profileWantRedirect(t, e.confirm(raw, true), profilePath+"?msg="+msgEmailChanged)
+	if got := e.storedUser(t).Email; got != profileNewEmail {
+		t.Errorf("stored email = %q, want %q", got, profileNewEmail)
+	}
+}
 
 func TestProfileConfirmChangesTheEmailAndRedirects(t *testing.T) {
 	e := newProfileEnv(t)
@@ -341,6 +384,7 @@ func TestProfileConfirmChangesTheEmailAndRedirects(t *testing.T) {
 	profileWantRedirect(t, rec, profilePath+"?msg="+msgEmailPending)
 	raw := profileLinkToken(t, profileOutbox(t, e.store))
 
+	confirmAssertPage(t, e.showLink(raw, true), http.StatusOK, "Confirmar novo e-mail")
 	profileWantRedirect(t, e.confirm(raw, true), profilePath+"?msg="+msgEmailChanged)
 	if got := e.storedUser(t).Email; got != profileNewEmail {
 		t.Errorf("stored email = %q, want %q", got, profileNewEmail)
@@ -352,16 +396,34 @@ func TestProfileConfirmWorksForAnAnonymousVisitor(t *testing.T) {
 	e.askEmail(profileNewEmail)
 	raw := profileLinkToken(t, profileOutbox(t, e.store))
 
-	// The link is public: no cookie reaches it, and it still swaps the address.
+	// The show page and the button are public; the GET still changes nothing.
+	confirmAssertPage(t, e.showLink(raw, false), http.StatusOK, "Confirmar novo e-mail",
+		`<input type="hidden" name="token" value="`+raw+`">`)
+	if got := e.storedUser(t).Email; got != profileEmail {
+		t.Errorf("the anonymous GET changed the email to %q", got)
+	}
 	profileWantRedirect(t, e.confirm(raw, false), profilePath+"?msg="+msgEmailChanged)
 	if got := e.storedUser(t).Email; got != profileNewEmail {
 		t.Errorf("stored email = %q, want %q", got, profileNewEmail)
 	}
+
+	// House behavior after a public action: /perfil needs a session, so an
+	// anonymous visitor bounces to the login with the whole address, notice
+	// code included, in ?next=. With a session again the notice is shown.
+	target := profilePath + "?msg=" + msgEmailChanged
+	bounce := serve(e.r, http.MethodGet, target)
+	if bounce.Code != http.StatusSeeOther || bounce.Header().Get("Location") != "/entrar?next=%2Fperfil%3Fmsg%3Demail-confirmado" {
+		t.Errorf("anonymous GET %s = %d to %q, want 303 to the login with ?next=", target, bounce.Code, bounce.Header().Get("Location"))
+	}
+	confirmAssertPage(t, serve(e.r, http.MethodGet, target, withCookie(loginAs(t, e.app, e.storedUser(t)))),
+		http.StatusOK, "Editar Perfil", profileMsgChanged)
 }
 
 func TestProfileConfirmRefusesAnInvalidLink(t *testing.T) {
 	e := newProfileEnv(t)
 	for _, raw := range []string{"", "not-a-token"} {
+		// The GET shows the same button either way; only the POST finds out.
+		confirmAssertPage(t, e.showLink(raw, true), http.StatusOK, "Confirmar novo e-mail")
 		profileWantRedirect(t, e.confirm(raw, true), profilePath+"?msg="+msgEmailInvalid)
 	}
 	if got := e.storedUser(t).Email; got != profileEmail {
@@ -377,6 +439,7 @@ func TestProfileConfirmReportsAnInterimTakenAddress(t *testing.T) {
 	// Another account takes the address while the link is on its way.
 	insertWebUser(t, e.store, profileNewEmail)
 
+	confirmAssertPage(t, e.showLink(raw, true), http.StatusOK, "Confirmar novo e-mail")
 	profileWantRedirect(t, e.confirm(raw, true), profilePath+"?msg="+msgEmailInUse)
 	if got := e.storedUser(t).Email; got != profileEmail {
 		t.Errorf("email = %q, want the original address", got)

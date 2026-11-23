@@ -1,0 +1,8 @@
+{{/* Confirmação do novo e-mail. Data is an emailConfirmView: Token is the link's token, put in the form's hidden field. The e-mailed GET only shows this button: a GET never spends the token, since mail scanners and link previews open links, and it never looks the token up, so a hit or a miss tells nothing. The POST under the button spends the token; the token is written back only in this hidden field. */}}
+{{define "content"}}<div class="stack">
+  <p>quase lá. confirme que este e-mail é seu.</p>
+  <form method="post" action="/confirmar-email" class="stack">
+    <input type="hidden" name="token" value="{{.Data.Token}}">
+    <button class="btn btn--solid" type="submit">[→] CONFIRMAR NOVO E-MAIL</button>
+  </form>
+</div>{{end}}
