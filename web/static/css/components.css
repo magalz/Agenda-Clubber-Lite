@@ -450,11 +450,12 @@
   line-height: var(--leading-sm);
   cursor: pointer;
 }
+/* The native box is the click target: 1.5rem is 24px at the 16px root (WCAG 2.5.8). The labels are larger already. */
 .check input,
 .radio-card input {
   flex: none;
-  width: 1.25rem;
-  height: 1.25rem;
+  width: 1.5rem;
+  height: 1.5rem;
   accent-color: var(--accent);
 }
 

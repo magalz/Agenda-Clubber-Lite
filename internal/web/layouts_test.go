@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -510,4 +511,41 @@ func TestNewAppRefusesANilStore(t *testing.T) {
 	mustPanic(t, "Store", func() {
 		NewApp(testConfig(t), slog.New(slog.NewJSONHandler(&bytes.Buffer{}, nil)), nil)
 	})
+}
+
+// A native checkbox or radio is its own click target: the label around it is larger, but a 20px box still leaves a
+// 20px target under WCAG 2.5.8. Go cannot measure a browser, so pin the source value: 1.5rem is 24px at this app's
+// 16px root (neither base.css nor tokens.css overrides the root font size).
+func TestCheckAndRadioInputsMeetThe24pxTarget(t *testing.T) {
+	css := dynRead(t, "static/css/components.css")
+	rule := regexp.MustCompile(`(?s)\.check input,\s*\.radio-card input\s*\{([^}]*)\}`).FindStringSubmatch(css)
+	if rule == nil {
+		t.Fatal("components.css has no .check input, .radio-card input rule")
+	}
+	for _, prop := range []string{"width", "height"} {
+		t.Run(prop, func(t *testing.T) {
+			value := regexp.MustCompile(`(?m)^\s*` + prop + `:\s*([^;]+);`).FindStringSubmatch(rule[1])
+			if value == nil {
+				t.Fatalf(".check input has no %s declaration", prop)
+			}
+			got := strings.TrimSpace(value[1])
+			length := regexp.MustCompile(`^(\d+(?:\.\d+)?)(rem|px)$`).FindStringSubmatch(got)
+			if length == nil {
+				t.Fatalf(".check input %s = %q is not a plain px/rem length", prop, got)
+			}
+			px, err := strconv.ParseFloat(length[1], 64)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if length[2] == "rem" {
+				px *= 16
+			}
+			if px < 24 {
+				t.Errorf(".check input %s = %q (%.0fpx), want 1.5rem (24px at the 16px root)", prop, got, px)
+			}
+			if got != "1.5rem" {
+				t.Errorf(".check input %s = %q, want the pinned 1.5rem", prop, got)
+			}
+		})
+	}
 }
