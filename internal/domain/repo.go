@@ -90,8 +90,8 @@ type Users interface {
 	// a FieldErrors with the key "password_hash". A missing user is ErrNotFound.
 	ChangePassword(ctx context.Context, id, newHash string, now time.Time) error
 
-	// MarkPasswordReminded sets PasswordRemindedAt (to now) on the user id. A
-	// missing user is ErrNotFound.
+	// MarkPasswordReminded sets PasswordRemindedAt and UpdatedAt (to now) on
+	// the user id. A missing user is ErrNotFound.
 	MarkPasswordReminded(ctx context.Context, id string, now time.Time) error
 
 	// ListByStatus returns the users with this status, the oldest CreatedAt first
