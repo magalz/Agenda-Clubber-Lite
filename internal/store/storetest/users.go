@@ -146,6 +146,68 @@ func RunUsers(t *testing.T, newStore NewStore) {
 				isErr(t, fmt.Sprintf("ByEmail(%q)", email), err, domain.ErrNotFound)
 			}
 		}},
+		{"UpdateProfile writes the profile fields and UpdatedAt and no other field", func(t *testing.T, e env) {
+			u := e.user("ana", func(u *domain.User) {
+				u.Name = "Ana Antes"
+				u.Phone = "11911112222"
+				u.PhoneIsWhatsApp = false
+				u.EmailVerifiedAt = ptr(at(time.Minute))
+				u.PasswordRemindedAt = ptr(at(2 * time.Minute))
+			})
+			noErr(t, "UpdateProfile", e.r.Users.UpdateProfile(e.ctx, u.ID, "Ana Depois", "21988887777", true, at(time.Hour)))
+			want := u
+			want.Name = "Ana Depois"
+			want.Phone = "21988887777"
+			want.PhoneIsWhatsApp = true
+			want.UpdatedAt = at(time.Hour)
+			got := e.getUser(u.ID)
+			wantEqual(t, "user", normUser(got), normUser(want))
+			if got.Email != u.Email {
+				t.Errorf("Email = %q, want %q", got.Email, u.Email)
+			}
+		}},
+		{"UpdateProfile returns ErrNotFound for a missing user", func(t *testing.T, e env) {
+			for _, id := range unknownIDs {
+				isErr(t, fmt.Sprintf("UpdateProfile(%q)", id), e.r.Users.UpdateProfile(e.ctx, id, "Ana", "11987654321", false, at(time.Hour)), domain.ErrNotFound)
+			}
+		}},
+		{"SetEmail normalizes the email and updates UpdatedAt", func(t *testing.T, e env) {
+			u := e.user("ana")
+			noErr(t, "SetEmail", e.r.Users.SetEmail(e.ctx, u.ID, "  Novo@Example.COM ", at(time.Hour)))
+			want := u
+			want.Email = "novo@example.com"
+			want.UpdatedAt = at(time.Hour)
+			wantEqual(t, "user", normUser(e.getUser(u.ID)), normUser(want))
+			byEmail, err := e.r.Users.ByEmail(e.ctx, "novo@example.com")
+			noErr(t, "ByEmail with the new email", err)
+			if byEmail.ID != u.ID {
+				t.Errorf("ByEmail found %q, want %q", byEmail.ID, u.ID)
+			}
+			_, err = e.r.Users.ByEmail(e.ctx, u.Email)
+			isErr(t, "ByEmail with the old email", err, domain.ErrNotFound)
+		}},
+		{"SetEmail refuses an email taken by another user", func(t *testing.T, e env) {
+			ana, bia := e.user("ana"), e.user("bia")
+			isErr(t, "SetEmail to bia's email", e.r.Users.SetEmail(e.ctx, ana.ID, "  BIA@Example.com ", at(time.Hour)), domain.ErrEmailTaken)
+			wantEqual(t, "ana", normUser(e.getUser(ana.ID)), normUser(ana))
+			wantEqual(t, "bia", normUser(e.getUser(bia.ID)), normUser(bia))
+		}},
+		{"SetEmail to the account's own email succeeds", func(t *testing.T, e env) {
+			ana := e.user("ana")
+			noErr(t, "SetEmail to the same email with case and spaces", e.r.Users.SetEmail(e.ctx, ana.ID, "  ANA@Example.com ", at(time.Hour)))
+			want := ana
+			want.UpdatedAt = at(time.Hour)
+			wantEqual(t, "ana", normUser(e.getUser(ana.ID)), normUser(want))
+		}},
+		{"SetEmail returns ErrNotFound for a bad email or a missing user", func(t *testing.T, e env) {
+			u := e.user("ana")
+			for _, email := range []string{"not an email", "", "ana@", ".*"} {
+				isErr(t, fmt.Sprintf("SetEmail(%q)", email), e.r.Users.SetEmail(e.ctx, u.ID, email, at(time.Hour)), domain.ErrNotFound)
+			}
+			for _, id := range unknownIDs {
+				isErr(t, fmt.Sprintf("SetEmail(%q)", id), e.r.Users.SetEmail(e.ctx, id, "novo@example.com", at(time.Hour)), domain.ErrNotFound)
+			}
+		}},
 		{"SetStatus sets the status and UpdatedAt", func(t *testing.T, e env) {
 			u := e.user("ana", func(u *domain.User) { u.Status = uPendingApproval })
 			noErr(t, "SetStatus", e.r.Users.SetStatus(e.ctx, u.ID, uActive, at(time.Hour)))
@@ -198,6 +260,34 @@ func RunUsers(t *testing.T, newStore NewStore) {
 			want.FailedLogins = 0
 			want.LockedUntil = nil
 			wantEqual(t, "user", normUser(e.getUser(u.ID)), normUser(want))
+		}},
+		{"MarkPasswordReminded sets the marker and UpdatedAt", func(t *testing.T, e env) {
+			u := e.user("ana")
+			noErr(t, "MarkPasswordReminded", e.r.Users.MarkPasswordReminded(e.ctx, u.ID, at(time.Hour)))
+			want := u
+			want.PasswordRemindedAt = ptr(at(time.Hour))
+			want.UpdatedAt = at(time.Hour)
+			got := e.getUser(u.ID)
+			wantEqual(t, "user", normUser(got), normUser(want))
+			sameTimePtr(t, "PasswordRemindedAt", got.PasswordRemindedAt, at(time.Hour))
+		}},
+		{"MarkPasswordReminded returns ErrNotFound for a missing user", func(t *testing.T, e env) {
+			for _, id := range unknownIDs {
+				isErr(t, fmt.Sprintf("MarkPasswordReminded(%q)", id), e.r.Users.MarkPasswordReminded(e.ctx, id, at(time.Hour)), domain.ErrNotFound)
+			}
+		}},
+		{"ChangePassword resets the password-reminder marker", func(t *testing.T, e env) {
+			u := e.user("ana", func(u *domain.User) { u.PasswordRemindedAt = ptr(at(time.Minute)) })
+			sameTimePtr(t, "PasswordRemindedAt before ChangePassword", e.getUser(u.ID).PasswordRemindedAt, at(time.Minute))
+			noErr(t, "ChangePassword", e.r.Users.ChangePassword(e.ctx, u.ID, "hash-new", at(time.Hour)))
+			want := u
+			want.PasswordHash = "hash-new"
+			want.PasswordChangedAt = at(time.Hour)
+			want.PasswordRemindedAt = nil
+			want.UpdatedAt = at(time.Hour)
+			got := e.getUser(u.ID)
+			wantEqual(t, "user", normUser(got), normUser(want))
+			unsetTime(t, "PasswordRemindedAt after ChangePassword", got.PasswordRemindedAt)
 		}},
 		{"RecentPasswordHashes lists the current hash first and one previous hash", func(t *testing.T, e env) {
 			u := e.user("ana")
@@ -432,6 +522,96 @@ func RunUsers(t *testing.T, newStore NewStore) {
 			noErr(t, "ListByStatus", err)
 			if len(got) != 0 {
 				t.Errorf("ListByStatus returned %d users, want none", len(got))
+			}
+		}},
+		{"ListByStatusCreatedBefore keeps only users created strictly before the cutoff, oldest first", func(t *testing.T, e env) {
+			pending := func(created time.Duration) func(*domain.User) {
+				return func(u *domain.User) { u.Status, u.CreatedAt = uPendingApproval, at(created) }
+			}
+			oldest := e.user("oldest", pending(-2*time.Minute))
+			tieA := e.user("tiea", pending(-time.Minute))
+			tieB := e.user("tieb", pending(-time.Minute))
+			atCutoff := e.user("atcutoff", pending(0))
+			later := e.user("later", pending(time.Minute))
+			// Earlier than all of them, but in another status.
+			e.user("other", func(u *domain.User) { u.Status, u.CreatedAt = uDisabled, at(-time.Hour) })
+
+			ties := []string{tieA.ID, tieB.ID}
+			slices.Sort(ties)
+			before := append([]string{oldest.ID}, ties...)
+			all := append(append([]string{}, before...), atCutoff.ID, later.ID)
+			got, err := e.r.Users.ListByStatusCreatedBefore(e.ctx, uPendingApproval, at(time.Hour), 10)
+			noErr(t, "ListByStatusCreatedBefore", err)
+			wantStrings(t, "IDs", userIDs(got), all...)
+
+			got, err = e.r.Users.ListByStatusCreatedBefore(e.ctx, uPendingApproval, at(0), 10)
+			noErr(t, "ListByStatusCreatedBefore at the cutoff", err)
+			wantStrings(t, "IDs before the cutoff", userIDs(got), before...)
+		}},
+		{"ListByStatusCreatedBefore clamps the limit to the range 1 to ListLimitMax", func(t *testing.T, e env) {
+			var ids []string
+			for i, name := range []string{"ana", "bia", "cris"} {
+				u := e.user(name, func(u *domain.User) {
+					u.Status, u.CreatedAt = uPendingApproval, at(time.Duration(i)*time.Minute)
+				})
+				ids = append(ids, u.ID)
+			}
+			for _, c := range []struct{ limit, want int }{
+				{math.MinInt, 1}, {-100, 1}, {-2, 1}, {0, 1}, {1, 1}, {2, 2}, {3, 3}, {4, 3},
+				{domain.ListLimitMax, 3}, {domain.ListLimitMax + 1, 3}, {domain.ListLimitMax * 1000, 3}, {math.MaxInt, 3},
+			} {
+				got, err := e.r.Users.ListByStatusCreatedBefore(e.ctx, uPendingApproval, at(time.Hour), c.limit)
+				noErr(t, fmt.Sprintf("ListByStatusCreatedBefore(limit %d)", c.limit), err)
+				wantStrings(t, fmt.Sprintf("IDs with limit %d", c.limit), userIDs(got), ids[:c.want]...)
+			}
+		}},
+		{"ListByStatusCreatedBefore refuses a status that is not defined", func(t *testing.T, e env) {
+			e.user("ana")
+			for _, status := range []domain.UserStatus{"", "bogus", "Active", "pending"} {
+				got, err := e.r.Users.ListByStatusCreatedBefore(e.ctx, status, at(time.Hour), 10)
+				wantFieldErrors(t, fmt.Sprintf("ListByStatusCreatedBefore(%q)", status), err, "status")
+				if len(got) != 0 {
+					t.Errorf("ListByStatusCreatedBefore(%q) returned %d users with its error", status, len(got))
+				}
+			}
+		}},
+		{"ListActivePasswordChangedBetween returns active users in [from, to), earliest first", func(t *testing.T, e env) {
+			active := func(changed time.Duration) func(*domain.User) {
+				return func(u *domain.User) { u.Status, u.PasswordChangedAt = uActive, at(changed) }
+			}
+			atFrom := e.user("atfrom", active(-time.Minute))
+			tieA := e.user("tiea", active(0))
+			tieB := e.user("tieb", active(0))
+			latest := e.user("latest", active(time.Minute))
+			e.user("atto", active(2*time.Minute))
+			// Before the window's from, but not active.
+			e.user("pending", func(u *domain.User) {
+				u.Status, u.PasswordChangedAt = uPendingApproval, at(-time.Hour)
+			})
+			e.user("disabled", func(u *domain.User) {
+				u.Status, u.PasswordChangedAt = uDisabled, at(-time.Hour)
+			})
+
+			ties := []string{tieA.ID, tieB.ID}
+			slices.Sort(ties)
+			want := append([]string{atFrom.ID}, append(ties, latest.ID)...)
+			got, err := e.r.Users.ListActivePasswordChangedBetween(e.ctx, at(-time.Minute), at(2*time.Minute), 10)
+			noErr(t, "ListActivePasswordChangedBetween", err)
+			wantStrings(t, "IDs", userIDs(got), want...)
+		}},
+		{"ListActivePasswordChangedBetween clamps the limit to the range 1 to ListLimitMax", func(t *testing.T, e env) {
+			var ids []string
+			for i, name := range []string{"ana", "bia", "cris"} {
+				u := e.user(name, func(u *domain.User) { u.PasswordChangedAt = at(time.Duration(i) * time.Minute) })
+				ids = append(ids, u.ID)
+			}
+			for _, c := range []struct{ limit, want int }{
+				{math.MinInt, 1}, {-100, 1}, {-2, 1}, {0, 1}, {1, 1}, {2, 2}, {3, 3}, {4, 3},
+				{domain.ListLimitMax, 3}, {domain.ListLimitMax + 1, 3}, {domain.ListLimitMax * 1000, 3}, {math.MaxInt, 3},
+			} {
+				got, err := e.r.Users.ListActivePasswordChangedBetween(e.ctx, at(-time.Hour), at(time.Hour), c.limit)
+				noErr(t, fmt.Sprintf("ListActivePasswordChangedBetween(limit %d)", c.limit), err)
+				wantStrings(t, fmt.Sprintf("IDs with limit %d", c.limit), userIDs(got), ids[:c.want]...)
 			}
 		}},
 		{"Approve moves pending_approval to active and records who and when", func(t *testing.T, e env) {
