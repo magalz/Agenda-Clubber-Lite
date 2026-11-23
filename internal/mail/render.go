@@ -118,11 +118,14 @@ type DecisionItem struct {
 
 // DecisionData is the data of TemplateDecision: one email per decision call,
 // listing everything that was decided in it. Link is where the person goes next
-// (the login page or their collectives).
+// (the login page, their collectives or the sign-up page). Button is the action
+// label of that link, following its destination: "Entrar", "Ver meus coletivos"
+// or "Criar conta".
 type DecisionData struct {
-	Name  string
-	Items []DecisionItem
-	Link  string
+	Name   string
+	Items  []DecisionItem
+	Link   string
+	Button string
 }
 
 // OwnerJoinRequestData is the data of TemplateOwnerJoinRequest: the notice the

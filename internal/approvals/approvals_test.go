@@ -298,6 +298,7 @@ func TestDecisionSend(t *testing.T) {
 		d.add("o coletivo Alfa", mail.DecisionApproved, "")
 		d.add("seu pedido para entrar em Beta como Membro", mail.DecisionRejected, "já temos membros demais")
 		d.add("seu pedido para entrar em Gama como Administrador", mail.DecisionWaiting, "")
+		d.button = "Ver meus coletivos"
 		if err := d.send(t.Context(), s.Repos(), link, testNow); err != nil {
 			t.Fatalf("send: %v", err)
 		}

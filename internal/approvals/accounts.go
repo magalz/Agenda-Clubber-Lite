@@ -71,6 +71,7 @@ func ApproveAccount(ctx context.Context, store domain.Store, origin string, acto
 		if err := approveAccountTx(ctx, r, origin, actor, person, views, d, now); err != nil {
 			return err
 		}
+		d.button = "Entrar"
 		return d.send(ctx, r, origin+pathLogin, now)
 	})
 }
@@ -140,6 +141,7 @@ func ApprovePerson(ctx context.Context, store domain.Store, origin string, actor
 		if len(d.items) == 0 {
 			return ErrDecided
 		}
+		d.button = "Ver meus coletivos"
 		return d.send(ctx, r, origin+pathCollectives, now)
 	})
 }
@@ -203,6 +205,7 @@ func RejectAccount(ctx context.Context, store domain.Store, origin string, actor
 		if err := audit(ctx, r, e); err != nil {
 			return err
 		}
+		d.button = "Criar conta"
 		return d.send(ctx, r, origin+pathSignup, now)
 	})
 }

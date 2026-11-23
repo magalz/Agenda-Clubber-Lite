@@ -623,6 +623,7 @@ func TestCollectiveTxHelpersShareTheCallersDecision(t *testing.T) {
 				if err := tt.run(ctx, r, f, c, d, now); err != nil {
 					return err
 				}
+				d.button = "Ver meus coletivos"
 				return d.send(ctx, r, link, now)
 			})
 			if err != nil {

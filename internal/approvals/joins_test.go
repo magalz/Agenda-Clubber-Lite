@@ -1077,6 +1077,7 @@ func TestJoinTxHelpersShareTheCallersDecision(t *testing.T) {
 				if err := tt.run(ctx, r, f, u, c, m, d); err != nil {
 					return err
 				}
+				d.button = "Ver meus coletivos"
 				return d.send(ctx, r, link, now)
 			})
 			if err != nil {
