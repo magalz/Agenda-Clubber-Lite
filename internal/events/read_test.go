@@ -338,6 +338,38 @@ func TestMine(t *testing.T) {
 	}
 }
 
+// TestMineTruncated stores as many events as the store returns at most in the
+// collectives where the actor is an approved member: the view then says it may be
+// missing some, just like the day list and the month grid.
+func TestMineTruncated(t *testing.T) {
+	w := newWorld(t)
+	start := calendarLocal(2026, time.November, 20, 0, 0)
+	var first domain.Event
+	for i := range domain.ListLimitMax {
+		e := readInsert(t, w, w.Alfa, fmt.Sprintf("e%03d", i), start.Add(time.Duration(i)*time.Minute))
+		if i == 0 {
+			first = e
+		}
+	}
+
+	v, err := Mine(t.Context(), w.S, w.Owner, testNow)
+	if err != nil {
+		t.Fatalf("Mine: %v", err)
+	}
+	if !v.Truncated || len(v.Upcoming)+len(v.Past) != domain.ListLimitMax {
+		t.Errorf("Mine: Truncated %v, %d rows; want true, %d", v.Truncated, len(v.Upcoming)+len(v.Past), domain.ListLimitMax)
+	}
+
+	// One event fewer than the limit is not truncated.
+	if err := w.S.Repos().Events.Delete(t.Context(), first.ID); err != nil {
+		t.Fatalf("delete event: %v", err)
+	}
+	v, err = Mine(t.Context(), w.S, w.Owner, testNow)
+	if err != nil || v.Truncated {
+		t.Errorf("Mine with %d events: Truncated %v, %v; want false", domain.ListLimitMax-1, v.Truncated, err)
+	}
+}
+
 func TestDetail(t *testing.T) {
 	w := newWorld(t)
 	alfa := readInsert(t, w, w.Alfa, "festa alfa", calendarLocal(2026, time.November, 20, 22, 0))

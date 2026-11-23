@@ -69,8 +69,10 @@ type MineItem struct {
 }
 
 // MineView is Meus Eventos: Upcoming is ascending by start time, Past descending.
+// Truncated says the store returned its limit, so the lists may miss events.
 type MineView struct {
 	Upcoming, Past []MineItem
+	Truncated      bool
 }
 
 // Mine returns the events of every collective where actor has an approved
