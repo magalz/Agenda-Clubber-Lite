@@ -17,6 +17,7 @@ const (
 	linkCollectives      = "https://agenda.example/coletivos"
 	linkOwnerRequests    = "https://agenda.example/coletivos/pedidos"
 	linkAdminCollectives = "https://agenda.example/admin/coletivos"
+	linkChangePassword   = "https://agenda.example/senha/trocar"
 	boldName             = `<b>negrito</b>`
 )
 
@@ -63,6 +64,26 @@ func renderCases() []renderCase {
 				"este endereço continua recebendo os e-mails da sua conta",
 				"troque sua senha",
 			},
+		},
+		{
+			name:    "password expiring",
+			tmpl:    TemplatePasswordExpiring,
+			data:    PasswordExpiringData{Name: "Ana Souza", Days: 7, Link: linkChangePassword},
+			subject: "Sua senha vence em 7 dias · Agenda Clubber",
+			links:   []string{linkChangePassword},
+			button:  "Trocar senha",
+			phrases: []string{"Ana Souza", "Sua senha vence em 7 dias"},
+			absent:  []string{"vence amanhã"},
+		},
+		{
+			name:    "password expiring tomorrow",
+			tmpl:    TemplatePasswordExpiring,
+			data:    PasswordExpiringData{Name: "Ana Souza", Days: 1, Link: linkChangePassword},
+			subject: "Sua senha vence amanhã · Agenda Clubber",
+			links:   []string{linkChangePassword},
+			button:  "Trocar senha",
+			phrases: []string{"Ana Souza", "Sua senha vence amanhã"},
+			absent:  []string{"vence em 1 dias"},
 		},
 		{
 			name:    "existing account",
@@ -276,6 +297,31 @@ func TestRender(t *testing.T) {
 	}
 }
 
+func TestRenderPasswordExpiringHasButtonAndCopyLinkFallback(t *testing.T) {
+	_, text, htmlBody, err := Render(TemplatePasswordExpiring, PasswordExpiringData{
+		Name: "Ana Souza", Days: 3, Link: linkChangePassword,
+	})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(text, "[→] "+linkChangePassword) {
+		t.Errorf("text lacks the plain action link:\n%s", text)
+	}
+	if !strings.Contains(htmlBody, "[→] Trocar senha") {
+		t.Errorf("html lacks the Trocar senha button")
+	}
+	for _, want := range []string{
+		"Se o botão não abrir, copie este link para o navegador:",
+		`href="` + linkChangePassword + `"`,
+		"word-break:break-all",
+		"Use o link para trocar a senha da sua conta.",
+	} {
+		if !strings.Contains(htmlBody, want) {
+			t.Errorf("html lacks %q", want)
+		}
+	}
+}
+
 func TestRenderChangeEmailKeepsTheLinkInPlace(t *testing.T) {
 	data := ChangeEmailData{Name: "Ana Souza", Link: linkConfirm}
 	_, text, htmlBody, err := Render(TemplateChangeEmail, data)
@@ -316,6 +362,7 @@ func TestRenderEscapesUserText(t *testing.T) {
 	}{
 		{"verify email", TemplateVerifyEmail, VerifyEmailData{Name: xssName, Link: linkConfirm}, false},
 		{"change email", TemplateChangeEmail, ChangeEmailData{Name: xssName, Link: linkConfirm}, false},
+		{"password expiring", TemplatePasswordExpiring, PasswordExpiringData{Name: xssName, Days: 3, Link: linkChangePassword}, false},
 		{"email change notice", TemplateEmailChangeNotice, EmailChangeNoticeData{Name: xssName, NewEmail: xssName}, false},
 		{"existing account", TemplateExistingAccount, ExistingAccountData{Name: xssName, LoginLink: linkLogin, ForgotPasswordLink: linkForgot}, false},
 		{"password reset", TemplatePasswordReset, PasswordResetData{Name: xssName, Link: linkReset}, false},
@@ -594,6 +641,7 @@ func TestRenderRejectsBadInput(t *testing.T) {
 		{"decision with another template's data", TemplateDecision, VerifyEmailData{Name: "Ana", Link: linkLogin}},
 		{"change email with the notice's data", TemplateChangeEmail, EmailChangeNoticeData{Name: "Ana", NewEmail: "novo@example.com"}},
 		{"email change notice with the change email's data", TemplateEmailChangeNotice, ChangeEmailData{Name: "Ana", Link: linkConfirm}},
+		{"password expiring with another template's data", TemplatePasswordExpiring, PasswordResetData{Name: "Ana", Link: linkReset}},
 		{"admin request with another template's data", TemplateAdminRequest, OwnerJoinRequestData{CollectiveName: "Maré Alta", UserName: "Ana", Role: "Membro", Link: linkAdmin}},
 		{"decision with an unknown outcome", TemplateDecision, DecisionData{
 			Name: "Ana Souza", Link: linkLogin,
