@@ -131,7 +131,7 @@ func (a *App) Router() *gin.Engine {
 	a.resetRoutes(public, authed)
 	a.collectivesRoutes(public, authed)
 	a.collectiveRoutes(public, authed)
-	a.profileRoutes(authed)
+	a.profileRoutes(public, authed)
 
 	// The site admin's pages sit under /admin on the authed group, so an
 	// anonymous visitor is sent to the login page and a signed-in non-admin
