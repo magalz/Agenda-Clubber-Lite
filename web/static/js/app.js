@@ -608,6 +608,7 @@
           try {
             const response = await fetch(SUGGEST_URL + '?' + params, {
               headers: { Accept: 'text/html' },
+              redirect: 'error',
               signal: controller.signal,
             });
             if (!response.ok) throw new Error('suggestions ' + response.status);
@@ -620,9 +621,10 @@
             this.activeDescendant = null;
             this.expanded = options.length > 0 ? 'true' : 'false';
           } catch {
+            // A rejected fetch (a 303 to /entrar on an expired session, or a network failure) leaves the
+            // suggestions as they were, like refill's failed select: nothing cleared, no error text.
             if (controller.signal.aborted) return;
             request = null;
-            this.close();
           }
         },
 
