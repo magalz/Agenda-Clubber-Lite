@@ -132,7 +132,7 @@ func (a *App) adminCards(queue []approvals.PersonCard) []adminCard {
 			UserID: p.User.ID, Name: p.User.Name, Email: p.User.Email,
 			Phone: p.User.Phone, WhatsApp: p.User.PhoneIsWhatsApp,
 			Pending: p.AccountPending(), Status: adminStatusActive,
-			Registered: p.User.CreatedAt.In(a.Cfg.Location).Format("02/01/2006"),
+			Registered: fmtDate(p.User.CreatedAt, a.Cfg.Location),
 			HeadingID:  next("pessoa"), ReasonID: next("motivo"),
 			Items: make([]adminItem, len(p.Items)),
 		}
