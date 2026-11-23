@@ -148,7 +148,7 @@ func (a *App) collectiveAct(logMsg, code, selfCode string, limited bool, do func
 		case err == nil && selfCode != "" && form.Get("user_id") == u.ID:
 			a.redirect(c, "/coletivos?msg="+selfCode)
 		case err == nil:
-			a.redirect(c, "/coletivo/"+url.PathEscape(id)+"?msg="+code)
+			a.redirect(c, approvals.CollectivePath(id)+"?msg="+code)
 		case errors.As(err, &fieldErrs):
 			// The name's message goes under the rename field; the reason's is an alert.
 			a.collectiveRender(c, u, id, http.StatusUnprocessableEntity, form, fieldErrs, "", fieldErrs["reason"])

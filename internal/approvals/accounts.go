@@ -414,7 +414,7 @@ func approveAccountTx(ctx context.Context, r domain.Repos, origin string, actor,
 			CollectiveName: v.CollectiveName,
 			UserName:       person.Name,
 			Role:           RoleLabel(v.Role),
-			Link:           origin + collectivePath(v.CollectiveID),
+			Link:           origin + CollectivePath(v.CollectiveID),
 		}
 		if err := notifyOwners(ctx, r, v.CollectiveID, notice, now); err != nil {
 			return err

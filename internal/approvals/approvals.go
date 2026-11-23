@@ -32,6 +32,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 
@@ -75,13 +76,11 @@ const (
 	pathAdminCollectives = "/admin/coletivos"
 )
 
-// CollectivePath is the page of one collective, where its Administradores see
-// the requests to join it.
-func CollectivePath(id string) string { return "/coletivo/" + id }
-
-// collectivePath is the page of one collective, where its Administradores see
-// the requests to join it.
-func collectivePath(id string) string { return "/coletivo/" + id }
+// CollectivePath is the path of a collective's page, with the ID escaped. The
+// ID is opaque, so it goes in as one escaped path segment. Every link to a
+// collective is built here, in emails and in the web pages, so a change of the
+// route changes every link.
+func CollectivePath(id string) string { return "/coletivo/" + url.PathEscape(id) }
 
 // RoleLabel returns the pt-BR name of a stored role: Administrador for owner and
 // Membro for member. A role that is none of them is returned as stored, so a
