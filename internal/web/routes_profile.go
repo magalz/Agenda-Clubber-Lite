@@ -52,9 +52,12 @@ func (a *App) profileRoutes(public, authed *gin.RouterGroup) {
 }
 
 // emailConfirmView is the Data of auth/confirmar-email: Token is the link's
-// token, carried in the hidden field of the button's form.
+// token, carried in the hidden field of the button's form, and Message is the
+// alert above it when the post was refused as too frequent (the token stays so
+// the same link can be tried again).
 type emailConfirmView struct {
-	Token string
+	Token   string
+	Message string
 }
 
 // profileData is the form page: the account's own values in .Form, the current
@@ -164,21 +167,33 @@ func (a *App) profileEmailSubmit(c *gin.Context) {
 // under the button spends the token. With no token at all the link is as good
 // as broken; the POST then answers with the invalid-link code.
 func (a *App) confirmEmailShow(c *gin.Context) {
-	a.page(c, http.StatusOK, "auth/confirmar-email", PageData{
+	a.confirmEmailRender(c, http.StatusOK, c.Query("token"), "")
+}
+
+// confirmEmailRender shows the button page. A refused post comes back here with
+// a 429 and the token it sent, so the person can retry with the same link.
+func (a *App) confirmEmailRender(c *gin.Context, status int, token, message string) {
+	a.page(c, status, "auth/confirmar-email", PageData{
 		Title: "Confirmar novo e-mail",
-		Data:  emailConfirmView{Token: c.Query("token")},
+		Data:  emailConfirmView{Token: token, Message: message},
 	})
 }
 
 // confirmEmailSubmit spends the token under the button and redirects with a
 // notice code: the link is public, so an anonymous visitor lands on /perfil and
-// the access rules send them on to the login from there. The token is never
-// echoed anywhere but the hidden field of the refused post's page, and never
-// logged; the reason a link failed is one of the fixed codes.
+// the access rules send them on to the login from there. The token goes back
+// into the page only in the hidden field of a refused (429) post, and never
+// reaches the logs. Guessing a token costs the store a lookup, so the form is
+// limited per client address, like login, before any store work.
 func (a *App) confirmEmailSubmit(c *gin.Context) {
+	allowed := a.Limits.Login.Allow("confirm:"+c.ClientIP(), a.Now())
 	form, err := a.parseForm(c)
 	if err != nil {
 		c.String(http.StatusBadRequest, "requisição inválida")
+		return
+	}
+	if !allowed {
+		a.confirmEmailRender(c, http.StatusTooManyRequests, form.Get("token"), msgTooMany)
 		return
 	}
 	_, err = accounts.ConfirmEmailChange(c.Request.Context(), a.Store, form.Get("token"), a.Now())

@@ -431,6 +431,47 @@ func TestProfileConfirmRefusesAnInvalidLink(t *testing.T) {
 	}
 }
 
+// A forged token costs a transaction: like the other token-spending posts, the
+// confirm post is limited per client address under the shared "confirm:" key
+// (10 a minute), before any store work.
+func TestProfileConfirmPostRateLimitPerIP(t *testing.T) {
+	r := signupApp(t, stubStore{}).Router() // any store call here would panic
+	for i := 1; i <= 10; i++ {
+		rec := confirmPost(r, profileConfirmURL, url.Values{"token": {"x"}}, "198.51.100.94")
+		if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != profilePath+"?msg="+msgEmailInvalid {
+			t.Fatalf("request %d: status = %d to %q, want 303 with the invalid-link code", i, rec.Code, rec.Header().Get("Location"))
+		}
+	}
+	rec := confirmPost(r, profileConfirmURL, url.Values{"token": {"x"}}, "198.51.100.94")
+	body := confirmAssertPage(t, rec, http.StatusTooManyRequests, "Confirmar novo e-mail",
+		msgTooMany, `role="alert"`, `<form method="post" action="/confirmar-email"`,
+		`type="hidden" name="token" value="x"`, "[→] CONFIRMAR NOVO E-MAIL")
+	inOrder(t, body, `role="alert"`, msgTooMany, `<form method="post" action="/confirmar-email"`)
+	for _, bad := range []string{profileMsgInvalid, profileMsgChanged, profileMsgInUse} {
+		if strings.Contains(body, bad) {
+			t.Errorf("the 429 page shows %q", bad)
+		}
+	}
+	if rec := confirmPost(r, profileConfirmURL, url.Values{"token": {"x"}}, "198.51.100.95"); rec.Code != http.StatusSeeOther {
+		t.Errorf("another client address: status = %d, want 303", rec.Code)
+	}
+
+	// Same limiter and key as /confirmar, but not a login's budget.
+	spentLogin := signupApp(t, stubStore{})
+	for i := 0; i < 10; i++ {
+		spentLogin.Limits.Login.Allow("login:198.51.100.96", webTestNow)
+	}
+	if rec := confirmPost(spentLogin.Router(), profileConfirmURL, url.Values{"token": {"x"}}, "198.51.100.96"); rec.Code != http.StatusSeeOther {
+		t.Errorf("a spent login key: status = %d, want 303", rec.Code)
+	}
+	spentConfirm := signupApp(t, stubStore{})
+	for i := 0; i < 10; i++ {
+		spentConfirm.Limits.Login.Allow("confirm:198.51.100.97", webTestNow)
+	}
+	confirmAssertPage(t, confirmPost(spentConfirm.Router(), profileConfirmURL, url.Values{"token": {"x"}}, "198.51.100.97"),
+		http.StatusTooManyRequests, "Confirmar novo e-mail", msgTooMany, `role="alert"`, `name="token" value="x"`)
+}
+
 func TestProfileConfirmReportsAnInterimTakenAddress(t *testing.T) {
 	e := newProfileEnv(t)
 	e.askEmail(profileNewEmail)
