@@ -179,6 +179,12 @@
     });
   }
 
+  // Whether a select the page already holds offers a value. A hand-edited URL may name a state or a city that is not in
+  // the page's lists, and there is no catalog to fetch here: only what the page holds can be trusted.
+  function offers(select, value) {
+    return [...select.options].some((option) => option.value === value);
+  }
+
   // Runs the jobs of one kind of request (run(job, newer)) one at a time, and of those that come while one is out only the
   // newest waits: latest wins. newer() tells a running job that another waits behind it, so it can leave the page as it
   // is for the newer one; send.newest() is the newest job asked for, the one that is out or waiting, else null. A job
@@ -1235,7 +1241,15 @@
             if (sheet.open) sheet.close();
             const params = new URLSearchParams(location.search);
             const mes = params.get('mes') ?? '';
-            this.goTo({ mes: dayOf(mes + '-01') ? mes : todayOf(), uf: params.get('uf') ?? '', cidade: params.get('cidade') ?? '' }, false);
+            const month = monthOf();
+            const ufSelect = month.querySelector('#calendar-uf');
+            const wantedUf = params.get('uf') ?? '';
+            const uf = offers(ufSelect, wantedUf) ? wantedUf : '';
+            const wantedCity = params.get('cidade') ?? '';
+            const citySelect = month.querySelector('#calendar-cidade');
+            // The page holds only the cities of the state it shows, so a city of another state cannot be checked here.
+            const cidade = uf === ufSelect.value && offers(citySelect, wantedCity) ? wantedCity : '';
+            this.goTo({ mes: dayOf(mes + '-01') ? mes : todayOf(), uf, cidade }, false);
           };
           window.addEventListener('popstate', onPopState);
         },
@@ -1275,17 +1289,16 @@
           const href = hrefOf(query);
           const from = old.dataset.month;
           const slide = query.mes === from ? '' : query.mes > from ? 'next' : 'prev';
-          // No slide under the open sheet: the page behind it is not seen.
           const animate =
             slide !== '' &&
             typeof document.startViewTransition === 'function' &&
-            !matchMedia(REDUCED_MOTION).matches &&
-            !root.querySelector('#evento-sheet').open;
+            !matchMedia(REDUCED_MOTION).matches;
 
           // The answer is about to be swapped in, which is the moment to read what the person is on and to tell the
           // stylesheet the direction: the request may take longer than the attribute lives, and a month that comes later
           // must not overwrite the direction of one that is still sliding. The timer starts here, and nothing else clears
-          // the attribute (the swap comes inside the transition, before its pseudo-elements are styled).
+          // the attribute (the swap comes inside the transition, before its pseudo-elements are styled). A sheet that
+          // opened while the request was out is seen now, so no slide runs behind it.
           let held = false;
           let focused = '';
           const listening = new AbortController();
@@ -1293,7 +1306,7 @@
             if (event.detail.target !== slot) return;
             held = old.contains(document.activeElement);
             focused = held ? twin(document.activeElement) : '';
-            if (!animate) return;
+            if (!animate || root.querySelector('#evento-sheet').open) return;
             clearTimeout(slideTimer);
             document.documentElement.dataset.calendarSlide = slide;
             slideTimer = setTimeout(() => delete document.documentElement.dataset.calendarSlide, SLIDE_KEEP);
@@ -1427,11 +1440,13 @@
           }
         },
 
-        // The filter applies on change. A new state drops the city (its list is of the old state).
+        // The filter applies on change. A new state drops the city (its list is of the old state). A city picked while
+        // a state change is out comes from the list of the state the page still shows, so it is dropped as well.
         onCalendarChange(event) {
           const field = event.target;
           if (field.id !== 'calendar-uf' && field.id !== 'calendar-cidade') return;
           const asked = latest();
+          if (field.id === 'calendar-cidade' && queryOf(monthOf()).uf !== asked.uf) return;
           this.goTo(field.id === 'calendar-uf' ? { ...asked, uf: field.value, cidade: '' } : { ...asked, cidade: field.value });
         },
 
