@@ -545,3 +545,58 @@ func TestCuiSheetIsCheckedAtSwapTimeNotAtRequestTime(t *testing.T) {
 	wantAll(t, "showMonth at swap time", month[swap:], rule)
 	cuiBefore(t, "showMonth at swap time", month[swap:], rule, "document.documentElement.dataset.calendarSlide = slide")
 }
+
+// --- ACL-99: the month bar on the first and last years ---
+
+// cuiAddMonths is the module-level addMonths(iso, n) of app.js, from its signature to its closing brace at 2 spaces.
+func cuiAddMonths(t *testing.T, js string) string {
+	t.Helper()
+	fn := regexp.MustCompile(`(?s)function addMonths\(iso, n\) \{.*?\n  \}\n`).FindString(js)
+	if fn == "" {
+		t.Fatalf("app.js has no function addMonths(iso, n) closed at 2 spaces")
+	}
+	return fn
+}
+
+// Date.UTC maps the year arguments 0-99 to 1900+, so dayOf answers null for every day of 0001 to 0099. addMonths used
+// to dereference that null after the click had been prevented, leaving the person stuck on the same month. It must
+// answer null for a day it cannot build, before touching the result, and keep its arithmetic for the days it can.
+func TestCuiAddMonthsReturnsNullForAnUnbuildableDay(t *testing.T) {
+	js := dynRead(t, "static/js/app.js")
+	add := cuiAddMonths(t, js)
+	wantAll(t, "addMonths", add, "const date = dayOf(iso)", "if (!date) return null;")
+	cuiBefore(t, "addMonths", add, "const date = dayOf(iso)", "if (!date) return null;")
+	cuiBefore(t, "addMonths", add, "if (!date) return null;", "date.getUTCDate()")
+	// The same four-digit year guard rejects the five-digit result of 9999-12 + 1.
+	wantAll(t, "dayOf", js, `const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso)`)
+}
+
+// A month the bar computes can be unbuildable (0001-0099) or out of range (9999-12 plus one, whose five year digits no
+// longer fit an AAAA-MM). The bar must check the day before taking the month out of it, and hand the page to the plain
+// link it took over when the check fails, as the sheet and day failures do. Every other choice still comes from latest().
+func TestCuiMonthBarHandsAnInvalidMonthToThePlainLink(t *testing.T) {
+	js := dynRead(t, "static/js/app.js")
+	click := cuiMember(t, js, "onCalendarClick")
+	from := strings.Index(click, "calendar__nav")
+	if from < 0 {
+		t.Fatalf("onCalendarClick has no branch for the month bar: %s", click)
+	}
+	branch := click[from:]
+	if to := strings.Index(branch, "} else if (link.classList.contains('calendar__daynum')"); to >= 0 {
+		branch = branch[:to]
+	}
+	guard := "if (dayOf(next)) {"
+	follow := "location.assign(link.href)"
+	wantAll(t, "the month bar's branch", branch,
+		"event.preventDefault()", "latest()", "addMonths(", "todayOf()", guard, "this.goTo(", "next.slice(0, 7)", follow)
+	cuiBefore(t, "the month bar's branch", branch, "event.preventDefault()", guard)
+	cuiBefore(t, "the month bar's branch", branch, guard, "next.slice(0, 7)")
+	cuiBefore(t, "the month bar's branch", branch, guard, "this.goTo(")
+	cuiBefore(t, "the month bar's branch", branch, "this.goTo(", follow)
+	if regexp.MustCompile(`addMonths\([^\n]*\)\.`).MatchString(branch) {
+		t.Errorf("the month bar dereferences addMonths(...) before the invalid-month check: %s", branch)
+	}
+	// The same handover the other failures of this page use, with the link's own address.
+	wantAll(t, "showEvent", cuiMember(t, js, "showEvent"), "location.assign(chip.href)")
+	wantAll(t, "showDay", cuiMember(t, js, "showDay"), follow)
+}
