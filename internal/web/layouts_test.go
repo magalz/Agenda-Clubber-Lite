@@ -243,7 +243,8 @@ func TestAppShellMarksTheActiveItem(t *testing.T) {
 // template must name a property or method of a component whose x-data scope
 // encloses it. Alpine merges nested scopes, so the shell's members are available
 // inside every component on the page. Checked on each page with Alpine markup
-// that has a fixture here: the calendar and the event form's create and edit.
+// that has a fixture here: the calendar, the event form's create and edit, and
+// the profile page.
 func TestAlpineAttributesNameRegisteredMembers(t *testing.T) {
 	js := dynRead(t, "static/js/app.js")
 	scopes := dynScopes(js)
@@ -263,6 +264,7 @@ func TestAlpineAttributesNameRegisteredMembers(t *testing.T) {
 		{"home", renderHome(t, app, "calendario", &ViewUser{ID: "u1", Name: "Ana", IsAdmin: true, CanCreateEvents: true}), false},
 		{"create form", forms.create, true},
 		{"edit form", forms.edit, true},
+		{"perfil", newProfileEnv(t).show().Body.String(), false},
 	}
 
 	for _, p := range pages {
@@ -295,7 +297,11 @@ func TestAlpineAttributesNameRegisteredMembers(t *testing.T) {
 					continue
 				}
 				start := strings.LastIndex(p.body[:m[0]+1], "<")
-				xdata = append(xdata, scope{start: start, end: dynClose(t, p.body, start), name: name})
+				end, void := voidTagEnd(p.body, start)
+				if !void {
+					end = dynClose(t, p.body, start)
+				}
+				xdata = append(xdata, scope{start: start, end: end, name: name})
 			}
 			if len(xdata) == 0 {
 				t.Fatal("no x-data element found; the check would pass vacuously")
@@ -335,6 +341,32 @@ func TestAlpineAttributesNameRegisteredMembers(t *testing.T) {
 			}
 		})
 	}
+}
+
+// voidTagEnd reports where the element that starts at start ends when it is a
+// void or self-closing tag (x-data on an <input>, say): such an element has no
+// closing tag, so its scope ends at its own '>'. ok is false for a regular
+// element, which dynClose must close instead. This also lets pages whose only
+// Alpine markup is a void element (the profile's phone field, the signup form)
+// carry the member check the ACL-97 review noted they lacked.
+func voidTagEnd(body string, start int) (end int, ok bool) {
+	gt := strings.IndexByte(body[start:], '>')
+	if gt < 0 {
+		return 0, false
+	}
+	tag := body[start+1 : start+gt]
+	if strings.HasSuffix(tag, "/") {
+		return start + gt + 1, true
+	}
+	name := tag
+	if i := strings.IndexAny(name, " \t\n"); i >= 0 {
+		name = name[:i]
+	}
+	switch strings.ToLower(name) {
+	case "area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "track", "wbr":
+		return start + gt + 1, true
+	}
+	return 0, false
 }
 
 // shellSource is the shell component of app.js, from Alpine.data('shell' to its closing. The checks below read only
