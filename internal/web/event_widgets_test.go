@@ -211,3 +211,145 @@ func TestEwDatePickerDates(t *testing.T) {
 		})
 	}
 }
+
+// ewAppJS is the script the event-form widgets live in.
+func ewAppJS(t *testing.T) string {
+	t.Helper()
+	b, err := fs.ReadFile(webfs.Static, "static/js/app.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
+
+// ewWidgetSource returns one Alpine.data component, from its registration to the factory's closing "    });".
+func ewWidgetSource(t *testing.T, component string) string {
+	t.Helper()
+	js := ewAppJS(t)
+	start := strings.Index(js, "Alpine.data('"+component+"'")
+	if start < 0 {
+		t.Fatalf("app.js has no Alpine.data(%q)", component)
+	}
+	end := strings.Index(js[start:], "\n    });")
+	if end < 0 {
+		t.Fatalf("app.js has no end for Alpine.data(%q)", component)
+	}
+	return js[start : start+end]
+}
+
+// ewMethod returns one method of a widget, at the factory method's eight-space indentation.
+func ewMethod(t *testing.T, component, method string) string {
+	t.Helper()
+	src := ewWidgetSource(t, component)
+	start := strings.Index(src, "\n        "+method+"(")
+	if start < 0 {
+		t.Fatalf("the %s component has no %s method", component, method)
+	}
+	end := strings.Index(src[start:], "\n        },")
+	if end < 0 {
+		t.Fatalf("the %s %s method has no end", component, method)
+	}
+	return src[start : start+end]
+}
+
+// ewBetween returns the source between two markers, so one test can pin both branches of a rewrite.
+func ewBetween(t *testing.T, src, from, to string) string {
+	t.Helper()
+	start := strings.Index(src, from)
+	if start < 0 {
+		t.Fatalf("no %q in the widget source", from)
+	}
+	rest := src[start+len(from):]
+	end := strings.Index(rest, to)
+	if end < 0 {
+		t.Fatalf("no %q after %q in the widget source", to, from)
+	}
+	return rest[:end]
+}
+
+// The masks of the time and price fields rewrite what the person typed. The caret must follow the edit: the
+// script saves it before rewriting and restores an adjusted index in both the success and the rejected-value
+// branch. Go cannot run the script; these tests pin that shape in app.js, as the picker's classes are pinned.
+func TestEwTimeSpinnerKeepsCaret(t *testing.T) {
+	onInput := ewMethod(t, "timeSpinner", "onInput")
+	wantAll(t, "the time caret capture", onInput,
+		"const before = input.value;",
+		"const caret = input.selectionStart ?? before.length;",
+	)
+	if strings.Index(onInput, "const caret =") > strings.Index(onInput, "const typed = typedClock(") {
+		t.Error("the time caret is captured after the mask rewrote the text")
+	}
+
+	errorPath := ewBetween(t, onInput, "if (typed.error) {", "return;")
+	wantAll(t, "the refused time", errorPath,
+		"input.value = last;",
+		"const restored = caretAfterRewrite(before, last, caret);",
+		"if (document.activeElement === input) input.setSelectionRange(restored, restored);",
+	)
+
+	successPath := ewBetween(t, onInput, "if (input.value !== typed.text)", "last = typed.text;")
+	wantAll(t, "the reformatted time", successPath,
+		"input.value = typed.text;",
+		"const restored = caretAfterRewrite(before, typed.text, caret);",
+		"if (document.activeElement === input) input.setSelectionRange(restored, restored);",
+	)
+	if strings.Contains(onInput, "setSelectionRange(input.value.length") || strings.Contains(onInput, "setSelectionRange(caret, caret)") {
+		t.Error("the time caret must be restored to the adjusted index, not to the captured or final index")
+	}
+}
+
+func TestEwMoneyInputKeepsCaret(t *testing.T) {
+	onInput := ewMethod(t, "moneyInput", "onInput")
+	wantAll(t, "the price caret capture", onInput,
+		"const before = price.value;",
+		"const caret = price.selectionStart ?? before.length;",
+	)
+	if strings.Index(onInput, "const caret =") > strings.Index(onInput, "const cents = Number(") {
+		t.Error("the price caret is captured after the mask rewrote the text")
+	}
+
+	errorPath := ewBetween(t, onInput, "if (cents > PRICE_MAX) {", "return;")
+	wantAll(t, "the refused price", errorPath,
+		"price.value = last;",
+		"const restored = caretAfterRewrite(before, last, caret);",
+		"if (document.activeElement === price) price.setSelectionRange(restored, restored);",
+	)
+
+	successPath := ewBetween(t, onInput, "last = formatCents(cents);", "this.message = '';")
+	wantAll(t, "the reformatted price", successPath,
+		"if (price.value !== last) {",
+		"price.value = last;",
+		"const restored = caretAfterRewrite(before, last, caret);",
+		"if (document.activeElement === price) price.setSelectionRange(restored, restored);",
+	)
+	if strings.Contains(onInput, "setSelectionRange(price.value.length") || strings.Contains(onInput, "setSelectionRange(caret, caret)") {
+		t.Error("the price caret must be restored to the adjusted index, not to the captured or final index")
+	}
+}
+
+func TestEwNoThirdWidgetTouchesTheCaret(t *testing.T) {
+	js := ewAppJS(t)
+	// One restore in the phone mask, one in each branch of the time and the price mask.
+	if n := strings.Count(js, "setSelectionRange("); n != 5 {
+		t.Errorf("%d setSelectionRange calls in app.js, want 5 (phone mask, and time and price in both branches)", n)
+	}
+	for _, name := range []string{"datePicker", "durationSpinner"} {
+		src := ewWidgetSource(t, name)
+		if strings.Contains(src, "setSelectionRange") || strings.Contains(src, "selectionStart") {
+			t.Errorf("the %s widget must not touch the caret", name)
+		}
+	}
+	// The index is derived from how the rewrite changed the text, not from the field's old or new length:
+	// surviving text before/after the caret is anchored, and an edit inside the replaced span keeps its digit.
+	for _, part := range []string{
+		"function caretAfterRewrite(before, after, caret)",
+		"before[prefix] === after[prefix]",
+		"before.length - 1 - suffix",
+		"caret < prefix", // a separator inserted at the caret must be stepped over, not left to the left of it
+		"caretAfterDigits(after,",
+	} {
+		if !strings.Contains(js, part) {
+			t.Errorf("the caret adjustment: app.js has no %q", part)
+		}
+	}
+}
