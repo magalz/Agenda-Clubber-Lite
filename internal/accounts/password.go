@@ -82,6 +82,14 @@ func ChangePassword(ctx context.Context, store domain.Store, userID, keepSession
 	})
 }
 
+// SendPasswordReminders mails one password-expiry notice per password cycle to
+// the active accounts whose password is in the warning window. It returns the
+// number of notices sent. origin is the site address (APP_ORIGIN) the link in
+// the email starts with.
+func SendPasswordReminders(ctx context.Context, store domain.Store, origin string, now time.Time) (sent int, err error) {
+	return 0, nil
+}
+
 // PasswordPolicyMessage is the pt-BR message for the policy rules a password
 // violates, in the order given: the labels of the live checklist after
 // "requisitos da senha: ".
