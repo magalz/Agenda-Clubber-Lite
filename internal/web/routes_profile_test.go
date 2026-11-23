@@ -151,7 +151,7 @@ func TestProfilePageShowsTheSignedInPerson(t *testing.T) {
 	body := confirmAssertPage(t, e.show(), http.StatusOK, "Editar Perfil",
 		`<form method="post" action="/perfil"`,
 		`name="name" value="`+profileName+`"`,
-		`name="phone" value="`+profilePhone+`"`,
+		`name="phone" value="`+profileDigits+`"`,
 		`name="phone_is_whatsapp" value="1" checked`,
 		`id="email-atual" value="`+profileEmail+`" readonly`,
 		`<form method="post" action="/perfil/email"`,
@@ -232,21 +232,33 @@ func TestProfileSaveUpdatesTheAccountAndRedirects(t *testing.T) {
 }
 
 func TestProfileSaveRefusesBadFieldsAndKeepsThem(t *testing.T) {
-	e := newProfileEnv(t)
-	rec := e.save(saveForm("", "abc", false))
-	body := confirmAssertPage(t, rec, http.StatusUnprocessableEntity, "Editar Perfil",
-		`id="erro-name">`+domain.MsgRequired,
-		`id="erro-phone">informe de 10 a 11 dígitos`,
-		`name="phone" value="abc"`,
-		`aria-invalid="true"`)
+	for _, tc := range []struct {
+		name, field, message, kept string
+	}{
+		{"a missing name", "name", domain.MsgRequired, `name="phone" value="` + profileDigits + `"`},
+		{"a bad phone", "phone", "informe de 10 a 11 dígitos", `name="phone" value="abc"`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newProfileEnv(t)
+			posted := saveForm(profileName, profileDigits, true)
+			if tc.field == "name" {
+				posted.Set("name", "")
+			} else {
+				posted.Set("phone", "abc")
+			}
+			rec := e.save(posted)
+			body := confirmAssertPage(t, rec, http.StatusUnprocessableEntity, "Editar Perfil",
+				`id="erro-`+tc.field+`">`+tc.message, tc.kept, `aria-invalid="true"`)
+			if strings.Contains(body, profileMsgSaved) {
+				t.Error("a refused form also claims the profile was saved")
+			}
 
-	// The account is untouched: a refused form writes nothing.
-	u := e.storedUser(t)
-	if u.Name != profileName || u.Phone != profileDigits || !u.PhoneIsWhatsApp {
-		t.Errorf("a refused form changed the account: %q %q whatsapp=%v", u.Name, u.Phone, u.PhoneIsWhatsApp)
-	}
-	if strings.Contains(body, profileMsgSaved) {
-		t.Error("a refused form also claims the profile was saved")
+			// The account is untouched: a refused form writes nothing.
+			u := e.storedUser(t)
+			if u.Name != profileName || u.Phone != profileDigits || !u.PhoneIsWhatsApp {
+				t.Errorf("a refused form changed the account: %q %q whatsapp=%v", u.Name, u.Phone, u.PhoneIsWhatsApp)
+			}
+		})
 	}
 }
 
