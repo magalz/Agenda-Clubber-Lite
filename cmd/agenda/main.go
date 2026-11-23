@@ -179,9 +179,9 @@ func migrate(ctx context.Context, getenv func(string) string, stdout, stderr io.
 }
 
 // serve opens the database, runs the HTTP server and the background jobs (the
-// outbox worker and the cleanup of expired sessions and tokens) until ctx is
-// canceled, then stops the server, waits for the jobs and closes the database.
-// It validates the whole configuration first.
+// outbox worker, the cleanup of expired sessions and tokens and the daily
+// password reminders) until ctx is canceled, then stops the server, waits for
+// the jobs and closes the database. It validates the whole configuration first.
 func serve(ctx context.Context, getenv func(string) string, stdout, stderr io.Writer) int {
 	cfg, err := config.Load(getenv)
 	if err != nil {
@@ -290,11 +290,11 @@ func newSender(cfg config.Config, log *slog.Logger) (mail.Sender, error) {
 }
 
 // startJobs runs the background jobs until ctx is canceled or stop is called:
-// the outbox worker, when there is a sender, and the cleanup of expired sessions
-// and tokens. stop cancels them and waits up to timeout for both to return,
-// which includes the message the worker has in flight and the write that records
-// its result; it reports whether they did. serve calls it before it closes the
-// database, so no job touches the store after that.
+// the outbox worker, when there is a sender, the cleanup of expired sessions and
+// tokens, and the daily password reminders. stop cancels them and waits up to
+// timeout for all to return, which includes the message the worker has in flight
+// and the write that records its result; it reports whether they did. serve calls
+// it before it closes the database, so no job touches the store after that.
 func startJobs(ctx context.Context, log *slog.Logger, store domain.Store, repos domain.Repos, origin string, sender mail.Sender) (stop func(timeout time.Duration) bool) {
 	ctx, cancel := context.WithCancel(ctx)
 	var wg sync.WaitGroup
@@ -303,6 +303,7 @@ func startJobs(ctx context.Context, log *slog.Logger, store domain.Store, repos 
 		wg.Go(func() { w.Run(ctx) })
 	}
 	wg.Go(func() { purgeLoop(ctx, log, repos) })
+	wg.Go(func() { dailyLoop(ctx, log, store, origin) })
 
 	return func(timeout time.Duration) bool {
 		cancel()
@@ -327,8 +328,29 @@ func startJobs(ctx context.Context, log *slog.Logger, store domain.Store, repos 
 }
 
 // dailyLoop sends the password expiry reminders at once and then every
-// dailyInterval, until ctx is canceled.
-func dailyLoop(ctx context.Context, log *slog.Logger, store domain.Store, origin string) {}
+// dailyInterval, until ctx is canceled. A failed pass is logged and retried on
+// the next tick: the service marks each notice, so a retry sends none twice.
+func dailyLoop(ctx context.Context, log *slog.Logger, store domain.Store, origin string) {
+	ticker := time.NewTicker(dailyInterval)
+	defer ticker.Stop()
+	for {
+		now := time.Now().UTC()
+		n, err := sendPasswordReminders(ctx, store, origin, now)
+		if ctx.Err() != nil {
+			return
+		}
+		if err != nil {
+			log.Error("daily: password reminders failed", "err", err)
+		} else {
+			log.Info("daily: password reminders sent", "count", n)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
+}
 
 // purgeLoop removes the expired rows at once and then every cleanupInterval,
 // until ctx is canceled.

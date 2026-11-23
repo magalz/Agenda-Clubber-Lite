@@ -1078,6 +1078,11 @@ func (s *blockingSender) Send(ctx context.Context, _ domain.OutboxMessage) error
 // startTestJobs starts the jobs and stops them when the test ends.
 func startTestJobs(t *testing.T, log *slog.Logger, repos domain.Repos, sender mail.Sender) (stop func(time.Duration) bool) {
 	t.Helper()
+	// These tests cover the job lifecycle, not the reminder service: noStore
+	// would panic if the real one ran, so give them a no-op reminder pass.
+	oldSend := sendPasswordReminders
+	sendPasswordReminders = func(context.Context, domain.Store, string, time.Time) (int, error) { return 0, nil }
+	t.Cleanup(func() { sendPasswordReminders = oldSend })
 	stop = startJobs(context.Background(), log, noStore{}, repos, "", sender)
 	t.Cleanup(func() { stop(5 * time.Second) })
 	return stop
