@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"os"
 	"slices"
 	"strings"
 	"testing"
@@ -408,6 +409,57 @@ func TestTextProblem(t *testing.T) {
 				t.Errorf("TextProblem(%q, %d, %d, %v) = %q, want %q", tc.s, tc.min, tc.max, tc.multiline, got, tc.want)
 			}
 		})
+	}
+}
+
+// TestLengthProblem pins the length rule that Validate and signup share: runes
+// are counted after trimming, an empty required value gets the required message,
+// and a minimum of one uses the "at most" wording. The messages are spelled out
+// here, so a change of wording is visible.
+func TestLengthProblem(t *testing.T) {
+	const (
+		required = "campo obrigatório"
+		atMost5  = "use no máximo 5 caracteres"
+		between2 = "use de 2 a 5 caracteres"
+	)
+	for _, tc := range []struct {
+		name     string
+		s        string
+		min, max int
+		want     string
+	}{
+		{"required in range", "ab", 2, 5, ""},
+		{"optional empty", "", 0, 5, ""},
+		{"optional spaces", "   ", 0, 5, ""},
+		{"empty required", "", 2, 5, required},
+		{"spaces required", "  \t ", 2, 5, required},
+		{"counted after trimming", "  ab  ", 2, 5, ""},
+		{"too long after trimming", "abcdef  ", 2, 5, between2},
+		{"below a minimum of 2", "a", 2, 5, between2},
+		{"above a maximum of 5", "abcdef", 2, 5, between2},
+		{"multibyte runes in range", rep("ç", 5), 2, 5, ""},
+		{"one multibyte rune too many", rep("ç", 6), 2, 5, between2},
+		{"minimum of one uses at most", "abcdef", 1, 5, atMost5},
+		{"minimum of one empty is required", "", 1, 5, required},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := LengthProblem(tc.s, tc.min, tc.max); got != tc.want {
+				t.Errorf("LengthProblem(%q, %d, %d) = %q, want %q", tc.s, tc.min, tc.max, got, tc.want)
+			}
+		})
+	}
+	if MsgRequired != required {
+		t.Errorf("MsgRequired = %q, want %q", MsgRequired, required)
+	}
+}
+
+// TestMsgCollectiveKind pins the pt-BR text of the message shared by signup and
+// the collective requests. Each keeps its own field key; only the wording must
+// be one and the same.
+func TestMsgCollectiveKind(t *testing.T) {
+	const want = "escolha coletivo ou produtora"
+	if MsgCollectiveKind != want {
+		t.Errorf("MsgCollectiveKind = %q, want %q", MsgCollectiveKind, want)
 	}
 }
 
@@ -846,6 +898,54 @@ func TestCleanCollectiveName(t *testing.T) {
 			}
 			if problem == "" && NameKey(got) == "" {
 				t.Errorf("accepted %q, which has no comparison key", tc.in)
+			}
+		})
+	}
+}
+
+// TestDomainMessagesAreReused pins the source shape of the three message dedups.
+// Output tests cannot tell a copy from the shared value: create-admin's control
+// message, signup's name messages and both pick-kind assertions pass with a
+// byte-identical local constant. Reading the .go files pins that the local
+// copies are gone and the domain declarations are used at every call site, so a
+// duplicate cannot creep back in unnoticed.
+func TestDomainMessagesAreReused(t *testing.T) {
+	for _, tc := range []struct {
+		file    string
+		gone    []string
+		present []string
+	}{
+		{
+			file:    "../../cmd/agenda/admin.go",
+			gone:    []string{"nameControlMessage", "não use quebras de linha nem caracteres de controle"},
+			present: []string{"domain.MsgControl"},
+		},
+		{
+			file:    "../accounts/signup.go",
+			gone:    []string{"signupLengthProblem", "signupMsgKind", "escolha coletivo ou produtora"},
+			present: []string{"domain.LengthProblem", "domain.MsgCollectiveKind"},
+		},
+		{
+			file:    "../approvals/requests.go",
+			gone:    []string{"msgKind", "escolha coletivo ou produtora"},
+			present: []string{"domain.MsgCollectiveKind"},
+		},
+	} {
+		t.Run(tc.file, func(t *testing.T) {
+			b, err := os.ReadFile(tc.file)
+			if err != nil {
+				t.Fatalf("read %s: %v", tc.file, err)
+			}
+			src := string(b)
+			for _, gone := range tc.gone {
+				if strings.Contains(src, gone) {
+					t.Errorf("%s still contains the local copy %q", tc.file, gone)
+				}
+			}
+			for _, want := range tc.present {
+				if !strings.Contains(src, want) {
+					t.Errorf("%s does not use %q", tc.file, want)
+				}
 			}
 		})
 	}

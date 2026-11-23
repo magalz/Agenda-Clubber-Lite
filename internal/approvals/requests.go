@@ -15,7 +15,6 @@ import (
 // pt-BR messages shown next to a form field.
 const (
 	msgRole         = "escolha membro ou administrador"
-	msgKind         = "escolha coletivo ou produtora"
 	msgNoCollective = "coletivo não encontrado"
 	msgAlreadyIn    = "você já faz parte deste coletivo ou já pediu para entrar"
 	msgNameExists   = "já existe; peça para entrar"
@@ -117,7 +116,7 @@ func RequestCollective(ctx context.Context, store domain.Store, origin string, a
 		fe.Add("name", problem)
 	}
 	if !kind.Valid() {
-		fe.Add("kind", msgKind)
+		fe.Add("kind", domain.MsgCollectiveKind)
 	}
 	if err := fe.Err(); err != nil {
 		return err

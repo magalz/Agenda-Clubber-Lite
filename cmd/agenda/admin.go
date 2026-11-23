@@ -25,10 +25,6 @@ const createAdminUsage = "usage: agenda create-admin --name <name> --email <emai
 // characters, and cutting it here cannot make it pass.
 const maxPasswordLine = 4096
 
-// nameControlMessage is the sign-up form's message for a name with a control
-// character (accounts keeps it private).
-const nameControlMessage = "não use quebras de linha nem caracteres de controle"
-
 // readPassword returns the first line of r without its line ending: only the
 // final LF and the CR before it are removed, so spaces stay part of the password.
 // Input with no line ending is the password as it is.
@@ -124,7 +120,7 @@ func newAdmin(name, email, phone, password string, now time.Time) (domain.User, 
 	case !utf8.ValidString(name):
 		return domain.User{}, domain.FieldErrors{"name": domain.MsgInvalid}
 	case strings.ContainsFunc(name, unicode.IsControl):
-		return domain.User{}, domain.FieldErrors{"name": nameControlMessage}
+		return domain.User{}, domain.FieldErrors{"name": domain.MsgControl}
 	case !utf8.ValidString(password):
 		return domain.User{}, domain.FieldErrors{"password": domain.MsgInvalid}
 	}
