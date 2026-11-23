@@ -190,6 +190,7 @@ var invalidEvents = []struct {
 	{"a free event with a price", "price_cents", func(ev *domain.Event) { ev.Free = true }},
 	{"a paid event with no price", "price_cents", func(ev *domain.Event) { ev.PriceCents = 0 }},
 	{"a ticket URL that is not http", "ticket_url", func(ev *domain.Event) { ev.TicketURL = "ftp://example.com/x" }},
+	{"a ticket URL with whitespace", "ticket_url", func(ev *domain.Event) { ev.TicketURL = "https://example.com/minha bilheteria" }},
 	{"no style", "style", func(ev *domain.Event) { ev.Style = "" }},
 	{"a substyle with the style outros", "substyle", func(ev *domain.Event) {
 		ev.Style, ev.StyleOther, ev.Substyle = domain.StyleOther, "Brega funk", "Minimal"
