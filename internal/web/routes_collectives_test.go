@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"regexp"
 	"strings"
 	"testing"
@@ -967,5 +968,28 @@ func TestColetivosComponentsAreStyled(t *testing.T) {
 		if !strings.Contains(string(css), selector+" {") {
 			t.Errorf("components.css has no rule for %s", selector)
 		}
+	}
+}
+
+// Every link to a collective is built by approvals.CollectivePath, the way event
+// links are built by eventPath: the ID is escaped there, and a change of the
+// route changes every link. Rendered strings cannot see a site that builds the
+// path by hand — a store ID looks already escaped — so pin the source shape of
+// both sites, as TestAdminDateTextUsesTheSharedHelpers pins the date text.
+func TestCollectiveLinksUseTheSharedBuilder(t *testing.T) {
+	for _, file := range []string{"routes_collective.go", "routes_collectives.go"} {
+		t.Run(file, func(t *testing.T) {
+			b, err := os.ReadFile(file)
+			if err != nil {
+				t.Fatalf("read %s: %v", file, err)
+			}
+			src := string(b)
+			if strings.Contains(src, `"/coletivo/"`) {
+				t.Errorf("%s still builds a collective path by hand", file)
+			}
+			if n := strings.Count(src, "approvals.CollectivePath("); n != 1 {
+				t.Errorf("%s calls approvals.CollectivePath %d time(s), want 1", file, n)
+			}
+		})
 	}
 }

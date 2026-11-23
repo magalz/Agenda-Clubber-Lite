@@ -25,6 +25,22 @@ func TestSentinelErrorsAreDistinct(t *testing.T) {
 	}
 }
 
+// The link to a collective's page carries its ID as one escaped path segment,
+// the way eventPath builds an event's link: an opaque ID never changes the path
+// it ends up in.
+func TestCollectivePath(t *testing.T) {
+	tests := []struct{ id, want string }{
+		{"65f0c0ffee65f0c0ffee0001", "/coletivo/65f0c0ffee65f0c0ffee0001"},
+		{"a/b?c#d e", "/coletivo/a%2Fb%3Fc%23d%20e"},
+		{"../x", "/coletivo/..%2Fx"},
+	}
+	for _, tt := range tests {
+		if got := CollectivePath(tt.id); got != tt.want {
+			t.Errorf("CollectivePath(%q) = %q, want %q", tt.id, got, tt.want)
+		}
+	}
+}
+
 func TestRoleLabel(t *testing.T) {
 	tests := []struct {
 		role domain.Role

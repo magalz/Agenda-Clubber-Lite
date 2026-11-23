@@ -75,6 +75,10 @@ const (
 	pathAdminCollectives = "/admin/coletivos"
 )
 
+// CollectivePath is the page of one collective, where its Administradores see
+// the requests to join it.
+func CollectivePath(id string) string { return "/coletivo/" + id }
+
 // collectivePath is the page of one collective, where its Administradores see
 // the requests to join it.
 func collectivePath(id string) string { return "/coletivo/" + id }
