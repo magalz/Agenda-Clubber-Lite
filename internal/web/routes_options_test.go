@@ -57,6 +57,17 @@ func optList(empty string, values []string, selected string, extra ...string) []
 	return out
 }
 
+// substyleList is the expected substyle list: the empty option, the substyles as
+// their own labels, then the "outros" choice with the label of the style list and
+// the value that is posted and stored.
+func substyleList(values []string, selected string) []evOption {
+	out := []evOption{{Label: optSubstyleEmpty}}
+	for _, v := range values {
+		out = append(out, evOption{Value: v, Label: v, Selected: v == selected})
+	}
+	return append(out, evOption{Value: domain.StyleOther, Label: "Outros", Selected: selected == domain.StyleOther})
+}
+
 func TestOptionsCities(t *testing.T) {
 	e := newEvWorld(t)
 	ce, pe := catalog.Cities("CE"), catalog.Cities("PE")
@@ -106,15 +117,15 @@ func TestOptionsSubstyles(t *testing.T) {
 		name, query string
 		want        []evOption
 	}{
-		{"a style", "?estilo=techno", optList(optSubstyleEmpty, techno, "", "outros")},
-		{"a style and its substyle", "?estilo=techno&selecionada=acid%20techno", optList(optSubstyleEmpty, techno, "acid techno", "outros")},
-		{"outros as the substyle", "?estilo=techno&selecionada=outros", optList(optSubstyleEmpty, techno, "outros", "outros")},
-		{"a substyle with an apostrophe", "?estilo=house&selecionada=" + url.QueryEscape("jackin' house"), optList(optSubstyleEmpty, house, "jackin' house", "outros")},
-		{"a substyle of another style", "?estilo=techno&selecionada=deep%20house", optList(optSubstyleEmpty, techno, "", "outros")},
-		{"a substyle that does not exist", "?estilo=techno&selecionada=nada", optList(optSubstyleEmpty, techno, "", "outros")},
-		{"a substyle in another case", "?estilo=techno&selecionada=Acid%20Techno", optList(optSubstyleEmpty, techno, "", "outros")},
-		{"a style with no substyles", "?estilo=pop", optList(optSubstyleEmpty, nil, "", "outros")},
-		{"a style with no substyles and outros", "?estilo=pop&selecionada=outros", optList(optSubstyleEmpty, nil, "outros", "outros")},
+		{"a style", "?estilo=techno", substyleList(techno, "")},
+		{"a style and its substyle", "?estilo=techno&selecionada=acid%20techno", substyleList(techno, "acid techno")},
+		{"outros as the substyle", "?estilo=techno&selecionada=outros", substyleList(techno, "outros")},
+		{"a substyle with an apostrophe", "?estilo=house&selecionada=" + url.QueryEscape("jackin' house"), substyleList(house, "jackin' house")},
+		{"a substyle of another style", "?estilo=techno&selecionada=deep%20house", substyleList(techno, "")},
+		{"a substyle that does not exist", "?estilo=techno&selecionada=nada", substyleList(techno, "")},
+		{"a substyle in another case", "?estilo=techno&selecionada=Acid%20Techno", substyleList(techno, "")},
+		{"a style with no substyles", "?estilo=pop", substyleList(nil, "")},
+		{"a style with no substyles and outros", "?estilo=pop&selecionada=outros", substyleList(nil, "outros")},
 		{"the style outros", "?estilo=outros", none},
 		{"the style outros with a substyle", "?estilo=outros&selecionada=outros", none},
 		{"an unknown style", "?estilo=nada&selecionada=acid%20techno", none},
@@ -126,6 +137,32 @@ func TestOptionsSubstyles(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			optCheck(t, "GET /opcoes/subestilos"+tc.query, evOptions(e.body(t, "/opcoes/subestilos"+tc.query)), tc.want)
 		})
+	}
+}
+
+// The "outros" choice is spelled the same way in both selects: the substyle list
+// posts the stored value but shows the label the style list already shows.
+func TestOptionsSubstylesOtherLabel(t *testing.T) {
+	e := newEvWorld(t)
+	styles := evfSelect(t, e.get(e.Owner, "/eventos/novo").Body.String(), "style")
+	var otherLabel string
+	for _, o := range evOptions(styles) {
+		if o.Value == domain.StyleOther {
+			otherLabel = o.Label
+		}
+	}
+	if otherLabel != "Outros" {
+		t.Fatalf("the style select's %q option is labelled %q, want %q", domain.StyleOther, otherLabel, "Outros")
+	}
+	for _, parent := range []string{"techno", "pop"} {
+		opts := evOptions(e.body(t, "/opcoes/subestilos?estilo="+parent))
+		if len(opts) == 0 {
+			t.Fatalf("GET /opcoes/subestilos?estilo=%s: no options", parent)
+		}
+		want := evOption{Value: domain.StyleOther, Label: otherLabel}
+		if got := opts[len(opts)-1]; got != want {
+			t.Errorf("GET /opcoes/subestilos?estilo=%s: the outros option is %+v, want %+v", parent, got, want)
+		}
 	}
 }
 
