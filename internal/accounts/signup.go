@@ -21,7 +21,6 @@ const SignupTokenTTL = 24 * time.Hour
 // missing value, a length and a control character come from domain's wording.
 const (
 	signupMsgPasswordMismatch = "as senhas não conferem"
-	signupMsgKind             = "escolha coletivo ou produtora"
 	signupMsgRole             = "escolha o seu papel"
 	signupMsgPick             = "escolha um coletivo da lista"
 	signupMsgNameInUse        = "nome já em uso; escolha outro"
@@ -135,7 +134,7 @@ func signupValidate(in SignupInput) (signupFields, error) {
 	case strings.ContainsFunc(f.name, unicode.IsControl):
 		fe.Add("name", domain.MsgControl)
 	default:
-		if msg := signupLengthProblem(f.name, domain.UserNameMin, domain.UserNameMax); msg != "" {
+		if msg := domain.LengthProblem(f.name, domain.UserNameMin, domain.UserNameMax); msg != "" {
 			fe.Add("name", msg)
 		}
 	}
@@ -159,7 +158,7 @@ func signupValidate(in SignupInput) (signupFields, error) {
 	passwordFieldErrors(&fe, in.Password, in.PasswordConfirm, email)
 
 	if !in.CollectiveKind.Valid() {
-		fe.Add("collective_kind", signupMsgKind)
+		fe.Add("collective_kind", domain.MsgCollectiveKind)
 	}
 	if !in.Role.Valid() {
 		fe.Add("role", signupMsgRole)
@@ -188,22 +187,6 @@ func PhoneDigits(s string) string {
 		}
 		return r
 	}, s)
-}
-
-// signupLengthProblem returns the pt-BR message for s (already trimmed) when its
-// length in runes is outside [min, max], or "". The wording matches domain's.
-func signupLengthProblem(s string, min, max int) string {
-	n := utf8.RuneCountInString(s)
-	switch {
-	case n == 0:
-		return domain.MsgRequired
-	case n >= min && n <= max:
-		return ""
-	case min <= 1:
-		return fmt.Sprintf("use no máximo %d caracteres", max)
-	default:
-		return fmt.Sprintf("use de %d a %d caracteres", min, max)
-	}
 }
 
 // signupTx is the transaction body. It builds every entity as a local, because
