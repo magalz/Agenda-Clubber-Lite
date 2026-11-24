@@ -251,15 +251,18 @@ type User struct {
 	PhoneIsWhatsApp   bool
 	PasswordHash      string
 	PasswordChangedAt time.Time
-	Status            UserStatus
-	IsAdmin           bool
-	FailedLogins      int
-	LockedUntil       *time.Time
-	EmailVerifiedAt   *time.Time
-	ApprovedAt        *time.Time
-	ApprovedBy        string
-	CreatedAt         time.Time
-	UpdatedAt         time.Time
+	// PasswordRemindedAt is when the last password-expiry reminder was sent; nil
+	// means never, and ChangePassword resets it.
+	PasswordRemindedAt *time.Time
+	Status             UserStatus
+	IsAdmin            bool
+	FailedLogins       int
+	LockedUntil        *time.Time
+	EmailVerifiedAt    *time.Time
+	ApprovedAt         *time.Time
+	ApprovedBy         string
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
 }
 
 // Collective is a party collective or a production company.

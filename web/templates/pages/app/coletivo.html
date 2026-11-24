@@ -1,5 +1,5 @@
 {{/* A collective's management page (/coletivo/:id), for its approved Administradores only: everybody else gets the 404 of a
-     path no route serves. Data is a collectivePage: ID, Name, Kind, Locked and EventsBlocked (the admin's flags), Members
+     path no route serves. Data is a collectivePage: Path (from approvals.CollectivePath), Name, Kind, Locked and EventsBlocked (the admin's flags), Members
      (each a collectiveMember: UserID, Name, Role, Badge, CanPromote, CanDemote), Requests (each a collectiveRequest: UserID,
      Name, Role), RenameValue (what the rename field holds), Notice, a status above the page after an action went through,
      and Alert, an alert for a refused action, a reason that is too long or the rate limit. The ?msg= code of the redirect
@@ -34,11 +34,11 @@
         </div>
         <span class="badge{{with .Badge}} badge--{{.}}{{end}} item-list__status">{{.Role}}</span>
         {{if or .CanPromote .CanDemote}}<div class="item-list__actions">
-          {{if .CanPromote}}<form method="post" action="/coletivo/{{$.Data.ID}}/membro/promover">
+          {{if .CanPromote}}<form method="post" action="{{$.Data.Path}}/membro/promover">
             <input type="hidden" name="user_id" value="{{.UserID}}">
             <button class="btn btn--sm" type="submit">[→] PROMOVER<span class="sr-only"> {{$name}}</span></button>
           </form>{{end}}
-          {{if .CanDemote}}<form method="post" action="/coletivo/{{$.Data.ID}}/membro/rebaixar">
+          {{if .CanDemote}}<form method="post" action="{{$.Data.Path}}/membro/rebaixar">
             <input type="hidden" name="user_id" value="{{.UserID}}">
             <button class="btn btn--sm" type="submit">[→] REBAIXAR<span class="sr-only"> {{$name}}</span></button>
           </form>{{end}}
@@ -56,11 +56,11 @@
           <p class="item-list__meta">quer entrar como {{.Role}}</p>
         </div>
         {{if not $.Data.Locked}}<div class="item-list__actions">
-          <form method="post" action="/coletivo/{{$.Data.ID}}/pedido/aprovar">
+          <form method="post" action="{{$.Data.Path}}/pedido/aprovar">
             <input type="hidden" name="user_id" value="{{.UserID}}">
             <button class="btn btn--sm" type="submit">[→] APROVAR<span class="sr-only"> {{$name}}</span></button>
           </form>
-          <form method="post" action="/coletivo/{{$.Data.ID}}/pedido/recusar">
+          <form method="post" action="{{$.Data.Path}}/pedido/recusar">
             <input type="hidden" name="user_id" value="{{.UserID}}">
             <details class="reason-form">
               <summary>[✕] recusar com um motivo<span class="sr-only"> {{$name}}</span></summary>
@@ -78,7 +78,7 @@
   </section>
   {{if not .Data.Locked}}<section class="stack" aria-labelledby="nome-titulo">
     <h2 class="uppercase-label" id="nome-titulo">mudar o nome</h2>
-    <form method="post" action="/coletivo/{{.Data.ID}}/nome" class="stack">
+    <form method="post" action="{{.Data.Path}}/nome" class="stack">
       <div class="field">
         <label class="label label--required" for="coletivo-nome">nome</label>
         <input class="input" type="text" id="coletivo-nome" name="name" value="{{.Data.RenameValue}}" autocomplete="off" required{{with index .Errors "name"}} aria-invalid="true" aria-describedby="erro-name"{{end}}>

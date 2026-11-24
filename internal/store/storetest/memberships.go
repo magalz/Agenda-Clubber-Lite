@@ -33,7 +33,7 @@ func memberView(m domain.Membership, u domain.User) domain.MemberView {
 
 // collectiveView is what ListAwaitingAdmin shows of a membership in c.
 func collectiveView(m domain.Membership, c domain.Collective) domain.MembershipView {
-	return domain.MembershipView{Membership: m, CollectiveName: c.Name, CollectiveKind: c.Kind, CollectiveStatus: c.Status}
+	return domain.MembershipView{Membership: m, CollectiveName: c.Name, CollectiveKind: c.Kind, CollectiveStatus: c.Status, CollectiveEventsBlocked: c.EventsBlocked}
 }
 
 // withEmail gives a user the email of its own that a second user with the same
@@ -638,6 +638,17 @@ func RunMemberships(t *testing.T, newStore NewStore) {
 				want = append(want, collectiveView(m, c))
 			}
 			wantEqual(t, "ListAwaitingAdmin", normAll(e.awaitingAdmin(10), normView), normAll(want, normView))
+		}},
+		{"ListAwaitingAdmin shows whether the collective has its events blocked", func(t *testing.T, e env) {
+			ana := e.user("ana")
+			blocked := e.collective("Coletivo Bloqueado", coletivo, cPending, blockEvents)
+			open := e.collective("Coletivo Aberto", produtora, cPending)
+			mBlocked := e.member(ana, blocked, roleOwner, mPending, ownerSide(ana.ID), requestedAfter(time.Minute))
+			mOpen := e.member(ana, open, roleOwner, mPending, ownerSide(ana.ID), requestedAfter(2*time.Minute))
+
+			wantEqual(t, "ListAwaitingAdmin", normAll(e.awaitingAdmin(10), normView), normAll([]domain.MembershipView{
+				collectiveView(mBlocked, blocked), collectiveView(mOpen, open),
+			}, normView))
 		}},
 		{"ListAwaitingAdmin puts the oldest request first and breaks ties by user ID, then collective ID", func(t *testing.T, e env) {
 			u1, u2, u3 := e.user("ana"), e.user("bia"), e.user("caio")

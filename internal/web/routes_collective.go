@@ -23,12 +23,13 @@ var collectiveNotices = map[string]string{
 	"nome-alterado":   "nome alterado.",
 }
 
-// collectivePage is the Data of app/coletivo. Notice is the status above the page
+// collectivePage is the Data of app/coletivo. Path is the escaped collective path,
+// used by the form actions. Notice is the status above the page
 // (an action went through), Alert the alert (a refused or invalid action, the rate
 // limit); either is empty for none. RenameValue is what the rename field holds:
 // the name the person typed, or the collective's own.
 type collectivePage struct {
-	ID            string
+	Path          string
 	Name          string
 	Kind          string
 	Locked        bool
@@ -100,7 +101,8 @@ func (a *App) collectiveShow(c *gin.Context) {
 // collectiveAct is the flow the five actions share. do runs the action of
 // internal/approvals, which decides for itself whether the person may take it; the
 // handler checks the person's tie to the collective first, so that somebody who is
-// not in it gets the 404 of the page, and not a 403 that says it exists. limited
+// not an approved Administrador of it gets the 404 of the page, and not a 403 that
+// says it exists. limited
 // counts the post against the person's budget (Limits.Requests) before the body is
 // read. A refused or failed post answers with the page, so the person sees the
 // current state. On success it redirects to the page with the notice code, or, when
@@ -127,7 +129,8 @@ func (a *App) collectiveAct(logMsg, code, selfCode string, limited bool, do func
 			c.String(http.StatusInternalServerError, "erro interno")
 			return
 		case m.Status != domain.MembershipStatusApproved || m.Role != domain.RoleOwner:
-			c.String(http.StatusForbidden, approvalsMsgNotAllowed)
+			// The page is 404 for them; a post must not say the collective exists.
+			answerNotFound(c)
 			return
 		}
 		now := a.Now()
@@ -146,7 +149,7 @@ func (a *App) collectiveAct(logMsg, code, selfCode string, limited bool, do func
 		case err == nil && selfCode != "" && form.Get("user_id") == u.ID:
 			a.redirect(c, "/coletivos?msg="+selfCode)
 		case err == nil:
-			a.redirect(c, "/coletivo/"+url.PathEscape(id)+"?msg="+code)
+			a.redirect(c, approvals.CollectivePath(id)+"?msg="+code)
 		case errors.As(err, &fieldErrs):
 			// The name's message goes under the rename field; the reason's is an alert.
 			a.collectiveRender(c, u, id, http.StatusUnprocessableEntity, form, fieldErrs, "", fieldErrs["reason"])
@@ -186,7 +189,7 @@ func (a *App) collectiveRender(c *gin.Context, u domain.User, id string, status 
 	}
 	col := view.Collective
 	data := collectivePage{
-		ID: col.ID, Name: col.Name, Kind: kindLabel(col.Kind),
+		Path: approvals.CollectivePath(col.ID), Name: col.Name, Kind: kindLabel(col.Kind),
 		Locked: col.Locked, EventsBlocked: col.EventsBlocked,
 		RenameValue: col.Name, Notice: notice, Alert: alert,
 	}

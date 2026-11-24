@@ -15,7 +15,6 @@ import (
 // pt-BR messages shown next to a form field.
 const (
 	msgRole         = "escolha membro ou administrador"
-	msgKind         = "escolha coletivo ou produtora"
 	msgNoCollective = "coletivo não encontrado"
 	msgAlreadyIn    = "você já faz parte deste coletivo ou já pediu para entrar"
 	msgNameExists   = "já existe; peça para entrar"
@@ -80,7 +79,7 @@ func RequestJoin(ctx context.Context, store domain.Store, origin string, actor d
 
 		label := RoleLabel(role)
 		if err := notifyOwners(ctx, r, c.ID, mail.OwnerJoinRequestData{
-			CollectiveName: c.Name, UserName: actor.Name, Role: label, Link: origin + collectivePath(c.ID),
+			CollectiveName: c.Name, UserName: actor.Name, Role: label, Link: origin + CollectivePath(c.ID),
 		}, now); err != nil {
 			return err
 		}
@@ -117,7 +116,7 @@ func RequestCollective(ctx context.Context, store domain.Store, origin string, a
 		fe.Add("name", problem)
 	}
 	if !kind.Valid() {
-		fe.Add("kind", msgKind)
+		fe.Add("kind", domain.MsgCollectiveKind)
 	}
 	if err := fe.Err(); err != nil {
 		return err
@@ -224,14 +223,4 @@ func RenameCollective(ctx context.Context, store domain.Store, origin string, ac
 		e.CollectiveID, e.CollectiveName, e.Detail = c.ID, c.Name, oldName+" → "+c.Name
 		return audit(ctx, r, e)
 	})
-}
-
-// requireActive returns ErrNotAllowed unless actor has an ID and an active
-// account. The caller passes the user it loaded for the request, so an account
-// disabled since the session started is refused here.
-func requireActive(actor domain.User) error {
-	if actor.ID == "" || actor.Status != domain.UserStatusActive {
-		return ErrNotAllowed
-	}
-	return nil
 }

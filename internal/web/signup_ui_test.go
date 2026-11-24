@@ -36,6 +36,39 @@ func signupUIAppJS(t *testing.T) string {
 	return string(data)
 }
 
+// signupPicker is the collectivePicker component of app.js, from its registration to the factory's closing
+// "    });". The checks below read only it: a string the module's constants or the other components also hold
+// would pass them whatever the picker does.
+func signupPicker(t *testing.T, js string) string {
+	t.Helper()
+	picker := regexp.MustCompile(`(?s)Alpine\.data\('collectivePicker'.*?\n    \}\);`).FindString(js)
+	if picker == "" {
+		t.Fatalf("app.js has no collectivePicker component (Alpine.data('collectivePicker', ...) closed at 4 spaces)")
+	}
+	return picker
+}
+
+// signupPickerMethod is the method of collectivePicker called name (indented by 8 spaces), from its signature
+// to its closing brace.
+func signupPickerMethod(t *testing.T, js, name string) string {
+	t.Helper()
+	method := regexp.MustCompile(`(?s)\n        (?:async )?` + regexp.QuoteMeta(name) + `\(.*?\n        \},\n`).FindString(signupPicker(t, js))
+	if method == "" {
+		t.Fatalf("collectivePicker has no %s method", name)
+	}
+	return method
+}
+
+// signupRefill is the top-level refill helper of app.js, from its signature to its closing brace.
+func signupRefill(t *testing.T, js string) string {
+	t.Helper()
+	refill := regexp.MustCompile(`(?s)async function refill\(.*?\n  \}\n`).FindString(js)
+	if refill == "" {
+		t.Fatalf("app.js has no async refill helper")
+	}
+	return refill
+}
+
 // alpineAttr matches an Alpine directive or binding attribute and its value.
 var alpineAttr = regexp.MustCompile(`\s(x-[a-z][a-z0-9.:-]*|@[a-z][a-z0-9.:-]*|:[a-z][a-z0-9-]*)="([^"]*)"`)
 
@@ -203,6 +236,59 @@ func TestSignupUIScript(t *testing.T) {
 			t.Errorf("app.js contains %q", banned)
 		}
 	}
+}
+
+func TestSignupSuggestionRedirect(t *testing.T) {
+	js := signupUIAppJS(t)
+	search := signupPickerMethod(t, js, "search")
+
+	t.Run("search rejects a redirect", func(t *testing.T) {
+		// An expired session answers 303 to /entrar; a plain fetch follows it and the login page lands in the
+		// suggestions box. The fetch options must carry redirect: 'error' like the event form's refill helper.
+		fetch := regexp.MustCompile(`(?s)fetch\(SUGGEST_URL \+ '\?' \+ params, \{.*?\}\)`).FindString(search)
+		if fetch == "" {
+			t.Fatalf("search() has no fetch of SUGGEST_URL with an options object:\n%s", search)
+		}
+		if !strings.Contains(fetch, "redirect: 'error'") {
+			t.Errorf("search()'s fetch does not reject a redirect:\n%s", fetch)
+		}
+		for _, want := range []string{"headers: { Accept: 'text/html' },", "signal: controller.signal,"} {
+			if !strings.Contains(fetch, want) {
+				t.Errorf("search()'s fetch lost %q:\n%s", want, fetch)
+			}
+		}
+	})
+
+	t.Run("a failed search leaves the suggestions untouched", func(t *testing.T) {
+		catch := regexp.MustCompile(`(?s)\} catch \{.*?\n          \}`).FindString(search)
+		if catch == "" {
+			t.Fatalf("search() has no catch for a rejected fetch:\n%s", search)
+		}
+		if !strings.Contains(catch, "if (controller.signal.aborted) return;") {
+			t.Errorf("a failed search no longer ignores an aborted request:\n%s", catch)
+		}
+		if !strings.Contains(catch, "request = null;") {
+			t.Errorf("a failed search leaves a request marked in flight:\n%s", catch)
+		}
+		// close() empties the box and drops the list. A rejected fetch — a 303 to /entrar or a network failure —
+		// keeps what is already there, like refill's failed select: no spinner, no error text, no empty list.
+		for _, banned := range []string{"this.close()", "box.", "field-error", "spinner"} {
+			if strings.Contains(catch, banned) {
+				t.Errorf("a failed search touches the suggestions with %q:\n%s", banned, catch)
+			}
+		}
+	})
+
+	t.Run("refill still rejects a redirect", func(t *testing.T) {
+		refill := signupRefill(t, js)
+		fetch := regexp.MustCompile(`(?s)fetch\(path \+ '\?' \+ new URLSearchParams\(pairs\), \{.*?\}\)`).FindString(refill)
+		if fetch == "" {
+			t.Fatalf("refill() has no fetch with an options object:\n%s", refill)
+		}
+		if !strings.Contains(fetch, "redirect: 'error'") {
+			t.Errorf("refill()'s fetch does not reject a redirect:\n%s", fetch)
+		}
+	})
 }
 
 func TestSignupSuggestionsOptionIDs(t *testing.T) {

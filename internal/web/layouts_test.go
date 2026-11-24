@@ -5,6 +5,8 @@ import (
 	"log/slog"
 	"net/http"
 	"regexp"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -86,7 +88,7 @@ func TestAppShellLoggedOut(t *testing.T) {
 		`<aside class="sidebar"`,
 		`</aside>`,
 		`<div class="sidebar-backdrop"`,
-		`<main id="conteudo" class="shell__main">`,
+		`<main id="conteudo" class="shell__main" :inert="mainInert">`,
 		"feito_por --dev=IgnisDev", // the footer sits inside main
 		`</main>`,
 	)
@@ -242,7 +244,8 @@ func TestAppShellMarksTheActiveItem(t *testing.T) {
 // template must name a property or method of a component whose x-data scope
 // encloses it. Alpine merges nested scopes, so the shell's members are available
 // inside every component on the page. Checked on each page with Alpine markup
-// that has a fixture here: the calendar and the event form's create and edit.
+// that has a fixture here: the calendar, the event form's create and edit, and
+// the profile page.
 func TestAlpineAttributesNameRegisteredMembers(t *testing.T) {
 	js := dynRead(t, "static/js/app.js")
 	scopes := dynScopes(js)
@@ -262,6 +265,7 @@ func TestAlpineAttributesNameRegisteredMembers(t *testing.T) {
 		{"home", renderHome(t, app, "calendario", &ViewUser{ID: "u1", Name: "Ana", IsAdmin: true, CanCreateEvents: true}), false},
 		{"create form", forms.create, true},
 		{"edit form", forms.edit, true},
+		{"perfil", newProfileEnv(t).show().Body.String(), false},
 	}
 
 	for _, p := range pages {
@@ -294,7 +298,11 @@ func TestAlpineAttributesNameRegisteredMembers(t *testing.T) {
 					continue
 				}
 				start := strings.LastIndex(p.body[:m[0]+1], "<")
-				xdata = append(xdata, scope{start: start, end: dynClose(t, p.body, start), name: name})
+				end, void := voidTagEnd(p.body, start)
+				if !void {
+					end = dynClose(t, p.body, start)
+				}
+				xdata = append(xdata, scope{start: start, end: end, name: name})
 			}
 			if len(xdata) == 0 {
 				t.Fatal("no x-data element found; the check would pass vacuously")
@@ -334,6 +342,110 @@ func TestAlpineAttributesNameRegisteredMembers(t *testing.T) {
 			}
 		})
 	}
+}
+
+// voidTagEnd reports where the element that starts at start ends when it is a
+// void or self-closing tag (x-data on an <input>, say): such an element has no
+// closing tag, so its scope ends at its own '>'. ok is false for a regular
+// element, which dynClose must close instead. This also lets pages whose only
+// Alpine markup is a void element (the profile's phone field, the signup form)
+// carry the member check the ACL-97 review noted they lacked.
+func voidTagEnd(body string, start int) (end int, ok bool) {
+	gt := strings.IndexByte(body[start:], '>')
+	if gt < 0 {
+		return 0, false
+	}
+	tag := body[start+1 : start+gt]
+	if strings.HasSuffix(tag, "/") {
+		return start + gt + 1, true
+	}
+	name := tag
+	if i := strings.IndexAny(name, " \t\n"); i >= 0 {
+		name = name[:i]
+	}
+	switch strings.ToLower(name) {
+	case "area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "track", "wbr":
+		return start + gt + 1, true
+	}
+	return 0, false
+}
+
+// shellSource is the shell component of app.js, from Alpine.data('shell' to its closing. The checks below read only
+// it: a string the module's other components also hold would pass them whatever the shell does.
+func shellSource(t *testing.T, js string) string {
+	t.Helper()
+	shell := regexp.MustCompile(`(?s)Alpine\.data\('shell'.*?\n    \}\);\n`).FindString(js)
+	if shell == "" {
+		t.Fatalf("app.js has no shell component (Alpine.data('shell', ...) closed at 4 spaces)")
+	}
+	return shell
+}
+
+// shellMember is the member of shell called name (indented by 8 spaces), from its signature to its closing brace.
+func shellMember(t *testing.T, js, name string) string {
+	t.Helper()
+	member := regexp.MustCompile(`(?s)\n        (?:async )?` + regexp.QuoteMeta(name) + `\(.*?\n        \},\n`).FindString(shellSource(t, js))
+	if member == "" {
+		t.Fatalf("shell has no %s member", name)
+	}
+	return member
+}
+
+// wantBefore fails unless first comes before second in got.
+func wantBefore(t *testing.T, what, got, first, second string) {
+	t.Helper()
+	a, b := strings.Index(got, first), strings.Index(got, second)
+	if a < 0 || b < 0 || a > b {
+		t.Errorf("%s: %q must come before %q (at %d and %d): %s", what, first, second, a, b, got)
+	}
+}
+
+// While the drawer covers the page, main is inert so its controls are not tabbable or reachable by assistive tech.
+// The binding is a bare property name: the CSP build evaluates no expression in a template.
+func TestAppShellBindsMainInertOnMain(t *testing.T) {
+	app := newTestApp(t)
+	body := renderHome(t, app, "calendario", nil)
+	wantAll(t, "main", tagAttrs(t, body, `<main id="conteudo" ([^>]*)>`), `class="shell__main"`, `:inert="mainInert"`)
+
+	// The existing keyboard and aria contract stays untouched: the template still names the shell's own members.
+	wantAll(t, "shell", tagAttrs(t, body, `<div class="shell" ([^>]*)>`), `@keydown.escape.window="close"`)
+	wantAll(t, "topbar", tagAttrs(t, body, `(?s)<header class="topbar">(.*?)</header>`),
+		`aria-controls="menu-lateral"`, `:aria-expanded="expanded"`, `@click="toggle"`)
+}
+
+// mainInert is derived, not stored: the shell tracks the breakpoint flag its matchMedia handler already uses, so
+// crossing to the wide sidebar closes the drawer and lifts the inert in the same reactive update.
+func TestAppShellDerivesMainInertFromOpenAndBreakpoint(t *testing.T) {
+	js := dynRead(t, "static/js/app.js")
+	scopes := dynScopes(js)
+	for _, member := range []string{"mainInert", "wide", "onDrawerKeydown"} {
+		if !slices.Contains(scopes["shell"], member) {
+			t.Errorf("shell has no %s member (%v)", member, scopes["shell"])
+		}
+	}
+
+	shell := shellSource(t, js)
+	wantAll(t, "shell", shell, "wide: false,", "get mainInert() {", "return this.open && !this.wide;")
+	wantAll(t, "init", shellMember(t, js, "init"),
+		"this.wide = query.matches", "this.wide = event.matches", "if (event.matches) this.open = false;")
+}
+
+// Go cannot run the script, so pin the contract in its source: a window keydown listener owned by the shell, active
+// only while the drawer is open in drawer mode, wrapping Tab and Shift-Tab at the drawer's first and last tab stops.
+func TestAppShellTrapsTabInsideTheDrawer(t *testing.T) {
+	js := dynRead(t, "static/js/app.js")
+	wantAll(t, "app.js", js, "const FOCUSABLE =")
+	wantAll(t, "init", shellMember(t, js, "init"),
+		"onKeydown = (event) => this.onDrawerKeydown(event);", "window.addEventListener('keydown', onKeydown)")
+	wantAll(t, "destroy", shellMember(t, js, "destroy"), "window.removeEventListener('keydown', onKeydown)")
+
+	handler := shellMember(t, js, "onDrawerKeydown")
+	wantAll(t, "onDrawerKeydown", handler,
+		"event.key !== 'Tab'", "this.mainInert", "querySelector('#menu-lateral')", "querySelectorAll(FOCUSABLE)",
+		"event.shiftKey && active === first", "!event.shiftKey && active === last",
+		"event.preventDefault();", "last.focus();", "first.focus();")
+	wantBefore(t, "onDrawerKeydown", handler, "event.shiftKey && active === first", "last.focus();")
+	wantBefore(t, "onDrawerKeydown", handler, "!event.shiftKey && active === last", "first.focus();")
 }
 
 func TestAuthLayout(t *testing.T) {
@@ -399,4 +511,41 @@ func TestNewAppRefusesANilStore(t *testing.T) {
 	mustPanic(t, "Store", func() {
 		NewApp(testConfig(t), slog.New(slog.NewJSONHandler(&bytes.Buffer{}, nil)), nil)
 	})
+}
+
+// A native checkbox or radio is its own click target: the label around it is larger, but a 20px box still leaves a
+// 20px target under WCAG 2.5.8. Go cannot measure a browser, so pin the source value: 1.5rem is 24px at this app's
+// 16px root (neither base.css nor tokens.css overrides the root font size).
+func TestCheckAndRadioInputsMeetThe24pxTarget(t *testing.T) {
+	css := dynRead(t, "static/css/components.css")
+	rule := regexp.MustCompile(`(?s)\.check input,\s*\.radio-card input\s*\{([^}]*)\}`).FindStringSubmatch(css)
+	if rule == nil {
+		t.Fatal("components.css has no .check input, .radio-card input rule")
+	}
+	for _, prop := range []string{"width", "height"} {
+		t.Run(prop, func(t *testing.T) {
+			value := regexp.MustCompile(`(?m)^\s*` + prop + `:\s*([^;]+);`).FindStringSubmatch(rule[1])
+			if value == nil {
+				t.Fatalf(".check input has no %s declaration", prop)
+			}
+			got := strings.TrimSpace(value[1])
+			length := regexp.MustCompile(`^(\d+(?:\.\d+)?)(rem|px)$`).FindStringSubmatch(got)
+			if length == nil {
+				t.Fatalf(".check input %s = %q is not a plain px/rem length", prop, got)
+			}
+			px, err := strconv.ParseFloat(length[1], 64)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if length[2] == "rem" {
+				px *= 16
+			}
+			if px < 24 {
+				t.Errorf(".check input %s = %q (%.0fpx), want 1.5rem (24px at the 16px root)", prop, got, px)
+			}
+			if got != "1.5rem" {
+				t.Errorf(".check input %s = %q, want the pinned 1.5rem", prop, got)
+			}
+		})
+	}
 }

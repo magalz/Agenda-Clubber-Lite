@@ -8,6 +8,10 @@
   // The sidebar is a column from this width and a drawer below it (components.css).
   const DESKTOP = '(min-width: 1024px)';
 
+  // The tab stops the open drawer keeps the focus inside. Hidden controls are filtered out by the handler.
+  const FOCUSABLE =
+    'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
   // Phone: DDD + number, 10 or 11 digits (internal/domain PhoneMin, PhoneMax).
   const PHONE_MAX = 11;
 
@@ -46,6 +50,23 @@
       if (text[i] >= '0' && text[i] <= '9' && ++seen === n) return i + 1;
     }
     return text.length;
+  }
+
+  // Where the caret goes after a mask rewrites the text: what survived before the caret keeps its place, what
+  // survived after it keeps its distance from the end, so a colon or a separator added at the edit point sits
+  // before the caret and a refused edit returns to where it was made. An edit that replaced text on both sides
+  // of the caret stays after the same digit.
+  function caretAfterRewrite(before, after, caret) {
+    if (before === after) return caret;
+    let prefix = 0;
+    while (prefix < before.length && prefix < after.length && before[prefix] === after[prefix]) prefix++;
+    let suffix = 0;
+    while (suffix < before.length - prefix && suffix < after.length - prefix &&
+      before[before.length - 1 - suffix] === after[after.length - 1 - suffix]) suffix++;
+    const tail = before.length - suffix;
+    if (caret < prefix) return caret;
+    if (caret >= tail) return Math.min(after.length, after.length - suffix + caret - tail);
+    return caretAfterDigits(after, before.slice(0, caret).replace(/\D/g, '').length);
   }
 
   // The rules that need only the password; not_email is handled apart because it needs the e-mail.
@@ -158,6 +179,12 @@
     });
   }
 
+  // Whether a select the page already holds offers a value. A hand-edited URL may name a state or a city that is not in
+  // the page's lists, and there is no catalog to fetch here: only what the page holds can be trusted.
+  function offers(select, value) {
+    return [...select.options].some((option) => option.value === value);
+  }
+
   // Runs the jobs of one kind of request (run(job, newer)) one at a time, and of those that come while one is out only the
   // newest waits: latest wins. newer() tells a running job that another waits behind it, so it can leave the page as it
   // is for the newer one; send.newest() is the newest job asked for, the one that is out or waiting, else null. A job
@@ -231,9 +258,11 @@
     return isoOf(date);
   }
 
-  // The day moves along, stopping at the end of a shorter month (31 Jan + 1 month = 28 Feb).
+  // The day moves along, stopping at the end of a shorter month (31 Jan + 1 month = 28 Feb). A day dayOf cannot build
+  // (a year below 100) has no date to move, so it answers null instead of throwing.
   function addMonths(iso, n) {
     const date = dayOf(iso);
+    if (!date) return null;
     const day = date.getUTCDate();
     date.setUTCDate(1);
     date.setUTCMonth(date.getUTCMonth() + n);
@@ -331,9 +360,12 @@
     Alpine.data('shell', () => {
       let query;
       let onBreakpoint;
+      let onKeydown;
 
       return {
         open: false,
+        // The sidebar is a column from DESKTOP, so the drawer and its trap exist only while this is false.
+        wide: false,
         get expanded() {
           return this.open ? 'true' : 'false';
         },
@@ -343,6 +375,10 @@
         get toggleLabel() {
           return this.open ? '[✕] fechar' : '[≡] menu';
         },
+        // Main is inert only while the drawer covers the page; the wide sidebar is part of the page.
+        get mainInert() {
+          return this.open && !this.wide;
+        },
         toggle() {
           this.open = !this.open;
         },
@@ -351,16 +387,44 @@
           this.open = false;
           this.$refs.toggle.focus();
         },
+        // Tab wraps at the drawer's ends. Esc stays in the template's window handler and close() keeps the
+        // focus return. Focus arriving from the topbar is brought in, so it cannot wander through the page.
+        onDrawerKeydown(event) {
+          if (event.key !== 'Tab' || !this.mainInert) return;
+          const drawer = this.$root.querySelector('#menu-lateral');
+          const items = [...drawer.querySelectorAll(FOCUSABLE)].filter((item) => item.offsetParent !== null);
+          if (items.length === 0) return;
+          const first = items[0];
+          const last = items[items.length - 1];
+          const active = document.activeElement;
+          if (!drawer.contains(active)) {
+            event.preventDefault();
+            (event.shiftKey ? last : first).focus();
+            return;
+          }
+          if (event.shiftKey && active === first) {
+            event.preventDefault();
+            last.focus();
+          } else if (!event.shiftKey && active === last) {
+            event.preventDefault();
+            first.focus();
+          }
+        },
         // From 1024px the toggle is hidden, so close without moving focus to it.
         init() {
           query = window.matchMedia(DESKTOP);
+          this.wide = query.matches;
           onBreakpoint = (event) => {
+            this.wide = event.matches;
             if (event.matches) this.open = false;
           };
           query.addEventListener('change', onBreakpoint);
+          onKeydown = (event) => this.onDrawerKeydown(event);
+          window.addEventListener('keydown', onKeydown);
         },
         destroy() {
           query.removeEventListener('change', onBreakpoint);
+          window.removeEventListener('keydown', onKeydown);
         },
       };
     });
@@ -552,6 +616,7 @@
           try {
             const response = await fetch(SUGGEST_URL + '?' + params, {
               headers: { Accept: 'text/html' },
+              redirect: 'error',
               signal: controller.signal,
             });
             if (!response.ok) throw new Error('suggestions ' + response.status);
@@ -564,9 +629,10 @@
             this.activeDescendant = null;
             this.expanded = options.length > 0 ? 'true' : 'false';
           } catch {
+            // A rejected fetch (a 303 to /entrar on an expired session, or a network failure) leaves the
+            // suggestions as they were, like refill's failed select: nothing cleared, no error text.
             if (controller.signal.aborted) return;
             request = null;
-            this.close();
           }
         },
 
@@ -812,13 +878,21 @@
         },
         onInput(event) {
           if (event.isComposing) return;
+          const before = input.value;
+          const caret = input.selectionStart ?? before.length;
           const typed = typedClock(input.value, (event.inputType || '').startsWith('insert'));
           if (typed.error) {
             input.value = last;
+            const restored = caretAfterRewrite(before, last, caret);
+            if (document.activeElement === input) input.setSelectionRange(restored, restored);
             this.message = typed.error;
             return;
           }
-          if (input.value !== typed.text) input.value = typed.text;
+          if (input.value !== typed.text) {
+            input.value = typed.text;
+            const restored = caretAfterRewrite(before, typed.text, caret);
+            if (document.activeElement === input) input.setSelectionRange(restored, restored);
+          }
           last = typed.text;
           this.message = '';
         },
@@ -930,14 +1004,22 @@
         },
         onInput(event) {
           if (event.target !== price) return;
+          const before = price.value;
+          const caret = price.selectionStart ?? before.length;
           const cents = Number(price.value.replace(/\D/g, ''));
           if (cents > PRICE_MAX) {
             price.value = last;
+            const restored = caretAfterRewrite(before, last, caret);
+            if (document.activeElement === price) price.setSelectionRange(restored, restored);
             this.message = MSG_PRICE_MAX;
             return;
           }
           last = formatCents(cents);
-          if (price.value !== last) price.value = last;
+          if (price.value !== last) {
+            price.value = last;
+            const restored = caretAfterRewrite(before, last, caret);
+            if (document.activeElement === price) price.setSelectionRange(restored, restored);
+          }
           this.message = '';
         },
         onChange(event) {
@@ -1161,7 +1243,15 @@
             if (sheet.open) sheet.close();
             const params = new URLSearchParams(location.search);
             const mes = params.get('mes') ?? '';
-            this.goTo({ mes: dayOf(mes + '-01') ? mes : todayOf(), uf: params.get('uf') ?? '', cidade: params.get('cidade') ?? '' }, false);
+            const month = monthOf();
+            const ufSelect = month.querySelector('#calendar-uf');
+            const wantedUf = params.get('uf') ?? '';
+            const uf = offers(ufSelect, wantedUf) ? wantedUf : '';
+            const wantedCity = params.get('cidade') ?? '';
+            const citySelect = month.querySelector('#calendar-cidade');
+            // The page holds only the cities of the state it shows, so a city of another state cannot be checked here.
+            const cidade = uf === ufSelect.value && offers(citySelect, wantedCity) ? wantedCity : '';
+            this.goTo({ mes: dayOf(mes + '-01') ? mes : todayOf(), uf, cidade }, false);
           };
           window.addEventListener('popstate', onPopState);
         },
@@ -1201,17 +1291,16 @@
           const href = hrefOf(query);
           const from = old.dataset.month;
           const slide = query.mes === from ? '' : query.mes > from ? 'next' : 'prev';
-          // No slide under the open sheet: the page behind it is not seen.
           const animate =
             slide !== '' &&
             typeof document.startViewTransition === 'function' &&
-            !matchMedia(REDUCED_MOTION).matches &&
-            !root.querySelector('#evento-sheet').open;
+            !matchMedia(REDUCED_MOTION).matches;
 
           // The answer is about to be swapped in, which is the moment to read what the person is on and to tell the
           // stylesheet the direction: the request may take longer than the attribute lives, and a month that comes later
           // must not overwrite the direction of one that is still sliding. The timer starts here, and nothing else clears
-          // the attribute (the swap comes inside the transition, before its pseudo-elements are styled).
+          // the attribute (the swap comes inside the transition, before its pseudo-elements are styled). A sheet that
+          // opened while the request was out is seen now, so no slide runs behind it.
           let held = false;
           let focused = '';
           const listening = new AbortController();
@@ -1219,7 +1308,7 @@
             if (event.detail.target !== slot) return;
             held = old.contains(document.activeElement);
             focused = held ? twin(document.activeElement) : '';
-            if (!animate) return;
+            if (!animate || root.querySelector('#evento-sheet').open) return;
             clearTimeout(slideTimer);
             document.documentElement.dataset.calendarSlide = slide;
             slideTimer = setTimeout(() => delete document.documentElement.dataset.calendarSlide, SLIDE_KEEP);
@@ -1333,7 +1422,14 @@
             event.preventDefault();
             const asked = latest();
             const rel = link.getAttribute('rel');
-            this.goTo({ ...asked, mes: rel ? addMonths(asked.mes + '-01', rel === 'next' ? 1 : -1).slice(0, 7) : todayOf() });
+            // dayOf has no Date for a year below 100, and its four-digit year rejects the one past 9999 as well. Either
+            // way the computed month cannot be used: hand the page to the link, as a failed request does.
+            const next = rel ? addMonths(asked.mes + '-01', rel === 'next' ? 1 : -1) : todayOf() + '-01';
+            if (dayOf(next)) {
+              this.goTo({ ...asked, mes: next.slice(0, 7) });
+            } else {
+              location.assign(link.href);
+            }
           } else if (link.classList.contains('calendar__daynum') && !matchMedia(WIDE).matches) {
             // While a month is out the day waits for it: its link carries the filter of the month in the page.
             event.preventDefault();
@@ -1353,11 +1449,13 @@
           }
         },
 
-        // The filter applies on change. A new state drops the city (its list is of the old state).
+        // The filter applies on change. A new state drops the city (its list is of the old state). A city picked while
+        // a state change is out comes from the list of the state the page still shows, so it is dropped as well.
         onCalendarChange(event) {
           const field = event.target;
           if (field.id !== 'calendar-uf' && field.id !== 'calendar-cidade') return;
           const asked = latest();
+          if (field.id === 'calendar-cidade' && queryOf(monthOf()).uf !== asked.uf) return;
           this.goTo(field.id === 'calendar-uf' ? { ...asked, uf: field.value, cidade: '' } : { ...asked, cidade: field.value });
         },
 

@@ -218,7 +218,7 @@ func TestApproveAccount(t *testing.T) {
 		}
 	}
 	notice := by[owner.Email]
-	for _, want := range []string{p.Name, "Beta", "Membro", testOrigin + collectivePath(beta.ID)} {
+	for _, want := range []string{p.Name, "Beta", "Membro", testOrigin + CollectivePath(beta.ID)} {
 		if !strings.Contains(notice.Text, want) {
 			t.Errorf("the notice to the Administrador lacks %q:\n%s", want, notice.Text)
 		}

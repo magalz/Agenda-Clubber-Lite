@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"regexp"
 	"strings"
 	"testing"
@@ -306,6 +307,109 @@ func TestColetivosListsTheMemberships(t *testing.T) {
 			}
 		})
 	}
+}
+
+// The Mongo store cannot hold the state of a collective that vanished between
+// ListByUser and the read of its row: Delete cascades the memberships, Create
+// checks the collective exists, and ListByUser joins on it. The wrapper hands the
+// page the view the list read before the cascade, with the collective gone from
+// the store: the race the page has to survive.
+type colVanishedMemberships struct {
+	domain.Memberships
+	view domain.MembershipView
+}
+
+func (s colVanishedMemberships) ListByUser(ctx context.Context, userID string) ([]domain.MembershipView, error) {
+	views, err := s.Memberships.ListByUser(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	return append(views, s.view), nil
+}
+
+// colFailingCollectives makes the read of any collective fail with an error that
+// is not ErrNotFound, which must still take the page down.
+type colFailingCollectives struct{ domain.Collectives }
+
+var errColRead = errors.New("the collectives are down")
+
+func (colFailingCollectives) ByID(context.Context, string) (domain.Collective, error) {
+	return domain.Collective{}, errColRead
+}
+
+func TestColetivosSkipsAVanishedCollective(t *testing.T) {
+	t.Run("a collective deleted after the membership list is skipped", func(t *testing.T) {
+		e := newColEnv(t)
+		vanished := colCollective(t, e.store, "Casa Sumida", domain.CollectiveKindColetivo, domain.CollectiveStatusApproved, colCreatedBy(e.user.ID))
+		colMembership(t, e.store, e.user.ID, vanished.ID, domain.RoleOwner, domain.MembershipStatusApproved)
+		kept := colCollective(t, e.store, "Casa Fica", domain.CollectiveKindColetivo, domain.CollectiveStatusApproved)
+		colMembership(t, e.store, e.user.ID, kept.ID, domain.RoleMember, domain.MembershipStatusApproved)
+
+		ctx := context.Background()
+		views, err := e.store.Repos().Memberships.ListByUser(ctx, e.user.ID)
+		if err != nil {
+			t.Fatalf("list memberships: %v", err)
+		}
+		var stale domain.MembershipView
+		for _, v := range views {
+			if v.CollectiveID == vanished.ID {
+				stale = v
+			}
+		}
+		if stale.CollectiveID == "" {
+			t.Fatalf("no view of %s in %+v", vanished.ID, views)
+		}
+		if err := e.store.Repos().Collectives.Delete(ctx, vanished.ID); err != nil {
+			t.Fatalf("delete collective: %v", err)
+		}
+		// The cascade really took the collective and its membership: only the
+		// wrapper can still show the list the page read before it.
+		if _, err := e.store.Repos().Collectives.ByID(ctx, vanished.ID); !errors.Is(err, domain.ErrNotFound) {
+			t.Fatalf("read deleted collective: %v, want ErrNotFound", err)
+		}
+		if _, err := e.store.Repos().Memberships.Get(ctx, e.user.ID, vanished.ID); !errors.Is(err, domain.ErrNotFound) {
+			t.Fatalf("read deleted membership: %v, want ErrNotFound", err)
+		}
+		e.app.Store = repoOverride{e.store, func(r *domain.Repos) {
+			r.Memberships = colVanishedMemberships{r.Memberships, stale}
+		}}
+		e.r = e.app.Router()
+
+		rec := e.get("/coletivos")
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200; body %q", rec.Code, rec.Body)
+		}
+		body := rec.Body.String()
+		rows := colRows(body)
+		if len(rows) != 1 {
+			t.Fatalf("%d list items, want only the surviving %s: %s", len(rows), kept.Name, body)
+		}
+		if got := colField(t, rows[0], colTitleRE, "title"); got != kept.Name {
+			t.Errorf("title = %q, want %q", got, kept.Name)
+		}
+		if strings.Contains(body, vanished.Name) || strings.Contains(body, vanished.ID) {
+			t.Error("the page still shows the vanished collective")
+		}
+	})
+
+	t.Run("another read error still answers 500", func(t *testing.T) {
+		e := newColEnv(t)
+		c := colCollective(t, e.store, "Casa Verde", domain.CollectiveKindColetivo, domain.CollectiveStatusApproved)
+		colMembership(t, e.store, e.user.ID, c.ID, domain.RoleMember, domain.MembershipStatusApproved)
+		e.app.Store = repoOverride{e.store, func(r *domain.Repos) {
+			r.Collectives = colFailingCollectives{r.Collectives}
+		}}
+		logs := captureLogs(e.app)
+		e.r = e.app.Router()
+
+		rec := e.get("/coletivos")
+		if rec.Code != http.StatusInternalServerError || rec.Body.String() != colInternal {
+			t.Fatalf("GET /coletivos: %d %q; want 500 %q", rec.Code, rec.Body, colInternal)
+		}
+		if !strings.Contains(logs.String(), errColRead.Error()) {
+			t.Errorf("no %q in the log: %s", errColRead, logs)
+		}
+	})
 }
 
 func TestColetivosMessageCodes(t *testing.T) {
@@ -865,4 +969,43 @@ func TestColetivosComponentsAreStyled(t *testing.T) {
 			t.Errorf("components.css has no rule for %s", selector)
 		}
 	}
+}
+
+// Every link to a collective is built by approvals.CollectivePath, the way event
+// links are built by eventPath: the ID is escaped there, and a change of the
+// route changes every link. Rendered strings cannot see a site that builds the
+// path by hand — a store ID looks already escaped — so pin the source shape of
+// both sites, as TestAdminDateTextUsesTheSharedHelpers pins the date text.
+func TestCollectiveLinksUseTheSharedBuilder(t *testing.T) {
+	cases := []struct {
+		file string
+		want int
+	}{
+		{"routes_collective.go", 2},
+		{"routes_collectives.go", 1},
+	}
+	for _, tc := range cases {
+		t.Run(tc.file, func(t *testing.T) {
+			b, err := os.ReadFile(tc.file)
+			if err != nil {
+				t.Fatalf("read %s: %v", tc.file, err)
+			}
+			src := string(b)
+			if strings.Contains(src, `"/coletivo/"`) {
+				t.Errorf("%s still builds a collective path by hand", tc.file)
+			}
+			if n := strings.Count(src, "approvals.CollectivePath("); n != tc.want {
+				t.Errorf("%s calls approvals.CollectivePath %d time(s), want %d", tc.file, n, tc.want)
+			}
+		})
+	}
+	t.Run("coletivo.html", func(t *testing.T) {
+		b, err := os.ReadFile("../../web/templates/pages/app/coletivo.html")
+		if err != nil {
+			t.Fatalf("read coletivo.html: %v", err)
+		}
+		if strings.Contains(string(b), "/coletivo/{{") {
+			t.Errorf("coletivo.html still builds a collective path by hand")
+		}
+	})
 }

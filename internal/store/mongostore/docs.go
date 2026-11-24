@@ -64,65 +64,68 @@ func hexOrEmpty(oid *bson.ObjectID) string {
 // --- users ---
 
 type userDoc struct {
-	ID                bson.ObjectID  `bson:"_id"`
-	Name              string         `bson:"name"`
-	Email             string         `bson:"email"`
-	Phone             string         `bson:"phone"`
-	PhoneIsWhatsApp   bool           `bson:"phone_is_whatsapp"`
-	PasswordHash      string         `bson:"password_hash"`
-	PasswordHistory   []string       `bson:"password_history,omitempty"` // at most the previous hash
-	PasswordChangedAt time.Time      `bson:"password_changed_at"`
-	Status            string         `bson:"status"`
-	IsAdmin           bool           `bson:"is_admin"`
-	FailedLogins      int            `bson:"failed_logins"`
-	LockedUntil       *time.Time     `bson:"locked_until,omitempty"`
-	EmailVerifiedAt   *time.Time     `bson:"email_verified_at,omitempty"`
-	ApprovedAt        *time.Time     `bson:"approved_at,omitempty"`
-	ApprovedBy        *bson.ObjectID `bson:"approved_by,omitempty"`
-	CreatedAt         time.Time      `bson:"created_at"`
-	UpdatedAt         time.Time      `bson:"updated_at"`
+	ID                 bson.ObjectID  `bson:"_id"`
+	Name               string         `bson:"name"`
+	Email              string         `bson:"email"`
+	Phone              string         `bson:"phone"`
+	PhoneIsWhatsApp    bool           `bson:"phone_is_whatsapp"`
+	PasswordHash       string         `bson:"password_hash"`
+	PasswordHistory    []string       `bson:"password_history,omitempty"` // at most the previous hash
+	PasswordChangedAt  time.Time      `bson:"password_changed_at"`
+	PasswordRemindedAt *time.Time     `bson:"password_reminded_at,omitempty"`
+	Status             string         `bson:"status"`
+	IsAdmin            bool           `bson:"is_admin"`
+	FailedLogins       int            `bson:"failed_logins"`
+	LockedUntil        *time.Time     `bson:"locked_until,omitempty"`
+	EmailVerifiedAt    *time.Time     `bson:"email_verified_at,omitempty"`
+	ApprovedAt         *time.Time     `bson:"approved_at,omitempty"`
+	ApprovedBy         *bson.ObjectID `bson:"approved_by,omitempty"`
+	CreatedAt          time.Time      `bson:"created_at"`
+	UpdatedAt          time.Time      `bson:"updated_at"`
 }
 
 // userToDoc builds the document of u under the ID oid.
 func userToDoc(u domain.User, oid bson.ObjectID, approvedBy *bson.ObjectID) userDoc {
 	return userDoc{
-		ID:                oid,
-		Name:              u.Name,
-		Email:             u.Email,
-		Phone:             u.Phone,
-		PhoneIsWhatsApp:   u.PhoneIsWhatsApp,
-		PasswordHash:      u.PasswordHash,
-		PasswordChangedAt: u.PasswordChangedAt,
-		Status:            string(u.Status),
-		IsAdmin:           u.IsAdmin,
-		FailedLogins:      u.FailedLogins,
-		LockedUntil:       u.LockedUntil,
-		EmailVerifiedAt:   u.EmailVerifiedAt,
-		ApprovedAt:        u.ApprovedAt,
-		ApprovedBy:        approvedBy,
-		CreatedAt:         u.CreatedAt,
-		UpdatedAt:         u.UpdatedAt,
+		ID:                 oid,
+		Name:               u.Name,
+		Email:              u.Email,
+		Phone:              u.Phone,
+		PhoneIsWhatsApp:    u.PhoneIsWhatsApp,
+		PasswordHash:       u.PasswordHash,
+		PasswordChangedAt:  u.PasswordChangedAt,
+		PasswordRemindedAt: u.PasswordRemindedAt,
+		Status:             string(u.Status),
+		IsAdmin:            u.IsAdmin,
+		FailedLogins:       u.FailedLogins,
+		LockedUntil:        u.LockedUntil,
+		EmailVerifiedAt:    u.EmailVerifiedAt,
+		ApprovedAt:         u.ApprovedAt,
+		ApprovedBy:         approvedBy,
+		CreatedAt:          u.CreatedAt,
+		UpdatedAt:          u.UpdatedAt,
 	}
 }
 
 func (d userDoc) user() domain.User {
 	return domain.User{
-		ID:                d.ID.Hex(),
-		Name:              d.Name,
-		Email:             d.Email,
-		Phone:             d.Phone,
-		PhoneIsWhatsApp:   d.PhoneIsWhatsApp,
-		PasswordHash:      d.PasswordHash,
-		PasswordChangedAt: d.PasswordChangedAt,
-		Status:            domain.UserStatus(d.Status),
-		IsAdmin:           d.IsAdmin,
-		FailedLogins:      d.FailedLogins,
-		LockedUntil:       d.LockedUntil,
-		EmailVerifiedAt:   d.EmailVerifiedAt,
-		ApprovedAt:        d.ApprovedAt,
-		ApprovedBy:        hexOrEmpty(d.ApprovedBy),
-		CreatedAt:         d.CreatedAt,
-		UpdatedAt:         d.UpdatedAt,
+		ID:                 d.ID.Hex(),
+		Name:               d.Name,
+		Email:              d.Email,
+		Phone:              d.Phone,
+		PhoneIsWhatsApp:    d.PhoneIsWhatsApp,
+		PasswordHash:       d.PasswordHash,
+		PasswordChangedAt:  d.PasswordChangedAt,
+		PasswordRemindedAt: d.PasswordRemindedAt,
+		Status:             domain.UserStatus(d.Status),
+		IsAdmin:            d.IsAdmin,
+		FailedLogins:       d.FailedLogins,
+		LockedUntil:        d.LockedUntil,
+		EmailVerifiedAt:    d.EmailVerifiedAt,
+		ApprovedAt:         d.ApprovedAt,
+		ApprovedBy:         hexOrEmpty(d.ApprovedBy),
+		CreatedAt:          d.CreatedAt,
+		UpdatedAt:          d.UpdatedAt,
 	}
 }
 

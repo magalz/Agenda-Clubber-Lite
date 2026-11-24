@@ -108,7 +108,8 @@ func (r users) MarkEmailVerified(ctx context.Context, id string, now time.Time) 
 
 // ChangePassword is one update with an aggregation pipeline, so the hash that
 // leaves is the one that was current when the update ran. The new hash is quoted
-// with $literal: a string that starts with $ is a field path in a pipeline.
+// with $literal: a string that starts with $ is a field path in a pipeline. The
+// same update clears the lock and the password-reminder marker.
 func (r users) ChangePassword(ctx context.Context, id, newHash string, now time.Time) error {
 	if newHash == "" {
 		return domain.FieldErrors{"password_hash": domain.MsgRequired}
@@ -121,7 +122,7 @@ func (r users) ChangePassword(ctx context.Context, id, newHash string, now time.
 			"updated_at":          now,
 			"failed_logins":       0,
 		}}},
-		{{Key: "$unset", Value: "locked_until"}},
+		{{Key: "$unset", Value: bson.A{"locked_until", "password_reminded_at"}}},
 	})
 }
 
@@ -308,4 +309,100 @@ func (r users) Approve(ctx context.Context, id, by string, now time.Time) error 
 		return nil
 	}
 	return r.s.notMatched(ctx, colUsers, oid)
+}
+
+// UpdateProfile writes only the fields the service validated; UpdatedAt moves
+// with them, as it does on every other mutating Users method.
+func (r users) UpdateProfile(ctx context.Context, id, name, phone string, phoneIsWhatsApp bool, now time.Time) error {
+	return r.update(ctx, id, bson.M{"$set": bson.M{
+		"name":              name,
+		"phone":             phone,
+		"phone_is_whatsapp": phoneIsWhatsApp,
+		"updated_at":        now,
+	}})
+}
+
+// SetEmail writes the normalized address. The unique index on email rejects a
+// value another user holds; writing the value the account already holds is not
+// a duplicate key, so a no-op self-update succeeds.
+func (r users) SetEmail(ctx context.Context, id, email string, now time.Time) error {
+	normalized, err := domain.NormalizeEmail(email)
+	if err != nil {
+		return domain.ErrNotFound
+	}
+	oid, err := parseID(id)
+	if err != nil {
+		return err
+	}
+	res, err := r.coll().UpdateOne(ctx, bson.M{"_id": oid}, bson.M{"$set": bson.M{
+		"email":      normalized,
+		"updated_at": now,
+	}})
+	if err != nil {
+		if mongo.IsDuplicateKeyError(err) {
+			return domain.ErrEmailTaken
+		}
+		return wrap("set user email", err)
+	}
+	if res.MatchedCount == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
+}
+
+// MarkPasswordReminded moves UpdatedAt too, like every other mutating Users
+// method.
+func (r users) MarkPasswordReminded(ctx context.Context, id string, now time.Time) error {
+	return r.update(ctx, id, bson.M{"$set": bson.M{
+		"password_reminded_at": now,
+		"updated_at":           now,
+	}})
+}
+
+// ListByStatusCreatedBefore uses the status_created_at index of ListByStatus
+// with a strictly earlier bound on created_at; _id breaks the ties.
+func (r users) ListByStatusCreatedBefore(ctx context.Context, status domain.UserStatus, cutoff time.Time, limit int) ([]domain.User, error) {
+	if !status.Valid() {
+		return nil, domain.FieldErrors{"status": domain.MsgInvalid}
+	}
+	limit = min(max(limit, 1), domain.ListLimitMax)
+	cur, err := r.coll().Find(ctx,
+		bson.M{"status": string(status), "created_at": bson.M{"$lt": cutoff}},
+		options.Find().SetSort(bson.D{key("created_at"), key("_id")}).SetLimit(int64(limit)))
+	if err != nil {
+		return nil, wrap("list users by status and creation time", err)
+	}
+	var docs []userDoc
+	if err := cur.All(ctx, &docs); err != nil {
+		return nil, wrap("list users by status and creation time", err)
+	}
+	list := make([]domain.User, len(docs))
+	for i, d := range docs {
+		list[i] = d.user()
+	}
+	return list, nil
+}
+
+// ListActivePasswordChangedBetween uses a half-open window on
+// password_changed_at, sorted first by that time and then by _id.
+func (r users) ListActivePasswordChangedBetween(ctx context.Context, from, to time.Time, limit int) ([]domain.User, error) {
+	limit = min(max(limit, 1), domain.ListLimitMax)
+	cur, err := r.coll().Find(ctx,
+		bson.M{
+			"status":              string(domain.UserStatusActive),
+			"password_changed_at": bson.M{"$gte": from, "$lt": to},
+		},
+		options.Find().SetSort(bson.D{key("password_changed_at"), key("_id")}).SetLimit(int64(limit)))
+	if err != nil {
+		return nil, wrap("list active users by password change time", err)
+	}
+	var docs []userDoc
+	if err := cur.All(ctx, &docs); err != nil {
+		return nil, wrap("list active users by password change time", err)
+	}
+	list := make([]domain.User, len(docs))
+	for i, d := range docs {
+		list[i] = d.user()
+	}
+	return list, nil
 }

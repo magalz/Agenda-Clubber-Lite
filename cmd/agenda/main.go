@@ -20,6 +20,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/magalz/agenda-clubber-lite/internal/accounts"
 	"github.com/magalz/agenda-clubber-lite/internal/auth"
 	"github.com/magalz/agenda-clubber-lite/internal/config"
 	"github.com/magalz/agenda-clubber-lite/internal/domain"
@@ -178,9 +179,10 @@ func migrate(ctx context.Context, getenv func(string) string, stdout, stderr io.
 }
 
 // serve opens the database, runs the HTTP server and the background jobs (the
-// outbox worker and the cleanup of expired sessions and tokens) until ctx is
-// canceled, then stops the server, waits for the jobs and closes the database.
-// It validates the whole configuration first.
+// outbox worker, the cleanup of expired sessions and tokens, and the daily
+// password reminders and signup purge) until ctx is canceled, then stops the
+// server, waits for the jobs and closes the database. It validates the whole
+// configuration first.
 func serve(ctx context.Context, getenv func(string) string, stdout, stderr io.Writer) int {
 	cfg, err := config.Load(getenv)
 	if err != nil {
@@ -216,7 +218,7 @@ func serve(ctx context.Context, getenv func(string) string, stdout, stderr io.Wr
 	auth.DummyVerify("")
 
 	srv := newServer(cfg, log, store)
-	stopJobs := startJobs(ctx, log, store.Repos(), sender)
+	stopJobs := startJobs(ctx, log, store, store.Repos(), cfg.Origin, sender)
 
 	errCh := make(chan error, 1)
 	go func() { errCh <- srv.ListenAndServe() }()
@@ -252,6 +254,18 @@ func serve(ctx context.Context, getenv func(string) string, stdout, stderr io.Wr
 // variable so a test can shorten it.
 var cleanupInterval = time.Hour
 
+// dailyInterval is how often serve sends password expiry reminders; a variable
+// so a test can shorten it.
+var dailyInterval = 24 * time.Hour
+
+// sendPasswordReminders is the service the daily job calls; a variable so a
+// test can stand in for it without a database.
+var sendPasswordReminders = accounts.SendPasswordReminders
+
+// purgeUnconfirmedSignups is the service the daily job calls; a variable so a
+// test can stand in for it without a database.
+var purgeUnconfirmedSignups = accounts.PurgeUnconfirmedSignups
+
 // newSender picks how outgoing mail leaves: the drop folder (dev only, which
 // config.Load enforces) when MAIL_DROP_DIR is set, else SMTP when SMTP_HOST is
 // set, else nothing: a nil sender and one warning. Each logs the kind of sender
@@ -281,12 +295,13 @@ func newSender(cfg config.Config, log *slog.Logger) (mail.Sender, error) {
 }
 
 // startJobs runs the background jobs until ctx is canceled or stop is called:
-// the outbox worker, when there is a sender, and the cleanup of expired sessions
-// and tokens. stop cancels them and waits up to timeout for both to return,
-// which includes the message the worker has in flight and the write that records
-// its result; it reports whether they did. serve calls it before it closes the
-// database, so no job touches the store after that.
-func startJobs(ctx context.Context, log *slog.Logger, repos domain.Repos, sender mail.Sender) (stop func(timeout time.Duration) bool) {
+// the outbox worker, when there is a sender, the cleanup of expired sessions and
+// tokens, and the daily password reminders and signup purge. stop cancels them
+// and waits up to timeout for all to return, which includes the message the
+// worker has in flight and the write that records its result; it reports whether
+// they did. serve calls it before it closes the database, so no job touches the
+// store after that.
+func startJobs(ctx context.Context, log *slog.Logger, store domain.Store, repos domain.Repos, origin string, sender mail.Sender) (stop func(timeout time.Duration) bool) {
 	ctx, cancel := context.WithCancel(ctx)
 	var wg sync.WaitGroup
 	if sender != nil {
@@ -294,6 +309,7 @@ func startJobs(ctx context.Context, log *slog.Logger, repos domain.Repos, sender
 		wg.Go(func() { w.Run(ctx) })
 	}
 	wg.Go(func() { purgeLoop(ctx, log, repos) })
+	wg.Go(func() { dailyLoop(ctx, log, store, origin) })
 
 	return func(timeout time.Duration) bool {
 		cancel()
@@ -313,6 +329,42 @@ func startJobs(ctx context.Context, log *slog.Logger, repos domain.Repos, sender
 			default:
 				return false
 			}
+		}
+	}
+}
+
+// dailyLoop sends the password expiry reminders and purges unconfirmed signups
+// at once and then every dailyInterval, until ctx is canceled. The two are
+// independent: a failure of either is logged and the next tick retries. The
+// services are idempotent: a retry sends no notice twice and purges nothing
+// twice.
+func dailyLoop(ctx context.Context, log *slog.Logger, store domain.Store, origin string) {
+	ticker := time.NewTicker(dailyInterval)
+	defer ticker.Stop()
+	for {
+		now := time.Now().UTC()
+		n, err := sendPasswordReminders(ctx, store, origin, now)
+		if ctx.Err() != nil {
+			return
+		}
+		if err != nil {
+			log.Error("daily: password reminders failed", "err", err)
+		} else {
+			log.Info("daily: password reminders sent", "count", n)
+		}
+		purged, err := purgeUnconfirmedSignups(ctx, store, now)
+		if ctx.Err() != nil {
+			return
+		}
+		if err != nil {
+			log.Error("daily: unconfirmed signups failed", "err", err)
+		} else {
+			log.Info("daily: unconfirmed signups purged", "count", purged)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
 		}
 	}
 }

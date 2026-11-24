@@ -14,11 +14,14 @@ import (
 // MsgRequired and MsgInvalid are the pt-BR messages for a missing and a rejected
 // value. A store that raises a FieldErrors of its own uses them, so every
 // backend words these two the same way as Validate. MsgControl is the one for a
-// name that holds a line break or another control character.
+// name that holds a line break or another control character. MsgCollectiveKind
+// asks for a coletivo or a produtora: signup and the collective requests answer
+// an invalid kind with it, under their own field keys.
 const (
-	MsgRequired = "campo obrigatório"
-	MsgInvalid  = "valor inválido"
-	MsgControl  = "não use quebras de linha nem caracteres de controle"
+	MsgRequired       = "campo obrigatório"
+	MsgInvalid        = "valor inválido"
+	MsgControl        = "não use quebras de linha nem caracteres de controle"
+	MsgCollectiveKind = "escolha coletivo ou produtora"
 )
 
 // More pt-BR messages shown next to a form field.
@@ -88,9 +91,11 @@ func (e FieldErrors) Err() error {
 	return e
 }
 
-// lengthProblem checks the length in runes of s after trimming surrounding
-// space. It returns the message for a value outside [min, max], or "".
-func lengthProblem(s string, min, max int) string {
+// LengthProblem checks the length in runes of s after trimming surrounding
+// space. It returns the message for a value outside [min, max], or "". The
+// Validate methods call it on stored values; signup calls it on a name it has
+// already trimmed, so both word a length problem the same way.
+func LengthProblem(s string, min, max int) string {
 	n := utf8.RuneCountInString(strings.TrimSpace(s))
 	switch {
 	case n == 0 && min > 0:
@@ -219,7 +224,7 @@ func foldRune(r rune) rune {
 // assigns, nor the references to other users.
 func (u User) Validate() error {
 	var e FieldErrors
-	e.AddIf("name", lengthProblem(u.Name, UserNameMin, UserNameMax))
+	e.AddIf("name", LengthProblem(u.Name, UserNameMin, UserNameMax))
 	e.AddIf("email", emailProblem(u.Email, true))
 	e.AddIf("phone", phoneProblem(u.Phone))
 	if !u.Status.Valid() {
@@ -237,7 +242,7 @@ func (u User) Validate() error {
 // Validate checks the fields of a collective. NameKey must be the key of Name.
 func (c Collective) Validate() error {
 	var e FieldErrors
-	e.AddIf("name", lengthProblem(c.Name, CollectiveNameMin, CollectiveNameMax))
+	e.AddIf("name", LengthProblem(c.Name, CollectiveNameMin, CollectiveNameMax))
 	switch {
 	case c.NameKey == "":
 		e.Add("name_key", MsgRequired)
@@ -320,7 +325,7 @@ func (s Session) Validate() error {
 func (m OutboxMessage) Validate() error {
 	var e FieldErrors
 	e.AddIf("to", emailProblem(m.To, false))
-	e.AddIf("subject", lengthProblem(m.Subject, 1, OutboxSubjectMax))
+	e.AddIf("subject", LengthProblem(m.Subject, 1, OutboxSubjectMax))
 	if strings.TrimSpace(m.Text) == "" {
 		e.Add("text", MsgRequired)
 	}
@@ -344,17 +349,17 @@ func (e AuditEntry) Validate() error {
 	if e.ActorID == "" {
 		f.Add("actor_id", MsgRequired)
 	}
-	f.AddIf("actor_name", lengthProblem(e.ActorName, 0, UserNameMax))
-	f.AddIf("user_name", lengthProblem(e.UserName, 0, UserNameMax))
-	f.AddIf("collective_name", lengthProblem(e.CollectiveName, 0, CollectiveNameMax))
-	f.AddIf("detail", lengthProblem(e.Detail, 0, AuditTextMax))
-	f.AddIf("reason", lengthProblem(e.Reason, 0, AuditTextMax))
+	f.AddIf("actor_name", LengthProblem(e.ActorName, 0, UserNameMax))
+	f.AddIf("user_name", LengthProblem(e.UserName, 0, UserNameMax))
+	f.AddIf("collective_name", LengthProblem(e.CollectiveName, 0, CollectiveNameMax))
+	f.AddIf("detail", LengthProblem(e.Detail, 0, AuditTextMax))
+	f.AddIf("reason", LengthProblem(e.Reason, 0, AuditTextMax))
 	return f.Err()
 }
 
 // TextProblem checks free text typed in a form: valid UTF-8 (MsgInvalid), no
 // control character, and a length of min to max runes after trimming surrounding
-// space (see lengthProblem; a min of 0 makes the text optional). It returns the
+// space (see LengthProblem; a min of 0 makes the text optional). It returns the
 // pt-BR message for the field, or "". A single-line text may hold no control
 // character at all (MsgControl); a multi-line one may hold line feeds and tabs
 // (msgTextControl for any other). The control check runs on s as given, so a
@@ -370,7 +375,7 @@ func TextProblem(s string, min, max int, multiline bool) string {
 	case !multiline && strings.ContainsFunc(s, unicode.IsControl):
 		return MsgControl
 	}
-	return lengthProblem(s, min, max)
+	return LengthProblem(s, min, max)
 }
 
 // otherProblem checks the text that goes with a choice of "outros": it is

@@ -9,6 +9,7 @@ import (
 
 	"github.com/magalz/agenda-clubber-lite/internal/auth"
 	"github.com/magalz/agenda-clubber-lite/internal/domain"
+	"github.com/magalz/agenda-clubber-lite/internal/mail"
 )
 
 // changeMsgWrongCurrent is the pt-BR message for a current password that does
@@ -80,6 +81,60 @@ func ChangePassword(ctx context.Context, store domain.Store, userID, keepSession
 		}
 		return nil
 	})
+}
+
+// SendPasswordReminders mails one password-expiry notice per password cycle to
+// the active accounts whose password is in the warning window. It returns the
+// number of notices sent. origin is the site address (APP_ORIGIN) the link in
+// the email starts with.
+func SendPasswordReminders(ctx context.Context, store domain.Store, origin string, now time.Time) (sent int, err error) {
+	// The store filters PasswordChangedAt in [from, to). A password expires
+	// MaxAge after it changed and is warned about during the last WarnBefore, so
+	// on the change-time axis that is (now-MaxAge, now-MaxAge+WarnBefore]. The
+	// millisecond nudge turns the store's half-open bounds into that pair: a
+	// password with no time left is outside the window, one at exactly
+	// WarnBefore is inside.
+	const precision = time.Millisecond // MongoDB stores times at millisecond precision
+	from := now.Add(-auth.MaxAge).Add(precision)
+	to := now.Add(auth.WarnBefore - auth.MaxAge).Add(precision)
+	users, err := store.Repos().Users.ListActivePasswordChangedBetween(ctx, from, to, domain.ListLimitMax)
+	if err != nil {
+		return 0, fmt.Errorf("accounts: send password reminders: list users: %w", err)
+	}
+	for _, u := range users {
+		// The banner in web uses the same rule: warn only while time is left.
+		// warn also makes days at least 1, so the template never says 0.
+		days, warn := auth.ExpiryWarning(u.PasswordChangedAt, now)
+		if !warn {
+			continue
+		}
+		// One notice per password cycle; ChangePassword resets the marker.
+		if u.PasswordRemindedAt != nil && !u.PasswordRemindedAt.Before(u.PasswordChangedAt) {
+			continue
+		}
+		if err := store.WithTx(ctx, func(ctx context.Context, r domain.Repos) error {
+			subject, text, html, err := mail.Render(mail.TemplatePasswordExpiring, mail.PasswordExpiringData{
+				Name: u.Name,
+				Days: days,
+				Link: origin + "/senha/trocar",
+			})
+			if err != nil {
+				return fmt.Errorf("accounts: send password reminders: %w", err)
+			}
+			msg := domain.OutboxMessage{To: u.Email, Subject: subject, Text: text, HTML: html, NextAttemptAt: now, CreatedAt: now}
+			if err := r.Outbox.Enqueue(ctx, &msg); err != nil {
+				return fmt.Errorf("accounts: send password reminders: enqueue email: %w", err)
+			}
+			if err := r.Users.MarkPasswordReminded(ctx, u.ID, now); err != nil {
+				return fmt.Errorf("accounts: send password reminders: mark reminded: %w", err)
+			}
+			return nil
+		}); err != nil {
+			return sent, err
+		}
+		sent++
+	}
+	return sent, nil
 }
 
 // PasswordPolicyMessage is the pt-BR message for the policy rules a password

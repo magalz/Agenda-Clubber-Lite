@@ -37,12 +37,14 @@ func dynRead(t *testing.T, name string) string {
 
 var (
 	dynDataRe   = regexp.MustCompile(`Alpine\.data\('([A-Za-z]+)'`)
-	dynMemberRe = regexp.MustCompile(`(?m)^ {8}(?:get |async )?([A-Za-z_$][\w$]*)\s*[(:]`)
+	dynMemberRe = regexp.MustCompile(`(?m)^ {6,8}(?:get |async )?([A-Za-z_$][\w$]*)\s*[(:]`)
 	dynTagRe    = regexp.MustCompile(`<(/?)(div|aside|fieldset)\b`)
 )
 
 // dynScopes lists the members of each Alpine.data component of app.js: the lines
-// of the returned object, which the components indent by eight spaces.
+// of the returned object, which the components indent by eight spaces and the
+// compact widgets by six (phoneMask's format, the one the ACL-97 review noted
+// was missed).
 func dynScopes(js string) map[string][]string {
 	at := dynDataRe.FindAllStringSubmatchIndex(js, -1)
 	out := map[string][]string{}

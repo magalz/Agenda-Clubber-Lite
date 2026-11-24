@@ -3,7 +3,9 @@ package web
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -22,6 +24,7 @@ const (
 	mineNoPast         = "nenhum evento anterior"
 	mineEmpty          = "nenhum evento nos seus coletivos ainda"
 	mineCreateLink     = "[→] criar evento"
+	mineTruncatedNote  = "mostrando só os primeiros 500 eventos dos seus coletivos"
 )
 
 // mineStart is the instant of an hour on a day of November 2026 in Fortaleza
@@ -320,6 +323,51 @@ func TestMineNeedsALogin(t *testing.T) {
 	if want := "/entrar?next=%2Fmeus-eventos"; rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != want {
 		t.Errorf("anonymous: %d, Location %q; want 303 to %s", rec.Code, rec.Header().Get("Location"), want)
 	}
+}
+
+// mineCappedEvents answers with count events of the first collective asked for,
+// so the page can be checked at and one below the store's limit without storing
+// hundreds of rows.
+type mineCappedEvents struct {
+	domain.Events
+	count int
+}
+
+func (f mineCappedEvents) ListByCollectives(_ context.Context, ids []string, _ int) ([]domain.EventView, error) {
+	rows := make([]domain.EventView, f.count)
+	for i := range rows {
+		rows[i] = domain.EventView{Event: domain.Event{
+			ID:           fmt.Sprintf("e%03d", i),
+			Name:         fmt.Sprintf("e%03d", i),
+			CollectiveID: ids[0],
+			StartsAt:     mineStart(20, 12),
+			DurationMin:  60,
+		}}
+	}
+	return rows, nil
+}
+
+// When the store returns its limit, the page says the lists may miss events,
+// with the same status markup as the day list's note. Just under the limit all
+// events can be shown, so the note is absent.
+func TestMineTruncatedNote(t *testing.T) {
+	w := newEvWorld(t)
+	withCount := func(n int) {
+		w.App.Store = repoOverride{w.Store, func(r *domain.Repos) { r.Events = mineCappedEvents{r.Events, n} }}
+	}
+
+	withCount(domain.ListLimitMax - 1)
+	if body := mineGet(t, w, w.Owner); strings.Contains(body, "mostrando só") {
+		t.Fatalf("%d events under the limit carry the note:\n%s", domain.ListLimitMax-1, body)
+	}
+
+	withCount(domain.ListLimitMax)
+	body := mineGet(t, w, w.Owner)
+	m := regexp.MustCompile(`<p ([^>]*)>` + mineTruncatedNote + `</p>`).FindStringSubmatch(body)
+	if m == nil {
+		t.Fatalf("no note %q in:\n%s", mineTruncatedNote, body)
+	}
+	wantAll(t, "the note", m[1], `role="status"`)
 }
 
 type mineFailingEvents struct{ domain.Events }

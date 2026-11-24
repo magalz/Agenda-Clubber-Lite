@@ -9,7 +9,7 @@ A lightweight, self-hosted shared calendar where collectives and producers sched
 
 UI text is in Brazilian Portuguese; code, identifiers and commits are in English.
 
-Deployment docs will be added as the project takes shape. Conventions, layout and decisions are in [AGENTS.md](AGENTS.md); every setting is in [.env.example](.env.example).
+See [Deploy](#deploy) for the production target and [Environment variables](#environment-variables) for configuration. Conventions, layout and decisions are in [AGENTS.md](AGENTS.md); every setting is in [.env.example](.env.example).
 
 ## Run it locally
 
@@ -43,7 +43,28 @@ export MONGO_URI='mongodb://localhost:27017/?directConnection=true'
 go run ./cmd/agenda          # same as: go run ./cmd/agenda serve
 ```
 
-With `APP_ENV=dev`, `APP_ORIGIN` and `MONGO_URI` are the only required settings (`prod` also needs `SMTP_HOST`, `SMTP_USERNAME` and `SMTP_PASSWORD`); `.env.example` documents the rest. The server creates the schema when it starts.
+With `APP_ENV=dev`, `APP_ORIGIN` and `MONGO_URI` are the only required settings (`prod` also needs `SMTP_HOST`, `SMTP_USERNAME` and `SMTP_PASSWORD`); [Environment variables](#environment-variables) and [.env.example](.env.example) document the rest. The server creates the schema when it starts.
+
+## Environment variables
+
+The binary reads settings from the process environment only (it does not load `.env` files). Every variable in [.env.example](.env.example):
+
+| Variable | Default | Required / Scope | Behavior |
+|---|---|---|---|
+| `APP_ENV` | `prod` | Optional | Must be `dev` or `prod`. `dev` enables dev-only routes/commands and plain-HTTP cookies on localhost; `prod` enforces `Secure` cookies and authenticated TLS SMTP |
+| `APP_ORIGIN` | — | **Required** (`serve`) | Absolute `http://` or `https://` origin (lowercased, default port stripped, no path/query/trailing slash); used for `Origin` checks and absolute email links. `seed-dev` falls back to `http://localhost:8120` |
+| `APP_ADDR` | `:8120` | Optional | Listen address (`host:port`) for `serve`; `healthcheck` reads only `APP_ADDR` and probes `127.0.0.1:<port>/healthz` (refusing port `0`) |
+| `APP_TZ` | `America/Fortaleza` | Optional | IANA time zone (`time/tzdata` is embedded). `serve` and `seed-dev` reject unknown zones; controls displayed dates/times and sample event dates |
+| `TRUSTED_PROXY_CIDRS` | empty | Optional | Comma-separated CIDRs allowed to supply `CF-Connecting-IP` (the `cloudflared` peer IP as seen by the app). Empty trusts no proxy |
+| `MONGO_URI` | — | **Required, secret** | `mongodb://` URI (never `mongodb+srv://`) for a single-node replica set, with `directConnection=true` set once; redacted from logs and errors. Used by `serve`, `migrate`, `create-admin` and `seed-dev` |
+| `MONGO_DB` | `agenda` | Optional | Database name (1 to 38 chars: letters, digits, `_`, `-`). Used by `serve`, `migrate`, `create-admin` and `seed-dev` |
+| `SMTP_HOST` | empty (`.env.example`: `localhost`) | **Required in `prod`** | Outgoing mail relay host. In `dev` with neither `SMTP_HOST` nor `MAIL_DROP_DIR`, `serve` logs one warning, runs no outbox worker and leaves emails in the outbox |
+| `SMTP_PORT` | `587` (`.env.example`: `1025`) | Optional | SMTP port (`1..65535`). Port `587` uses mandatory STARTTLS when `SMTP_USERNAME` is set; port `465` uses implicit TLS |
+| `SMTP_USERNAME` | empty | **Required in `prod`** | SMTP login (`AUTH PLAIN` with mandatory TLS). Empty in `dev` sends over plain SMTP with no login (e.g. Mailpit) |
+| `SMTP_PASSWORD` | empty | **Secret** (required when `SMTP_USERNAME` is set) | Read verbatim (spaces preserved) and redacted from logs; required by the SMTP sender whenever `SMTP_USERNAME` is non-empty |
+| `SMTP_FROM` | `IgnisDev <ignisdev@magalz.space>` | Optional | Sender `From` header used by both SMTP and `MAIL_DROP_DIR` `.eml` output |
+| `MAIL_DROP_DIR` | empty | **Dev only** | Refused with `APP_ENV=prod`. Writes outgoing emails as `.eml` files in this folder instead of sending via SMTP; wins over `SMTP_HOST` |
+| `SEED_PASSWORD` | empty | **Dev only, secret** | Refused with `APP_ENV=prod` or when empty. Password assigned to all `@agenda.test` sample accounts created by `seed-dev`; must satisfy the password policy |
 
 ## Commands
 
@@ -111,6 +132,14 @@ The sample events are made by the Administrador of their collective (`dono`, and
 
 The dev stack sends through Mailpit. Natively, with neither `SMTP_HOST` nor `MAIL_DROP_DIR` set, the server sends nothing and the emails wait in the outbox. Set `MAIL_DROP_DIR` to a folder to have every outgoing email written there as an `.eml` file instead; it wins over `SMTP_HOST` and is refused with `APP_ENV=prod`.
 
+## Accounts, profile and background jobs
+
+- **Sign-up and passwords**: new accounts confirm their email (`/confirmar`, 24h link) and wait for the Admin before signing in (`/entrar`). Passwords expire every 90 days; during the last 7 days an expiry banner links to `/senha/trocar`.
+- **Editar Perfil (`/perfil`)**: signed-in users can update their name, phone and WhatsApp flag, jump to `/senha/trocar`, or request an email change (`/perfil/email`). A 24h confirmation link goes to the new address while the old address stays active and receives a notice; `/confirmar-email` shows only a button on `GET` (so mail scanners do not consume tokens) and applies the change on `POST`. Requesting an address another account already uses sends the existing-account notice there without creating a token or revealing who owns it. Active sessions survive an email change.
+- **Background jobs (`serve`)**:
+  - every hour: removes expired sessions and used or expired tokens;
+  - every 24 hours (running once at startup): sends one password-expiry reminder per password cycle during the 7-day warning window (`SendPasswordReminders`), and purges unconfirmed sign-ups (`pending_email`) older than 7 days together with any pending collectives they created (`PurgeUnconfirmedSignups`).
+
 ## Approvals
 
 People sign up, confirm their email and wait: nobody gets in or creates events on their own say-so. The roles, as the pages name them:
@@ -133,7 +162,7 @@ The pages:
 
 - `/admin`, for the Admin only, with `Fila` (what waits for a decision), `Contas`, `Coletivos` and `Histórico` (`/admin/historico`);
 - `/coletivos`, "Meus Coletivos": a person's collectives and requests, and where to ask to join one or to create one;
-- `/coletivo/<id>`, a collective's page for its Administradores: join requests, members and roles, the name. Anyone else (the Admin included) gets the same 404 as for a path that does not exist, as does everyone while the collective is not approved.
+- `/coletivo/<id>`, a collective's page for its Administradores: join requests, members and roles, the name. Anyone else (the Admin included) gets the same 404 as for a path that does not exist on both `GET` and `POST`, as does everyone while the collective is not approved.
 
 The rules live in `internal/approvals`; [AGENTS.md](AGENTS.md) records the decisions behind them.
 
@@ -152,13 +181,22 @@ The form asks for the name, the type, the date and start time, the duration (und
 
 The pages:
 
-- **Meus Eventos** (`/meus-eventos`): the events of every collective where the person has an approved membership, a Membro included. "Próximos" are those that have not ended, "Anteriores" the ones that have. A row the person cannot edit says why: "só leitura (Membro)", "eventos bloqueados pelo admin", or just "só leitura" (an Administrador of a collective that is not approved).
-- **Analisar Data** (`/eventos/dia?data=dd/mm/aaaa`, or `AAAA-MM-DD`): the events already on a day, from every collective and by start time, so a collective sees the clashes before it picks a date. It takes the same state and city filter, and `?destaque_uf=` and `?destaque_cidade=` put the events of one city first, with the badge "mesma cidade". A date that does not parse gets a message (422) and no list; a request from HTMX gets only the list.
+- **Meus Eventos** (`/meus-eventos`): the events of every collective where the person has an approved membership, a Membro included. "Próximos" are those that have not ended, "Anteriores" the ones that have. A row the person cannot edit says why: "só leitura (Membro)", "eventos bloqueados pelo admin", or just "só leitura" (an Administrador of a collective that is not approved). Lists cap at 500 events and show a warning when truncated.
+- **Analisar Data** (`/eventos/dia?data=dd/mm/aaaa`, or `AAAA-MM-DD`): the events already on a day, from every collective and by start time, so a collective sees the clashes before it picks a date. It takes the same state and city filter, and `?destaque_uf=` and `?destaque_cidade=` put the events of one city first, with the badge "mesma cidade". A date that does not parse gets a message (422), no list and a back link to the current month that keeps the active filter; a request from HTMX gets only the list.
 - **The city filter**: the calendar and the day list can be restricted to a state and, within it, a city (`?uf=` and `?cidade=`). The selects offer only the places that have events, and every link of the calendar keeps the filter. A state or city that is not in the catalog means "todos".
 
 The history (`Histórico`, `/admin/historico`) records every deletion of an event ("evento excluído") and an edit made by the Admin in a collective where the Admin is not an approved Administrador ("evento editado pelo admin"), with the event's name and start date, who did it and the collective. Creating an event, and an Administrador's own edit, are not recorded.
 
 The flows live in `internal/events`, and the styles and cities in `internal/catalog`.
+
+## Deploy
+
+Production target (the full operational deploy runbook lands with Phase 6):
+
+- **Host and containers**: an OCI ARM64 VM running a Podman Compose stack under `magalz-infra` with the app container ([deploy/Containerfile](deploy/Containerfile), pure Go / CGO-free cross-compiled for `arm64`) and an authenticated single-node replica set MongoDB on an internal network only (no public database port).
+- **Ingress**: published at `https://agenda.magalz.space` via Cloudflare Tunnel, with the `cloudflared` peer IP/CIDR configured in `TRUSTED_PROXY_CIDRS` so `CF-Connecting-IP` is trusted for rate limiting and request logs, and Cloudflare access/login rules in front.
+- **Email**: SMTP2GO on port `587` with mandatory STARTTLS and authentication (`SMTP_HOST`, `SMTP_USERNAME`, `SMTP_PASSWORD`), sending as `SMTP_FROM=IgnisDev <ignisdev@magalz.space>`.
+- **Healthcheck and bootstrap**: container health is probed against `/healthz` via `/app/agenda healthcheck` (configured in the compose stack or via `--format docker`, since OCI images ignore `Containerfile` `HEALTHCHECK`), and the initial admin account is bootstrapped with `/app/agenda create-admin`.
 
 ## Checks
 

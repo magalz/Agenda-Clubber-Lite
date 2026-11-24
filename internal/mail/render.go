@@ -22,6 +22,11 @@ const (
 	TemplateDecision         Template = "decision"
 	TemplateOwnerJoinRequest Template = "owner_join_request"
 	TemplateAdminRequest     Template = "admin_request"
+
+	TemplateChangeEmail       Template = "change_email"
+	TemplateEmailChangeNotice Template = "email_change_notice"
+
+	TemplatePasswordExpiring Template = "password_expiring"
 )
 
 // VerifyEmailData is the data of TemplateVerifyEmail. The link confirms the
@@ -68,6 +73,30 @@ type PasswordResetData struct {
 	Link string
 }
 
+// ChangeEmailData is the data of TemplateChangeEmail, sent to the new address.
+// The link confirms the address and is good for 24 hours; confirming completes
+// the change of the account's email.
+type ChangeEmailData struct {
+	Name string
+	Link string
+}
+
+// EmailChangeNoticeData is the data of TemplateEmailChangeNotice, sent to the
+// old address while a change to NewEmail is pending.
+type EmailChangeNoticeData struct {
+	Name     string
+	NewEmail string
+}
+
+// PasswordExpiringData is the data of TemplatePasswordExpiring. Days is the
+// whole days left before the password expires; Link is the absolute change
+// password page URL ({APP_ORIGIN}/senha/trocar).
+type PasswordExpiringData struct {
+	Name string
+	Days int
+	Link string
+}
+
 // Outcomes of a DecisionItem. Render refuses any other value.
 const (
 	DecisionApproved = "approved"
@@ -89,11 +118,14 @@ type DecisionItem struct {
 
 // DecisionData is the data of TemplateDecision: one email per decision call,
 // listing everything that was decided in it. Link is where the person goes next
-// (the login page or their collectives).
+// (the login page, their collectives or the sign-up page). Button is the action
+// label of that link, following its destination: "Entrar", "Ver meus coletivos"
+// or "Criar conta".
 type DecisionData struct {
-	Name  string
-	Items []DecisionItem
-	Link  string
+	Name   string
+	Items  []DecisionItem
+	Link   string
+	Button string
 }
 
 // OwnerJoinRequestData is the data of TemplateOwnerJoinRequest: the notice the
@@ -172,6 +204,11 @@ var emails = map[Template]email{
 	TemplateDecision:         compile(TemplateDecision, DecisionData{}),
 	TemplateOwnerJoinRequest: compile(TemplateOwnerJoinRequest, OwnerJoinRequestData{}),
 	TemplateAdminRequest:     compile(TemplateAdminRequest, AdminRequestData{}),
+
+	TemplateChangeEmail:       compile(TemplateChangeEmail, ChangeEmailData{}),
+	TemplateEmailChangeNotice: compile(TemplateEmailChangeNotice, EmailChangeNoticeData{}),
+
+	TemplatePasswordExpiring: compile(TemplatePasswordExpiring, PasswordExpiringData{}),
 }
 
 // compile parses the shared layout and the template's own file. A parse error

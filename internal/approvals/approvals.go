@@ -32,10 +32,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
-	"unicode"
-	"unicode/utf8"
 
 	"github.com/magalz/agenda-clubber-lite/internal/domain"
 	"github.com/magalz/agenda-clubber-lite/internal/mail"
@@ -77,9 +76,11 @@ const (
 	pathAdminCollectives = "/admin/coletivos"
 )
 
-// collectivePath is the page of one collective, where its Administradores see
-// the requests to join it.
-func collectivePath(id string) string { return "/coletivo/" + id }
+// CollectivePath is the path of a collective's page, with the ID escaped. The
+// ID is opaque, so it goes in as one escaped path segment. Every link to a
+// collective is built here, in emails and in the web pages, so a change of the
+// route changes every link.
+func CollectivePath(id string) string { return "/coletivo/" + url.PathEscape(id) }
 
 // RoleLabel returns the pt-BR name of a stored role: Administrador for owner and
 // Membro for member. A role that is none of them is returned as stored, so a
@@ -96,37 +97,38 @@ func RoleLabel(r domain.Role) string {
 }
 
 // CheckReason cleans the optional reason of a decision and returns it, or
-// domain.FieldErrors with the key "reason" when it cannot be stored. It trims
-// the text, turns CRLF and CR into LF and accepts at most domain.AuditTextMax
-// runes (counted after trimming) of valid UTF-8 without control characters,
-// except LF and tab inside the text. An empty reason is allowed.
+// domain.FieldErrors with the key "reason" when it cannot be stored. It turns
+// CRLF and CR into LF, then applies domain.TextProblem with no minimum,
+// domain.AuditTextMax as the maximum and multiline text (LF and tab allowed),
+// and returns the trimmed text. An empty reason is allowed.
 func CheckReason(reason string) (string, error) {
-	var fe domain.FieldErrors
-	if !utf8.ValidString(reason) {
-		fe.Add("reason", msgReasonText)
-		return "", fe.Err()
-	}
 	reason = strings.ReplaceAll(reason, "\r\n", "\n")
 	reason = strings.ReplaceAll(reason, "\r", "\n")
-	reason = strings.TrimSpace(reason)
-	if strings.ContainsFunc(reason, func(r rune) bool { return unicode.IsControl(r) && r != '\n' && r != '\t' }) {
-		fe.Add("reason", msgReasonText)
-		return "", fe.Err()
+	if problem := domain.TextProblem(reason, 0, domain.AuditTextMax, true); problem != "" {
+		return "", domain.FieldErrors{"reason": problem}.Err()
 	}
-	if utf8.RuneCountInString(reason) > domain.AuditTextMax {
-		fe.Add("reason", fmt.Sprintf("use no máximo %d caracteres", domain.AuditTextMax))
-		return "", fe.Err()
-	}
-	return reason, nil
+	return strings.TrimSpace(reason), nil
 }
 
-const msgReasonText = "use só texto, sem caracteres de controle"
+// requireActive returns ErrNotAllowed unless actor has an ID and an active
+// account. The caller passes the user it loaded for the request, so an account
+// disabled since the session started is refused here. This is the one actor
+// gate shared by requireAdmin, requireOwner and the request flows.
+func requireActive(actor domain.User) error {
+	if actor.ID == "" || actor.Status != domain.UserStatusActive {
+		return ErrNotAllowed
+	}
+	return nil
+}
 
 // requireAdmin returns ErrNotAllowed unless actor is an active site admin. The
 // caller passes the user it loaded for the request, so a user disabled since
 // the session started is refused here.
 func requireAdmin(actor domain.User) error {
-	if actor.ID == "" || !actor.IsAdmin || actor.Status != domain.UserStatusActive {
+	if err := requireActive(actor); err != nil {
+		return err
+	}
+	if !actor.IsAdmin {
 		return ErrNotAllowed
 	}
 	return nil
@@ -138,8 +140,8 @@ func requireAdmin(actor domain.User) error {
 // sees the role as it is now. Anything else, an unknown collective included, is
 // ErrNotAllowed: the caller never learns more than "not yours".
 func requireOwner(ctx context.Context, r domain.Repos, actor domain.User, collectiveID string) (domain.Membership, error) {
-	if actor.ID == "" || actor.Status != domain.UserStatusActive {
-		return domain.Membership{}, ErrNotAllowed
+	if err := requireActive(actor); err != nil {
+		return domain.Membership{}, err
 	}
 	m, err := r.Memberships.Get(ctx, actor.ID, collectiveID)
 	if errors.Is(err, domain.ErrNotFound) {
@@ -202,6 +204,7 @@ func enqueue(ctx context.Context, r domain.Repos, to string, t mail.Template, da
 // before the transaction ends.
 type decision struct {
 	to, name string
+	button   string
 	items    []mail.DecisionItem
 }
 
@@ -225,7 +228,7 @@ func (d *decision) send(ctx context.Context, r domain.Repos, link string, now ti
 	if d.to == "" || len(d.items) == 0 {
 		return nil
 	}
-	return enqueue(ctx, r, d.to, mail.TemplateDecision, mail.DecisionData{Name: d.name, Items: d.items, Link: link}, now)
+	return enqueue(ctx, r, d.to, mail.TemplateDecision, mail.DecisionData{Name: d.name, Items: d.items, Link: link, Button: d.button}, now)
 }
 
 // notifyAdmins queues the request notice for every active site admin.

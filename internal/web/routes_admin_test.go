@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"regexp"
 	"strings"
 	"testing"
@@ -686,4 +687,35 @@ func TestAdminServerError(t *testing.T) {
 		})
 	}
 	w.requireUntouched(t)
+}
+
+// The admin pages must build their date and time text with the shared helpers of
+// format.go (AGENTS.md: fmtDate renders through events.DateLayout, fmtClock the
+// 24h clock), never with a layout of their own. The rendered strings are pinned
+// by TestAdminQueueShowsEveryPersonOnce and
+// TestMngHistoryShowsTheDecisionsNewestFirst; this pins the source shape those
+// output tests cannot see.
+func TestAdminDateTextUsesTheSharedHelpers(t *testing.T) {
+	for _, tc := range []struct {
+		file  string
+		wants []string
+	}{
+		{"routes_admin.go", []string{"Registered: fmtDate("}},
+		{"routes_admin_manage.go", []string{"fmtDate(e.At, a.Cfg.Location)", "fmtClock(e.At, a.Cfg.Location)"}},
+	} {
+		t.Run(tc.file, func(t *testing.T) {
+			b, err := os.ReadFile(tc.file)
+			if err != nil {
+				t.Fatalf("read %s: %v", tc.file, err)
+			}
+			src := string(b)
+			if strings.Contains(src, "02/01/2006") {
+				t.Errorf("%s still writes the private date layout 02/01/2006", tc.file)
+			}
+			if strings.Contains(src, ".Format(") {
+				t.Errorf("%s still formats with a layout of its own", tc.file)
+			}
+			wantAll(t, tc.file, src, tc.wants...)
+		})
+	}
 }

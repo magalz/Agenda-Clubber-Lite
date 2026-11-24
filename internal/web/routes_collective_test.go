@@ -589,14 +589,16 @@ func TestColetivoStaleItems(t *testing.T) {
 				t.Errorf("the refreshed page still lists %s", item.Name)
 			}
 
-			// The refusals that hide or deny the page do not change: a stranger still gets
-			// the 404, and somebody who is no approved Administrador (Duda Pedido, whose
-			// request is open) the 403.
+			// The refusals that hide the page do not change with a post: a stranger
+			// and somebody who is no approved Administrador (Duda Pedido, whose
+			// request is open) both get their GET's 404.
 			want := e.get(e.ana, "/coletivo-que-nao-existe")
 			cpWantUnregistered(t, "a stranger", e.post(e.outsider, e.path(tt.suffix), form), want)
-			if rec := e.post(e.wantsOwner, e.path(tt.suffix), form); rec.Code != http.StatusForbidden {
-				t.Errorf("a person who is not an Administrador yet: status = %d, want 403", rec.Code)
+			pendingWant := e.get(e.wantsOwner, e.path(""))
+			if pendingWant.Code != http.StatusNotFound || pendingWant.Body.String() != cpNotFoundBody {
+				t.Fatalf("the pending Administrador's GET: %d %q, want 404 %q", pendingWant.Code, pendingWant.Body, cpNotFoundBody)
 			}
+			cpWantUnregistered(t, "a person who is not an Administrador yet", e.post(e.wantsOwner, e.path(tt.suffix), form), pendingWant)
 		})
 	}
 }
@@ -666,11 +668,12 @@ func TestColetivoForgedPostsAreRefused(t *testing.T) {
 
 	t.Run("a Membro posting", func(t *testing.T) {
 		e := newCPEnv(t)
+		want := e.get(e.member, e.path(""))
+		if want.Code != http.StatusNotFound || want.Body.String() != cpNotFoundBody {
+			t.Fatalf("a Membro's GET: %d %q, want 404 %q", want.Code, want.Body, cpNotFoundBody)
+		}
 		for name, a := range e.actions() {
-			rec := e.post(e.member, e.path(a.suffix), a.form)
-			if rec.Code != http.StatusForbidden {
-				t.Errorf("%s: status = %d, want 403; body %q", name, rec.Code, rec.Body)
-			}
+			cpWantUnregistered(t, name+" by a Membro", e.post(e.member, e.path(a.suffix), a.form), want)
 		}
 		e.wantPending(t, e.wantsMember)
 		e.wantRole(t, e.member, domain.RoleMember)

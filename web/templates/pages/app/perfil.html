@@ -1,0 +1,44 @@
+{{/* Editar Perfil (/perfil), for a signed-in person: their own name, phone and WhatsApp flag, their current address (read-only), the form that asks for a new address, and the link to change the password. Data is a profileView: Email (the current address), Notice (a status from the fixed ?msg= table) and Alert (an error: the rate limit or a failed confirmation). .Form holds the typed values: on the first page the account's own, after a 422 what the person posted. Both forms are plain posts and work without JavaScript; the phone field uses the phoneMask component registered in app.js, so the mask is only an aid and the digits the server keeps come from the post.
+     POST /perfil               fields name, phone, phone_is_whatsapp. Errors: "name", "phone".
+     POST /perfil/email         field email. Errors: "email".
+      CSS: section-heading, stack, status, field, label, label--required, hint, input, check, uppercase-label, btn, btn--solid (components.css). */}}
+{{define "content"}}<div class="section-heading">
+  <h1 class="section-heading__title text-glow"><span class="section-heading__prompt" aria-hidden="true">~/ </span>editar perfil</h1>
+</div>
+<div class="stack stack--lg">
+  {{with .Data.Notice}}<p class="status status--ok" role="status">{{.}}</p>{{end}}
+  {{with .Data.Alert}}<p class="status status--error" role="alert">{{.}}</p>{{end}}
+  <section class="stack" aria-labelledby="dados-titulo">
+    <h2 class="uppercase-label" id="dados-titulo">$ seus dados</h2>
+    <form method="post" action="/perfil" class="stack">
+      <div class="field">
+        <label class="label label--required" for="name">$ nome</label>
+        <input class="input" type="text" id="name" name="name" value="{{.Form.Get "name"}}" autocomplete="name" required{{with index .Errors "name"}} aria-invalid="true" aria-describedby="erro-name"{{end}}>
+        {{template "field-error" (dict "Errors" .Errors "Field" "name")}}
+      </div>
+      <div class="field">
+        <label class="label label--required" for="phone">$ telefone</label>
+        <input class="input" type="tel" id="phone" name="phone" value="{{.Form.Get "phone"}}" inputmode="tel" autocomplete="tel" required x-data="phoneMask" @input="format" aria-describedby="phone-hint{{with index .Errors "phone"}} erro-phone{{end}}"{{with index .Errors "phone"}} aria-invalid="true"{{end}}>
+        <p class="hint" id="phone-hint">de 10 a 11 dígitos, com ddd.</p>
+        {{template "field-error" (dict "Errors" .Errors "Field" "phone")}}
+      </div>
+      <label class="check"><input type="checkbox" name="phone_is_whatsapp" value="1"{{if eq (.Form.Get "phone_is_whatsapp") "1"}} checked{{end}}> é WhatsApp</label>
+      <button class="btn btn--solid" type="submit">[→] SALVAR PERFIL</button>
+    </form>
+  </section>
+  <section class="stack" aria-labelledby="email-titulo">
+    <h2 class="uppercase-label" id="email-titulo">$ e-mail</h2>
+    <label class="label" for="email-atual">$ e-mail atual</label>
+    <input class="input" type="email" id="email-atual" value="{{.Data.Email}}" readonly>
+    <form method="post" action="/perfil/email" class="stack">
+      <div class="field">
+        <label class="label label--required" for="novo-email">$ novo e-mail</label>
+        <input class="input" type="email" id="novo-email" name="email" value="{{.Form.Get "email"}}" autocomplete="email" autocapitalize="none" spellcheck="false" required{{with index .Errors "email"}} aria-invalid="true" aria-describedby="erro-email"{{end}}>
+        {{template "field-error" (dict "Errors" .Errors "Field" "email")}}
+      </div>
+      <button class="btn btn--solid" type="submit">[→] TROCAR E-MAIL</button>
+    </form>
+    <p class="hint">enviamos um link de confirmação. nada muda até você abrir o link.</p>
+  </section>
+  <p><a href="/senha/trocar">[→] trocar senha</a></p>
+</div>{{end}}

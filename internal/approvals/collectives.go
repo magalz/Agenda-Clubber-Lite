@@ -51,6 +51,7 @@ func ApproveCollective(ctx context.Context, store domain.Store, origin string, a
 		if err := approveCollectiveTx(ctx, r, actor, creator, c, d, now); err != nil {
 			return err
 		}
+		d.button = "Ver meus coletivos"
 		return d.send(ctx, r, origin+pathCollectives, now)
 	})
 }
@@ -91,6 +92,7 @@ func RejectCollective(ctx context.Context, store domain.Store, origin string, ac
 		if err := rejectCollectiveTx(ctx, r, actor, creator, c, reason, d, now); err != nil {
 			return err
 		}
+		d.button = "Entrar"
 		return d.send(ctx, r, origin+pathLogin, now)
 	})
 }

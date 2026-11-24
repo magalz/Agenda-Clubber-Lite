@@ -1,8 +1,10 @@
 package accounts
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
 	"maps"
 	"slices"
 	"strings"
@@ -388,6 +390,224 @@ func TestPasswordPolicyMessage(t *testing.T) {
 				t.Errorf("PasswordPolicyMessage(%v) = %q, want %q", tc.violated, got, tc.want)
 			}
 		})
+	}
+}
+
+// passwordChangedAt returns the instant a password changed so that days are
+// left before it expires at testNow, per auth's expiry math.
+func passwordChangedAt(days int) time.Time {
+	return testNow.Add(-auth.MaxAge).Add(time.Duration(days) * 24 * time.Hour)
+}
+
+// passwordReminderUser stores an active user whose password changed at the
+// given instant. A non-nil remindedAt is a reminder from that password cycle.
+func passwordReminderUser(t *testing.T, s domain.Store, email string, changedAt time.Time, remindedAt *time.Time) domain.User {
+	t.Helper()
+	return insertActiveUser(t, s, email, func(u *domain.User) {
+		u.Name = "Ana Souza"
+		u.PasswordChangedAt = changedAt
+		u.PasswordRemindedAt = remindedAt
+	})
+}
+
+// passwordReminderMarker reloads the user and returns the stored marker.
+func passwordReminderMarker(t *testing.T, s domain.Store, id string) *time.Time {
+	t.Helper()
+	u, err := s.Repos().Users.ByID(t.Context(), id)
+	if err != nil {
+		t.Fatalf("ByID: %v", err)
+	}
+	return u.PasswordRemindedAt
+}
+
+func TestSendPasswordRemindersMailsOneNoticeForAnExpiringPassword(t *testing.T) {
+	for _, tc := range []struct {
+		name, subject string
+		days          int
+	}{
+		{"seven days", "Sua senha vence em 7 dias · Agenda Clubber", 7},
+		{"tomorrow", "Sua senha vence amanhã · Agenda Clubber", 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := newTestStore(t)
+			u := passwordReminderUser(t, s, "ana@agenda.test", passwordChangedAt(tc.days), nil)
+
+			sent, err := SendPasswordReminders(t.Context(), s, signupOrigin, testNow)
+			if err != nil {
+				t.Fatalf("SendPasswordReminders: %v", err)
+			}
+			if sent != 1 {
+				t.Errorf("sent = %d, want 1", sent)
+			}
+			msgs := confirmOutbox(t, s, testNow)
+			if len(msgs) != 1 {
+				t.Fatalf("outbox holds %d messages, want 1: %+v", len(msgs), msgs)
+			}
+			m := msgs[0]
+			if m.To != u.Email {
+				t.Errorf("message to %q, want %q", m.To, u.Email)
+			}
+			if m.Subject != tc.subject {
+				t.Errorf("subject %q, want %q", m.Subject, tc.subject)
+			}
+			link := signupOrigin + "/senha/trocar"
+			if !strings.Contains(m.Text, u.Name) || !strings.Contains(m.Text, link) {
+				t.Errorf("text %q, want the name and %q", m.Text, link)
+			}
+			if !strings.Contains(m.HTML, link) {
+				t.Errorf("html has no %q link", link)
+			}
+			if got := passwordReminderMarker(t, s, u.ID); got == nil || !got.Equal(testNow.Truncate(time.Millisecond)) {
+				t.Errorf("PasswordRemindedAt = %v, want %v", got, testNow)
+			}
+		})
+	}
+}
+
+func TestSendPasswordRemindersSkipsUsersAlreadyRemindedThisCycle(t *testing.T) {
+	changed := passwordChangedAt(7)
+	for _, tc := range []struct {
+		name        string
+		markerAfter time.Duration
+		want        int
+	}{
+		{"marker at the password change", 0, 0},
+		{"marker after the password change", time.Hour, 0},
+		{"marker from an older cycle", -time.Hour, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := newTestStore(t)
+			marked := changed.Add(tc.markerAfter)
+			passwordReminderUser(t, s, "ana@agenda.test", changed, &marked)
+
+			sent, err := SendPasswordReminders(t.Context(), s, signupOrigin, testNow)
+			if err != nil {
+				t.Fatalf("SendPasswordReminders: %v", err)
+			}
+			if sent != tc.want {
+				t.Errorf("sent = %d, want %d", sent, tc.want)
+			}
+			if got := len(confirmOutbox(t, s, testNow)); got != tc.want {
+				t.Errorf("outbox holds %d messages, want %d", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestSendPasswordRemindersSendsAgainAfterChangePassword(t *testing.T) {
+	s := newTestStore(t)
+	ctx := t.Context()
+	changed := passwordChangedAt(7)
+	u := passwordReminderUser(t, s, "ana@agenda.test", changed, &changed)
+	if sent, err := SendPasswordReminders(ctx, s, signupOrigin, testNow); err != nil || sent != 0 {
+		t.Fatalf("first call = %d, %v; want 0, nil", sent, err)
+	}
+
+	// A new password resets the marker, even when the change is dated into the
+	// warning window so the next call can see it.
+	if err := s.Repos().Users.ChangePassword(ctx, u.ID, loginHash(), changed); err != nil {
+		t.Fatalf("ChangePassword: %v", err)
+	}
+	if got := passwordReminderMarker(t, s, u.ID); got != nil {
+		t.Fatalf("marker after ChangePassword = %v, want nil", got)
+	}
+	sent, err := SendPasswordReminders(ctx, s, signupOrigin, testNow)
+	if err != nil || sent != 1 {
+		t.Fatalf("call after the change = %d, %v; want 1, nil", sent, err)
+	}
+	if msgs := confirmOutbox(t, s, testNow); len(msgs) != 1 {
+		t.Errorf("outbox holds %d messages, want 1", len(msgs))
+	}
+}
+
+func TestSendPasswordRemindersIgnoresPasswordsOutsideTheWarningWindow(t *testing.T) {
+	s := newTestStore(t)
+	passwordReminderUser(t, s, "expired@agenda.test", passwordChangedAt(0), nil)
+	passwordReminderUser(t, s, "old@agenda.test", passwordChangedAt(-3), nil)
+	passwordReminderUser(t, s, "fresh@agenda.test", testNow, nil)
+	passwordReminderUser(t, s, "soon@agenda.test", passwordChangedAt(8), nil)
+
+	sent, err := SendPasswordReminders(t.Context(), s, signupOrigin, testNow)
+	if err != nil {
+		t.Fatalf("SendPasswordReminders: %v", err)
+	}
+	if sent != 0 {
+		t.Errorf("sent = %d, want 0", sent)
+	}
+	if msgs := confirmOutbox(t, s, testNow); len(msgs) != 0 {
+		t.Errorf("outbox holds %d messages, want none: %+v", len(msgs), msgs)
+	}
+}
+
+func TestSendPasswordRemindersSendsOnlyOnceAcrossCalls(t *testing.T) {
+	s := newTestStore(t)
+	ctx := t.Context()
+	passwordReminderUser(t, s, "ana@agenda.test", passwordChangedAt(7), nil)
+
+	for i, want := range []int{1, 0} {
+		sent, err := SendPasswordReminders(ctx, s, signupOrigin, testNow)
+		if err != nil {
+			t.Fatalf("call %d: %v", i+1, err)
+		}
+		if sent != want {
+			t.Errorf("call %d sent %d, want %d", i+1, sent, want)
+		}
+	}
+	if msgs := confirmOutbox(t, s, testNow); len(msgs) != 1 {
+		t.Errorf("outbox holds %d messages, want 1", len(msgs))
+	}
+}
+
+func TestSendPasswordRemindersLogsNoAddressOrLink(t *testing.T) {
+	s := newTestStore(t)
+	u := passwordReminderUser(t, s, "ana@agenda.test", passwordChangedAt(7), nil)
+	var out bytes.Buffer
+	orig := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&out, nil)))
+	t.Cleanup(func() { slog.SetDefault(orig) })
+
+	if _, err := SendPasswordReminders(t.Context(), s, signupOrigin, testNow); err != nil {
+		t.Fatalf("SendPasswordReminders: %v", err)
+	}
+	if strings.Contains(out.String(), u.Email) || strings.Contains(out.String(), signupOrigin+"/senha/trocar") {
+		t.Errorf("a log line carried the address or the link: %s", out.String())
+	}
+}
+
+func TestSendPasswordRemindersRollsBackAFailedEnqueue(t *testing.T) {
+	s := newTestStore(t)
+	ctx := t.Context()
+	u := passwordReminderUser(t, s, "ana@agenda.test", passwordChangedAt(7), nil)
+	boom := errors.New("outbox is down")
+	hs := &signupHookStore{Store: s, hook: func(_ int, r domain.Repos) domain.Repos {
+		r.Outbox = signupFailingOutbox{Outbox: r.Outbox, err: boom}
+		return r
+	}}
+
+	sent, err := SendPasswordReminders(ctx, hs, signupOrigin, testNow)
+	if !errors.Is(err, boom) {
+		t.Fatalf("err = %v, want the Enqueue error", err)
+	}
+	if sent != 0 {
+		t.Errorf("sent = %d, want 0", sent)
+	}
+	if got := passwordReminderMarker(t, s, u.ID); got != nil {
+		t.Errorf("marker = %v after a failed enqueue, want nil", got)
+	}
+	if msgs := confirmOutbox(t, s, testNow); len(msgs) != 0 {
+		t.Errorf("outbox holds %d messages, want none", len(msgs))
+	}
+}
+
+func TestSendPasswordRemindersStoreFailureIsAnError(t *testing.T) {
+	s := newTestStore(t)
+	passwordReminderUser(t, s, "ana@agenda.test", passwordChangedAt(7), nil)
+	sent, err := SendPasswordReminders(t.Context(), passwordTxFailsStore{s}, signupOrigin, testNow)
+	if err == nil || !strings.Contains(err.Error(), "the database is down") {
+		t.Errorf("err = %v, want the store failure", err)
+	}
+	if sent != 0 {
+		t.Errorf("sent = %d, want 0", sent)
 	}
 }
 

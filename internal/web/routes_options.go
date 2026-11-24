@@ -66,8 +66,9 @@ func substyleOptions(style, selected string) []calendarOption {
 	if subs == nil {
 		return out
 	}
-	for _, s := range append(subs, domain.StyleOther) {
+	for _, s := range subs {
 		out = append(out, calendarOption{Value: s, Label: s, Selected: s == selected})
 	}
+	out = append(out, calendarOption{Value: domain.StyleOther, Label: "Outros", Selected: domain.StyleOther == selected})
 	return out
 }

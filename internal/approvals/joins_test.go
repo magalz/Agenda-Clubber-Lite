@@ -738,6 +738,30 @@ func TestPromoteRefused(t *testing.T) {
 	})
 }
 
+// Promote reads the target's account from the store: an account that is not
+// active cannot be promoted, even with an approved Membro membership. The user
+// passed to Promote carries only the ID, so the status is changed in the store.
+func TestPromoteRefusesInactiveTarget(t *testing.T) {
+	for _, status := range []domain.UserStatus{
+		domain.UserStatusDisabled,
+		domain.UserStatusPendingEmail,
+		domain.UserStatusPendingApproval,
+	} {
+		t.Run(string(status), func(t *testing.T) {
+			f := newJoinFixture(t)
+			if err := f.s.Repos().Users.SetStatus(t.Context(), f.member.ID, status, testNow); err != nil {
+				t.Fatalf("set target status: %v", err)
+			}
+			now := testNow.Add(time.Hour)
+			joinRequireRefused(t, f, []joinRefusal{{
+				name: "inactive target",
+				call: func() error { return Promote(t.Context(), f.s, f.master, f.member.ID, f.c.ID, now) },
+				want: ErrNotAllowed,
+			}})
+		})
+	}
+}
+
 func TestDemote(t *testing.T) {
 	now := testNow.Add(time.Hour)
 	tests := []struct {
@@ -1053,6 +1077,7 @@ func TestJoinTxHelpersShareTheCallersDecision(t *testing.T) {
 				if err := tt.run(ctx, r, f, u, c, m, d); err != nil {
 					return err
 				}
+				d.button = "Ver meus coletivos"
 				return d.send(ctx, r, link, now)
 			})
 			if err != nil {

@@ -23,9 +23,12 @@ const (
 
 // myEventsPage is the Data of app/meus-eventos: the rows under Próximos (those
 // that have not ended, by start time) and under Anteriores (the ended ones, latest
-// first), as events.Mine orders them.
+// first), as events.Mine orders them. Truncated says the lists may miss events,
+// and Limit is the store's cap the note shows.
 type myEventsPage struct {
 	Upcoming, Past []myEventRow
+	Truncated      bool
+	Limit          int
 }
 
 // myEventRow is an event of Meus Eventos with what the row shows besides it: the
@@ -61,7 +64,12 @@ func (a *App) myEventsShow(c *gin.Context) {
 	}
 	a.page(c, http.StatusOK, "app/meus-eventos", PageData{
 		Title: "Meus Eventos", Nav: "meus-eventos",
-		Data: myEventsPage{Upcoming: myEventRows(v.Upcoming), Past: myEventRows(v.Past)},
+		Data: myEventsPage{
+			Upcoming:  myEventRows(v.Upcoming),
+			Past:      myEventRows(v.Past),
+			Truncated: v.Truncated,
+			Limit:     domain.ListLimitMax,
+		},
 	})
 }
 

@@ -2,6 +2,7 @@ package mail
 
 import (
 	"html"
+	"os"
 	"strings"
 	"testing"
 )
@@ -15,9 +16,12 @@ const (
 	xssName     = `<script>alert(1)</script>`
 
 	linkCollectives      = "https://agenda.example/coletivos"
+	linkSignup           = "https://agenda.example/cadastro"
 	linkOwnerRequests    = "https://agenda.example/coletivos/pedidos"
 	linkAdminCollectives = "https://agenda.example/admin/coletivos"
+	linkChangePassword   = "https://agenda.example/senha/trocar"
 	boldName             = `<b>negrito</b>`
+	pendingApprovalCopy  = "se sua conta ainda aguarda aprovação, o link começa a funcionar depois que ela for aprovada."
 )
 
 // renderCase is one template with data that carries no markup.
@@ -41,6 +45,48 @@ func renderCases() []renderCase {
 			subject: "Confirme seu e-mail · Agenda Clubber",
 			links:   []string{linkConfirm},
 			phrases: []string{"Ana Souza", "24 horas"},
+		},
+		{
+			name:    "change email",
+			tmpl:    TemplateChangeEmail,
+			data:    ChangeEmailData{Name: "Ana Souza", Link: linkConfirm},
+			subject: "Confirme seu novo e-mail · Agenda Clubber",
+			links:   []string{linkConfirm},
+			button:  "Confirmar novo e-mail",
+			phrases: []string{"Ana Souza", "24 horas", "Ao confirmar, a troca de e-mail da sua conta é concluída."},
+		},
+		{
+			name:    "email change notice",
+			tmpl:    TemplateEmailChangeNotice,
+			data:    EmailChangeNoticeData{Name: "Ana Souza", NewEmail: "novo@example.com"},
+			subject: "Troca de e-mail pendente · Agenda Clubber",
+			phrases: []string{
+				"Ana Souza",
+				"Recebemos um pedido para trocar o e-mail da sua conta na Agenda Clubber para novo@example.com.",
+				"A troca só é concluída quando o novo endereço confirmar.",
+				"este endereço continua recebendo os e-mails da sua conta",
+				"troque sua senha",
+			},
+		},
+		{
+			name:    "password expiring",
+			tmpl:    TemplatePasswordExpiring,
+			data:    PasswordExpiringData{Name: "Ana Souza", Days: 7, Link: linkChangePassword},
+			subject: "Sua senha vence em 7 dias · Agenda Clubber",
+			links:   []string{linkChangePassword},
+			button:  "Trocar senha",
+			phrases: []string{"Ana Souza", "Sua senha vence em 7 dias"},
+			absent:  []string{"vence amanhã"},
+		},
+		{
+			name:    "password expiring tomorrow",
+			tmpl:    TemplatePasswordExpiring,
+			data:    PasswordExpiringData{Name: "Ana Souza", Days: 1, Link: linkChangePassword},
+			subject: "Sua senha vence amanhã · Agenda Clubber",
+			links:   []string{linkChangePassword},
+			button:  "Trocar senha",
+			phrases: []string{"Ana Souza", "Sua senha vence amanhã"},
+			absent:  []string{"vence em 1 dias"},
 		},
 		{
 			name:    "existing account",
@@ -78,14 +124,15 @@ func renderCases() []renderCase {
 			name: "decision approved",
 			tmpl: TemplateDecision,
 			data: DecisionData{
-				Name:  "Ana Souza",
-				Items: []DecisionItem{{What: "sua conta", Outcome: DecisionApproved}},
-				Link:  linkLogin,
+				Name:   "Ana Souza",
+				Items:  []DecisionItem{{What: "sua conta", Outcome: DecisionApproved}},
+				Link:   linkLogin,
+				Button: "Entrar",
 			},
 			subject: "Atualização do seu cadastro na Agenda Clubber",
 			links:   []string{linkLogin},
 			button:  "Entrar",
-			phrases: []string{"Ana Souza", "sua conta: aprovado"},
+			phrases: []string{"Ana Souza", "sua conta: aprovado", pendingApprovalCopy},
 			// "aprovado" is also the start of the waiting wording.
 			absent: []string{"recusado", "falta um administrador", "motivo"},
 		},
@@ -93,29 +140,31 @@ func renderCases() []renderCase {
 			name: "decision rejected with a reason",
 			tmpl: TemplateDecision,
 			data: DecisionData{
-				Name:  "Ana Souza",
-				Items: []DecisionItem{{What: "o coletivo Alfa", Outcome: DecisionRejected, Reason: "o nome já existe"}},
-				Link:  linkLogin,
+				Name:   "Ana Souza",
+				Items:  []DecisionItem{{What: "o coletivo Alfa", Outcome: DecisionRejected, Reason: "o nome já existe"}},
+				Link:   linkLogin,
+				Button: "Entrar",
 			},
 			subject: "Atualização do seu cadastro na Agenda Clubber",
 			links:   []string{linkLogin},
 			button:  "Entrar",
-			phrases: []string{"Ana Souza", "o coletivo Alfa: recusado", "motivo: o nome já existe"},
+			phrases: []string{"Ana Souza", "o coletivo Alfa: recusado", "motivo: o nome já existe", pendingApprovalCopy},
 			absent:  []string{"aprovado", "falta um administrador"},
 		},
 		{
 			name: "decision waiting",
 			tmpl: TemplateDecision,
 			data: DecisionData{
-				Name:  "Ana Souza",
-				Items: []DecisionItem{{What: "seu pedido para entrar em Beta como Membro", Outcome: DecisionWaiting}},
-				Link:  linkCollectives,
+				Name:   "Ana Souza",
+				Items:  []DecisionItem{{What: "seu pedido para entrar em Beta como Membro", Outcome: DecisionWaiting}},
+				Link:   linkCollectives,
+				Button: "Ver meus coletivos",
 			},
 			subject: "Atualização do seu cadastro na Agenda Clubber",
 			links:   []string{linkCollectives},
-			button:  "Entrar",
+			button:  "Ver meus coletivos",
 			phrases: []string{"seu pedido para entrar em Beta como Membro: aprovado pelo admin; falta um administrador do coletivo"},
-			absent:  []string{"recusado", "motivo"},
+			absent:  []string{"recusado", "motivo", pendingApprovalCopy},
 		},
 		{
 			name: "decision with several items",
@@ -127,16 +176,34 @@ func renderCases() []renderCase {
 					{What: "o coletivo Alfa", Outcome: DecisionRejected, Reason: "sem comprovação"},
 					{What: "seu pedido para entrar em Beta como Administrador", Outcome: DecisionWaiting},
 				},
-				Link: linkLogin,
+				Link:   linkLogin,
+				Button: "Entrar",
 			},
 			subject: "Atualização do seu cadastro na Agenda Clubber",
 			links:   []string{linkLogin},
+			button:  "Entrar",
 			phrases: []string{
 				"sua conta: aprovado",
 				"o coletivo Alfa: recusado",
 				"motivo: sem comprovação",
 				"seu pedido para entrar em Beta como Administrador: aprovado pelo admin; falta um administrador do coletivo",
+				pendingApprovalCopy,
 			},
+		},
+		{
+			name: "decision rejected with a sign-up link",
+			tmpl: TemplateDecision,
+			data: DecisionData{
+				Name:   "Ana Souza",
+				Items:  []DecisionItem{{What: "sua conta", Outcome: DecisionRejected, Reason: "dados incompletos"}},
+				Link:   linkSignup,
+				Button: "Criar conta",
+			},
+			subject: "Atualização do seu cadastro na Agenda Clubber",
+			links:   []string{linkSignup},
+			button:  "Criar conta",
+			phrases: []string{"sua conta: recusado", "motivo: dados incompletos"},
+			absent:  []string{pendingApprovalCopy},
 		},
 		{
 			name:    "owner join request as member",
@@ -254,6 +321,87 @@ func TestRender(t *testing.T) {
 	}
 }
 
+func TestRenderDecisionKeepsTheLinkInTextForEveryDestination(t *testing.T) {
+	for _, tc := range renderCases() {
+		if tc.tmpl != TemplateDecision {
+			continue
+		}
+		t.Run(tc.name, func(t *testing.T) {
+			_, text, htmlBody, err := Render(tc.tmpl, tc.data)
+			if err != nil {
+				t.Fatalf("Render: %v", err)
+			}
+			for _, link := range tc.links {
+				if !strings.Contains(text, "[→] "+link) {
+					t.Errorf("text lacks the plain action link %q:\n%s", link, text)
+				}
+			}
+			if !strings.Contains(htmlBody, "[→] "+tc.button) {
+				t.Errorf("html lacks the %q button", tc.button)
+			}
+			if !strings.Contains(htmlBody, "Se o botão não abrir, copie este link para o navegador:") {
+				t.Errorf("html lacks the copy-link fallback")
+			}
+		})
+	}
+}
+
+func TestRenderPasswordExpiringHasButtonAndCopyLinkFallback(t *testing.T) {
+	_, text, htmlBody, err := Render(TemplatePasswordExpiring, PasswordExpiringData{
+		Name: "Ana Souza", Days: 3, Link: linkChangePassword,
+	})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(text, "[→] "+linkChangePassword) {
+		t.Errorf("text lacks the plain action link:\n%s", text)
+	}
+	if !strings.Contains(htmlBody, "[→] Trocar senha") {
+		t.Errorf("html lacks the Trocar senha button")
+	}
+	for _, want := range []string{
+		"Se o botão não abrir, copie este link para o navegador:",
+		`href="` + linkChangePassword + `"`,
+		"word-break:break-all",
+		"Use o link para trocar a senha da sua conta.",
+	} {
+		if !strings.Contains(htmlBody, want) {
+			t.Errorf("html lacks %q", want)
+		}
+	}
+}
+
+func TestRenderChangeEmailKeepsTheLinkInPlace(t *testing.T) {
+	data := ChangeEmailData{Name: "Ana Souza", Link: linkConfirm}
+	_, text, htmlBody, err := Render(TemplateChangeEmail, data)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	for _, view := range []struct{ name, body string }{{"text", text}, {"html", html.UnescapeString(htmlBody)}} {
+		itemsInOrder(t, view.name, view.body,
+			"Olá, Ana Souza!",
+			linkConfirm,
+			"O link vale por 24 horas",
+			"Ao confirmar, a troca de e-mail da sua conta é concluída.")
+	}
+}
+
+func TestRenderEmailChangeNoticeHasNoActionLink(t *testing.T) {
+	data := EmailChangeNoticeData{Name: "Ana Souza", NewEmail: "novo@example.com"}
+	_, text, htmlBody, err := Render(TemplateEmailChangeNotice, data)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	for _, view := range []struct{ name, body string }{{"text", text}, {"html", htmlBody}} {
+		if strings.Contains(view.body, "[→] ") {
+			t.Errorf("%s carries an action link, want a plain notice:\n%s", view.name, view.body)
+		}
+	}
+	if strings.Contains(htmlBody, "word-break:break-all") {
+		t.Errorf("html carries a copy-link fallback, want a plain notice")
+	}
+}
+
 func TestRenderEscapesUserText(t *testing.T) {
 	cases := []struct {
 		name      string
@@ -262,6 +410,9 @@ func TestRenderEscapesUserText(t *testing.T) {
 		inSubject bool // the subject carries user text
 	}{
 		{"verify email", TemplateVerifyEmail, VerifyEmailData{Name: xssName, Link: linkConfirm}, false},
+		{"change email", TemplateChangeEmail, ChangeEmailData{Name: xssName, Link: linkConfirm}, false},
+		{"password expiring", TemplatePasswordExpiring, PasswordExpiringData{Name: xssName, Days: 3, Link: linkChangePassword}, false},
+		{"email change notice", TemplateEmailChangeNotice, EmailChangeNoticeData{Name: xssName, NewEmail: xssName}, false},
 		{"existing account", TemplateExistingAccount, ExistingAccountData{Name: xssName, LoginLink: linkLogin, ForgotPasswordLink: linkForgot}, false},
 		{"password reset", TemplatePasswordReset, PasswordResetData{Name: xssName, Link: linkReset}, false},
 		{"admin new signup", TemplateAdminNewSignup, AdminNewSignupData{
@@ -278,7 +429,8 @@ func TestRenderEscapesUserText(t *testing.T) {
 				{What: xssName, Outcome: DecisionRejected, Reason: xssName},
 				{What: xssName, Outcome: DecisionWaiting},
 			},
-			Link: linkLogin,
+			Link:   linkLogin,
+			Button: "Entrar",
 		}, false},
 		{"owner join request", TemplateOwnerJoinRequest, OwnerJoinRequestData{
 			CollectiveName: xssName, UserName: xssName, Role: xssName, Link: linkOwnerRequests,
@@ -382,7 +534,8 @@ func TestRenderDecisionKeepsEachReasonWithItsItem(t *testing.T) {
 			{What: "o coletivo Beta", Outcome: DecisionWaiting, Reason: "falta o contato"},
 			{What: "o coletivo Gama", Outcome: DecisionApproved},
 		},
-		Link: linkLogin,
+		Link:   linkLogin,
+		Button: "Entrar",
 	}
 	_, text, htmlBody, err := Render(TemplateDecision, data)
 	if err != nil {
@@ -404,9 +557,10 @@ func TestRenderDecisionReasonKeepsLineBreaks(t *testing.T) {
 	for _, sep := range []string{"\n", "\r\n"} {
 		t.Run(strings.NewReplacer("\r", "CR", "\n", "LF").Replace(sep), func(t *testing.T) {
 			data := DecisionData{
-				Name:  "Ana Souza",
-				Items: []DecisionItem{{What: "sua conta", Outcome: DecisionRejected, Reason: "primeira linha" + sep + "segunda " + boldName}},
-				Link:  linkLogin,
+				Name:   "Ana Souza",
+				Items:  []DecisionItem{{What: "sua conta", Outcome: DecisionRejected, Reason: "primeira linha" + sep + "segunda " + boldName}},
+				Link:   linkLogin,
+				Button: "Entrar",
 			}
 			_, text, htmlBody, err := Render(TemplateDecision, data)
 			if err != nil {
@@ -432,9 +586,10 @@ func TestRenderEscapesMarkupInNamesAndReasons(t *testing.T) {
 		data any
 	}{
 		{"decision", TemplateDecision, DecisionData{
-			Name:  boldName,
-			Items: []DecisionItem{{What: "o coletivo " + boldName, Outcome: DecisionRejected, Reason: "veja " + boldName}},
-			Link:  linkLogin,
+			Name:   boldName,
+			Items:  []DecisionItem{{What: "o coletivo " + boldName, Outcome: DecisionRejected, Reason: "veja " + boldName}},
+			Link:   linkLogin,
+			Button: "Entrar",
 		}},
 		{"owner join request", TemplateOwnerJoinRequest, OwnerJoinRequestData{
 			CollectiveName: boldName, UserName: boldName, Role: "Membro", Link: linkOwnerRequests,
@@ -537,18 +692,29 @@ func TestRenderRejectsBadInput(t *testing.T) {
 		{"nil data", TemplateVerifyEmail, nil},
 		{"wrong data type", TemplateVerifyEmail, "Ana"},
 		{"decision with another template's data", TemplateDecision, VerifyEmailData{Name: "Ana", Link: linkLogin}},
+		{"change email with the notice's data", TemplateChangeEmail, EmailChangeNoticeData{Name: "Ana", NewEmail: "novo@example.com"}},
+		{"email change notice with the change email's data", TemplateEmailChangeNotice, ChangeEmailData{Name: "Ana", Link: linkConfirm}},
+		{"password expiring with another template's data", TemplatePasswordExpiring, PasswordResetData{Name: "Ana", Link: linkReset}},
 		{"admin request with another template's data", TemplateAdminRequest, OwnerJoinRequestData{CollectiveName: "Maré Alta", UserName: "Ana", Role: "Membro", Link: linkAdmin}},
 		{"decision with an unknown outcome", TemplateDecision, DecisionData{
-			Name: "Ana Souza", Link: linkLogin,
+			Name: "Ana Souza", Link: linkLogin, Button: "Entrar",
 			Items: []DecisionItem{{What: "sua conta", Outcome: "maybe"}},
 		}},
 		{"decision with no outcome", TemplateDecision, DecisionData{
-			Name: "Ana Souza", Link: linkLogin,
+			Name: "Ana Souza", Link: linkLogin, Button: "Entrar",
 			Items: []DecisionItem{{What: "sua conta"}},
 		}},
 		{"decision with an unknown outcome after a good one", TemplateDecision, DecisionData{
-			Name: "Ana Souza", Link: linkLogin,
+			Name: "Ana Souza", Link: linkLogin, Button: "Entrar",
 			Items: []DecisionItem{{What: "sua conta", Outcome: DecisionApproved}, {What: "o coletivo Alfa", Outcome: "Approved"}},
+		}},
+		{"decision with an unknown button", TemplateDecision, DecisionData{
+			Name: "Ana Souza", Link: linkLogin, Button: "Entrar!",
+			Items: []DecisionItem{{What: "sua conta", Outcome: DecisionApproved}},
+		}},
+		{"decision with no button", TemplateDecision, DecisionData{
+			Name: "Ana Souza", Link: linkLogin,
+			Items: []DecisionItem{{What: "sua conta", Outcome: DecisionApproved}},
 		}},
 		{"admin request with an unknown kind", TemplateAdminRequest, AdminRequestData{
 			Kind: "bogus", UserName: "Ana Souza", CollectiveName: "Maré Alta", Link: linkAdmin,
@@ -561,6 +727,75 @@ func TestRenderRejectsBadInput(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			if _, _, _, err := Render(tc.tmpl, tc.data); err == nil {
 				t.Error("Render succeeded, want an error")
+			}
+		})
+	}
+}
+
+// TestRenderDecisionRejectsUnknownButton pins the decision template's rule for
+// Button: a label it does not know is an error, never a blank button (the same
+// fail pattern Outcome uses).
+func TestRenderDecisionRejectsUnknownButton(t *testing.T) {
+	for _, button := range []string{"", "Entrar!"} {
+		t.Run("button "+button, func(t *testing.T) {
+			_, _, _, err := Render(TemplateDecision, DecisionData{
+				Name: "Ana Souza", Link: linkLogin, Button: button,
+				Items: []DecisionItem{{What: "sua conta", Outcome: DecisionApproved}},
+			})
+			if err == nil {
+				t.Fatal("Render succeeded, want an error")
+			}
+			if !strings.Contains(err.Error(), "unknown button") {
+				t.Errorf("error = %q, want it to name the unknown button", err)
+			}
+		})
+	}
+}
+
+// TestDecisionButtonsFollowTheirDestinations pins the button assigned at each
+// decision call site. The email text carries only the link, so a mislabeled
+// button would pass every output test. Reading the three source files keeps the
+// destination-to-label mapping visible here, as the T5.25 source-shape pin does.
+func TestDecisionButtonsFollowTheirDestinations(t *testing.T) {
+	cases := []struct {
+		file, button, path string
+		count              int
+	}{
+		{"accounts.go", "Entrar", "pathLogin", 1},
+		{"accounts.go", "Ver meus coletivos", "pathCollectives", 1},
+		{"accounts.go", "Criar conta", "pathSignup", 1},
+		{"collectives.go", "Ver meus coletivos", "pathCollectives", 1},
+		{"collectives.go", "Entrar", "pathLogin", 1},
+		{"joins.go", "Ver meus coletivos", "pathCollectives", 3},
+	}
+	sources := make(map[string]string)
+	read := func(file string) string {
+		t.Helper()
+		if src, ok := sources[file]; ok {
+			return src
+		}
+		b, err := os.ReadFile("../approvals/" + file)
+		if err != nil {
+			t.Fatalf("read %s: %v", file, err)
+		}
+		sources[file] = string(b)
+		return sources[file]
+	}
+	for _, tc := range cases {
+		t.Run(tc.file+"/"+tc.path, func(t *testing.T) {
+			src := read(tc.file)
+			want := "d.button = \"" + tc.button + "\"\n\t\treturn d.send(ctx, r, origin+" + tc.path + ", now)"
+			if n := strings.Count(src, want); n != tc.count {
+				t.Errorf("%s: %q appears %d time(s), want %d", tc.file, want, n, tc.count)
+			}
+		})
+	}
+	for file, sends := range map[string]int{"accounts.go": 3, "collectives.go": 2, "joins.go": 3} {
+		t.Run(file+"/all sends pinned", func(t *testing.T) {
+			src := read(file)
+			const mark = "return d.send(ctx, r, origin+"
+			if n := strings.Count(src, mark); n != sends {
+				t.Errorf("%s: %d decision sends, want %d pinned", file, n, sends)
 			}
 		})
 	}
