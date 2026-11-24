@@ -977,19 +977,35 @@ func TestColetivosComponentsAreStyled(t *testing.T) {
 // path by hand — a store ID looks already escaped — so pin the source shape of
 // both sites, as TestAdminDateTextUsesTheSharedHelpers pins the date text.
 func TestCollectiveLinksUseTheSharedBuilder(t *testing.T) {
-	for _, file := range []string{"routes_collective.go", "routes_collectives.go"} {
-		t.Run(file, func(t *testing.T) {
-			b, err := os.ReadFile(file)
+	cases := []struct {
+		file string
+		want int
+	}{
+		{"routes_collective.go", 2},
+		{"routes_collectives.go", 1},
+	}
+	for _, tc := range cases {
+		t.Run(tc.file, func(t *testing.T) {
+			b, err := os.ReadFile(tc.file)
 			if err != nil {
-				t.Fatalf("read %s: %v", file, err)
+				t.Fatalf("read %s: %v", tc.file, err)
 			}
 			src := string(b)
 			if strings.Contains(src, `"/coletivo/"`) {
-				t.Errorf("%s still builds a collective path by hand", file)
+				t.Errorf("%s still builds a collective path by hand", tc.file)
 			}
-			if n := strings.Count(src, "approvals.CollectivePath("); n != 1 {
-				t.Errorf("%s calls approvals.CollectivePath %d time(s), want 1", file, n)
+			if n := strings.Count(src, "approvals.CollectivePath("); n != tc.want {
+				t.Errorf("%s calls approvals.CollectivePath %d time(s), want %d", tc.file, n, tc.want)
 			}
 		})
 	}
+	t.Run("coletivo.html", func(t *testing.T) {
+		b, err := os.ReadFile("../../web/templates/pages/app/coletivo.html")
+		if err != nil {
+			t.Fatalf("read coletivo.html: %v", err)
+		}
+		if strings.Contains(string(b), "/coletivo/{{") {
+			t.Errorf("coletivo.html still builds a collective path by hand")
+		}
+	})
 }

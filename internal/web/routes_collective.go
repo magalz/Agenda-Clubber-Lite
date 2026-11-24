@@ -23,12 +23,13 @@ var collectiveNotices = map[string]string{
 	"nome-alterado":   "nome alterado.",
 }
 
-// collectivePage is the Data of app/coletivo. Notice is the status above the page
+// collectivePage is the Data of app/coletivo. Path is the escaped collective path,
+// used by the form actions. Notice is the status above the page
 // (an action went through), Alert the alert (a refused or invalid action, the rate
 // limit); either is empty for none. RenameValue is what the rename field holds:
 // the name the person typed, or the collective's own.
 type collectivePage struct {
-	ID            string
+	Path          string
 	Name          string
 	Kind          string
 	Locked        bool
@@ -188,7 +189,7 @@ func (a *App) collectiveRender(c *gin.Context, u domain.User, id string, status 
 	}
 	col := view.Collective
 	data := collectivePage{
-		ID: col.ID, Name: col.Name, Kind: kindLabel(col.Kind),
+		Path: approvals.CollectivePath(col.ID), Name: col.Name, Kind: kindLabel(col.Kind),
 		Locked: col.Locked, EventsBlocked: col.EventsBlocked,
 		RenameValue: col.Name, Notice: notice, Alert: alert,
 	}
