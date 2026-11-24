@@ -79,7 +79,7 @@ func RequestJoin(ctx context.Context, store domain.Store, origin string, actor d
 
 		label := RoleLabel(role)
 		if err := notifyOwners(ctx, r, c.ID, mail.OwnerJoinRequestData{
-			CollectiveName: c.Name, UserName: actor.Name, Role: label, Link: origin + collectivePath(c.ID),
+			CollectiveName: c.Name, UserName: actor.Name, Role: label, Link: origin + CollectivePath(c.ID),
 		}, now); err != nil {
 			return err
 		}

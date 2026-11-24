@@ -123,7 +123,7 @@ func (a *App) collectiveItems(ctx context.Context, u domain.User) ([]collectiveI
 		item := collectiveItem{Name: v.CollectiveName, Kind: kindLabel(v.CollectiveKind), Role: role}
 		item.Status, item.Badge = membershipStatus(v)
 		if v.Status == domain.MembershipStatusApproved && v.CollectiveStatus == domain.CollectiveStatusApproved && v.Role == domain.RoleOwner {
-			item.Href = "/coletivo/" + v.CollectiveID
+			item.Href = approvals.CollectivePath(v.CollectiveID)
 		}
 		items = append(items, item)
 	}
