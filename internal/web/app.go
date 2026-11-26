@@ -31,12 +31,14 @@ type App struct {
 // Limits are the per-flow rate limiters. They live in memory, so each process
 // has its own count.
 type Limits struct {
-	Login         *auth.Limiter // 10 per minute per IP: login, and the reset form (key "reset:")
-	Signup        *auth.Limiter // 5 per hour per IP
-	EmailAction   *auth.Limiter // 5 per hour per IP: resend confirmation, forgot password
-	Suggestions   *auth.Limiter // 60 per minute per IP
-	PasswordCheck *auth.Limiter // 30 per minute per user
-	Requests      *auth.Limiter // 10 per hour per user: join requests, new collectives and renames
+	Login            *auth.Limiter // 10 per minute per IP: login, and the reset form (key "reset:")
+	Signup           *auth.Limiter // 5 per hour per IP
+	SignupEmail      *auth.Limiter // 5 per hour per email hash
+	EmailAction      *auth.Limiter // 5 per hour per IP: resend confirmation, forgot password
+	EmailActionEmail *auth.Limiter // 5 per hour per email hash: resend confirmation, forgot password, profile email change
+	Suggestions      *auth.Limiter // 60 per minute per IP
+	PasswordCheck    *auth.Limiter // 30 per minute per user
+	Requests         *auth.Limiter // 10 per hour per user: join requests, new collectives and renames
 }
 
 // NewApp builds an App from a validated configuration. It panics if the
@@ -76,12 +78,14 @@ func NewApp(cfg config.Config, log *slog.Logger, store domain.Store) *App {
 		Assets: assets,
 		Render: render,
 		Limits: Limits{
-			Login:         auth.NewLimiter(10, time.Minute),
-			Signup:        auth.NewLimiter(5, time.Hour),
-			EmailAction:   auth.NewLimiter(5, time.Hour),
-			Suggestions:   auth.NewLimiter(60, time.Minute),
-			PasswordCheck: auth.NewLimiter(30, time.Minute),
-			Requests:      auth.NewLimiter(10, time.Hour),
+			Login:            auth.NewLimiter(10, time.Minute),
+			Signup:           auth.NewLimiter(5, time.Hour),
+			SignupEmail:      auth.NewLimiter(5, time.Hour),
+			EmailAction:      auth.NewLimiter(5, time.Hour),
+			EmailActionEmail: auth.NewLimiter(5, time.Hour),
+			Suggestions:      auth.NewLimiter(60, time.Minute),
+			PasswordCheck:    auth.NewLimiter(30, time.Minute),
+			Requests:         auth.NewLimiter(10, time.Hour),
 		},
 	}
 }

@@ -85,7 +85,7 @@ func (a *App) resetForgotShow(c *gin.Context) {
 // find out which addresses are registered.
 func (a *App) resetForgotSubmit(c *gin.Context) {
 	now := a.Now()
-	form, allowed, err := a.emailForm(c, a.Limits.EmailAction, "forgot", now)
+	form, allowed, err := a.emailForm(c, a.Limits.EmailAction, a.Limits.EmailActionEmail, "forgot", now)
 	if err != nil {
 		c.String(http.StatusBadRequest, "requisição inválida")
 		return

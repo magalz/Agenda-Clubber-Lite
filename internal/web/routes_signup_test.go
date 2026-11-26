@@ -660,67 +660,85 @@ func TestEmailFormSpendsTheAddressThenTheEmail(t *testing.T) {
 	ana := url.Values{"email": {" ANA@example.com "}}.Encode()
 	emailKey := "forms-email:" + formsHash("ana@example.com")
 
-	t.Run("a post that names an e-mail spends both budgets", func(t *testing.T) {
-		lim := auth.NewLimiter(1, time.Hour)
+	t.Run("a post that names an e-mail spends both budgets in separate limiters", func(t *testing.T) {
+		ipLim := auth.NewLimiter(1, time.Hour)
+		emailLim := auth.NewLimiter(1, time.Hour)
 		c := formsContext(ana)
-		form, allowed, err := app.emailForm(c, lim, "forms", webTestNow)
+		form, allowed, err := app.emailForm(c, ipLim, emailLim, "forms", webTestNow)
 		if err != nil || !allowed {
 			t.Fatalf("allowed = %v, err = %v, want an allowed post", allowed, err)
 		}
 		if got := form.Get("email"); got != " ANA@example.com " {
 			t.Errorf("form email = %q, want what was posted", got)
 		}
-		if lim.Allow("forms:"+c.ClientIP(), webTestNow) {
-			t.Error("the client address key was not spent")
+		if ipLim.Allow("forms:"+c.ClientIP(), webTestNow) {
+			t.Error("the client address key was not spent in ipLim")
 		}
-		if lim.Allow(emailKey, webTestNow) {
-			t.Errorf("the e-mail key %q was not spent", emailKey)
+		if !ipLim.Allow(emailKey, webTestNow) {
+			t.Error("email key was written to ipLim")
+		}
+		if emailLim.Allow(emailKey, webTestNow) {
+			t.Errorf("the e-mail key %q was not spent in emailLim", emailKey)
+		}
+		if !emailLim.Allow("forms:"+c.ClientIP(), webTestNow) {
+			t.Error("client address key was written to emailLim")
 		}
 	})
 
-	t.Run("a blank or missing e-mail spends no e-mail budget", func(t *testing.T) {
-		for _, body := range []string{url.Values{"email": {"  \t"}}.Encode(), url.Values{"name": {"x"}}.Encode()} {
-			lim := auth.NewLimiter(1, time.Hour)
-			if _, allowed, err := app.emailForm(formsContext(body), lim, "forms", webTestNow); err != nil || !allowed {
+	t.Run("a blank, missing or invalid e-mail spends no e-mail budget", func(t *testing.T) {
+		for _, body := range []string{
+			url.Values{"email": {"  \t"}}.Encode(),
+			url.Values{"name": {"x"}}.Encode(),
+			url.Values{"email": {"not-an-email"}}.Encode(),
+		} {
+			ipLim := auth.NewLimiter(1, time.Hour)
+			emailLim := auth.NewLimiter(1, time.Hour)
+			if _, allowed, err := app.emailForm(formsContext(body), ipLim, emailLim, "forms", webTestNow); err != nil || !allowed {
 				t.Fatalf("body %q: allowed = %v, err = %v, want an allowed post", body, allowed, err)
 			}
-			if !lim.Allow("forms-email:"+formsHash(""), webTestNow) {
+			if !emailLim.Allow("forms-email:"+formsHash(""), webTestNow) {
 				t.Errorf("body %q: the blank e-mail has a budget of its own", body)
+			}
+			if !emailLim.Allow("forms-email:"+formsHash("not-an-email"), webTestNow) {
+				t.Errorf("body %q: an invalid e-mail spent emailLim budget", body)
 			}
 		}
 	})
 
 	t.Run("a refused address spends no e-mail budget", func(t *testing.T) {
-		lim := auth.NewLimiter(1, time.Hour)
+		ipLim := auth.NewLimiter(1, time.Hour)
+		emailLim := auth.NewLimiter(1, time.Hour)
 		c := formsContext(ana)
-		lim.Allow("forms:"+c.ClientIP(), webTestNow)
-		form, allowed, err := app.emailForm(c, lim, "forms", webTestNow)
+		ipLim.Allow("forms:"+c.ClientIP(), webTestNow)
+		form, allowed, err := app.emailForm(c, ipLim, emailLim, "forms", webTestNow)
 		if err != nil || allowed {
 			t.Fatalf("allowed = %v, err = %v, want a refused post", allowed, err)
 		}
 		if got := form.Get("email"); got != " ANA@example.com " {
 			t.Errorf("form email = %q, want the form back for the 429 page", got)
 		}
-		if !lim.Allow(emailKey, webTestNow) {
+		if !emailLim.Allow(emailKey, webTestNow) {
 			t.Error("the e-mail key was spent by a refused client address")
 		}
 	})
 
 	t.Run("a refused e-mail refuses the post", func(t *testing.T) {
-		lim := auth.NewLimiter(1, time.Hour)
-		lim.Allow(emailKey, webTestNow)
-		if _, allowed, err := app.emailForm(formsContext(ana), lim, "forms", webTestNow); err != nil || allowed {
+		ipLim := auth.NewLimiter(1, time.Hour)
+		emailLim := auth.NewLimiter(1, time.Hour)
+		emailLim.Allow(emailKey, webTestNow)
+		if _, allowed, err := app.emailForm(formsContext(ana), ipLim, emailLim, "forms", webTestNow); err != nil || allowed {
 			t.Errorf("allowed = %v, err = %v, want a refused post", allowed, err)
 		}
 	})
 
 	t.Run("a bad body is an error, after the address was counted", func(t *testing.T) {
-		lim := auth.NewLimiter(1, time.Hour)
+		ipLim := auth.NewLimiter(1, time.Hour)
+		emailLim := auth.NewLimiter(1, time.Hour)
 		c := formsContext("email=%ff")
-		if _, _, err := app.emailForm(c, lim, "forms", webTestNow); err == nil {
+		if _, _, err := app.emailForm(c, ipLim, emailLim, "forms", webTestNow); err == nil {
 			t.Fatal("no error for a body that is not UTF-8")
 		}
-		if lim.Allow("forms:"+c.ClientIP(), webTestNow) {
+		if ipLim.Allow("forms:"+c.ClientIP(), webTestNow) {
 			t.Error("the client address key was not spent")
 		}
 	})
@@ -729,10 +747,9 @@ func TestEmailFormSpendsTheAddressThenTheEmail(t *testing.T) {
 func TestSignupEmailKeyIsPrefixAndHash(t *testing.T) {
 	app := signupApp(t, stubStore{})
 	for i := 0; i < 5; i++ {
-		app.Limits.Signup.Allow("signup-email:"+formsHash("ana@example.com"), webTestNow)
+		app.Limits.SignupEmail.Allow("signup-email:"+formsHash("ana@example.com"), webTestNow)
 	}
-	// The form is invalid, so a post that is not refused answers 422.
-	rec := signupPost(app.Router(), signupValues(signupInvalid, func(v url.Values) { v.Set("email", " Ana@Example.com ") }), "198.51.100.9")
+	rec := signupPost(app.Router(), signupValues(func(v url.Values) { v.Set("email", " Ana@Example.com ") }), "198.51.100.9")
 	if rec.Code != http.StatusTooManyRequests {
 		t.Errorf("status = %d, want 429", rec.Code)
 	}
@@ -767,17 +784,22 @@ func TestEmailHash(t *testing.T) {
 }
 
 func TestSignupRateLimitPerEmail(t *testing.T) {
-	r := signupApp(t, stubStore{}).Router()
-	// The same address, spelled in different ways, from a new client address
-	// each time: only the email key trips.
+	app, _ := signupStoreApp(t)
+	r := app.Router()
 	spellings := []string{"ana@example.com", "ANA@example.com", " ana@example.com ", "Ana@Example.com", "ana@EXAMPLE.COM"}
 	for i, email := range spellings {
-		rec := signupPost(r, signupValues(signupInvalid, func(v url.Values) { v.Set("email", email) }), fmt.Sprintf("198.51.100.%d", 10+i))
-		if rec.Code != http.StatusUnprocessableEntity {
-			t.Fatalf("post %d: status = %d, want 422", i+1, rec.Code)
+		rec := signupPost(r, signupValues(func(v url.Values) {
+			v.Set("email", email)
+			v.Set("collective_name", fmt.Sprintf("Coletivo Limite %d", i+1))
+		}), fmt.Sprintf("198.51.100.%d", 10+i))
+		if rec.Code != http.StatusSeeOther {
+			t.Fatalf("post %d: status = %d, want 303", i+1, rec.Code)
 		}
 	}
-	rec := signupPost(r, signupValues(signupInvalid, func(v url.Values) { v.Set("email", "ana@example.com") }), "198.51.100.20")
+	rec := signupPost(r, signupValues(func(v url.Values) {
+		v.Set("email", "ana@example.com")
+		v.Set("collective_name", "Coletivo Limite 6")
+	}), "198.51.100.20")
 	if rec.Code != http.StatusTooManyRequests {
 		t.Fatalf("6th post for one email: status = %d, want 429", rec.Code)
 	}
@@ -785,21 +807,67 @@ func TestSignupRateLimitPerEmail(t *testing.T) {
 		t.Errorf("429 page = %s, want msgTooMany and no password", rec.Body)
 	}
 
-	// Another address from a new client address is fine: the 429 came from the
-	// email key, not from the client address.
-	if rec := signupPost(r, signupValues(signupInvalid, func(v url.Values) { v.Set("email", "bia@example.com") }), "198.51.100.21"); rec.Code != http.StatusUnprocessableEntity {
-		t.Errorf("another email: status = %d, want 422", rec.Code)
+	if rec := signupPost(r, signupValues(func(v url.Values) {
+		v.Set("email", "bia@example.com")
+		v.Set("collective_name", "Outro Coletivo Bia")
+	}), "198.51.100.21"); rec.Code != http.StatusSeeOther {
+		t.Errorf("another email: status = %d, want 303", rec.Code)
 	}
 
-	// A post without an email has no email key to spend.
-	for i := 0; i < 5; i++ {
+	for i := 0; i < 6; i++ {
 		rec := signupPost(r, signupValues(func(v url.Values) { v.Set("email", "") }), fmt.Sprintf("198.51.100.%d", 30+i))
 		if rec.Code != http.StatusUnprocessableEntity {
 			t.Fatalf("post %d without an email: status = %d, want 422", i+1, rec.Code)
 		}
 	}
-	if rec := signupPost(r, signupValues(func(v url.Values) { v.Set("email", "") }), "198.51.100.40"); rec.Code != http.StatusUnprocessableEntity {
-		t.Errorf("6th post without an email: status = %d, want 422", rec.Code)
+}
+
+func TestSignupInvalidPostsDoNotSpendEmailBudget(t *testing.T) {
+	app, _ := signupStoreApp(t)
+	r := app.Router()
+
+	for i := 1; i <= 5; i++ {
+		rec := signupPost(r, signupValues(signupInvalid, func(v url.Values) {
+			v.Set("email", "vitima@example.com")
+		}), fmt.Sprintf("198.51.100.%d", 50+i))
+		if rec.Code != http.StatusUnprocessableEntity {
+			t.Fatalf("invalid post %d: status = %d, want 422", i, rec.Code)
+		}
+	}
+
+	rec := signupPost(r, signupValues(func(v url.Values) {
+		v.Set("email", "vitima@example.com")
+	}), "198.51.100.60")
+	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/cadastro/enviado" {
+		t.Fatalf("valid post after 5 invalid posts: status = %d, Location = %q, want 303 /cadastro/enviado", rec.Code, rec.Header().Get("Location"))
+	}
+}
+
+func TestSignupIPAndEmailLimitersAreIsolated(t *testing.T) {
+	app, _ := signupStoreApp(t)
+	r := app.Router()
+
+	for i := 0; i < 5; i++ {
+		app.Limits.Signup.Allow("signup:198.51.100.70", webTestNow)
+	}
+	if rec := signupPost(r, signupValues(func(v url.Values) { v.Set("email", "isolado@example.com") }), "198.51.100.70"); rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("exhausted IP: status = %d, want 429", rec.Code)
+	}
+	if rec := signupPost(r, signupValues(func(v url.Values) { v.Set("email", "isolado@example.com") }), "198.51.100.71"); rec.Code != http.StatusSeeOther {
+		t.Fatalf("fresh IP for same email: status = %d, want 303", rec.Code)
+	}
+
+	for i := 0; i < 5; i++ {
+		app.Limits.SignupEmail.Allow("signup-email:"+formsHash("bloqueado@example.com"), webTestNow)
+	}
+	if rec := signupPost(r, signupValues(func(v url.Values) { v.Set("email", "bloqueado@example.com") }), "198.51.100.72"); rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("exhausted email: status = %d, want 429", rec.Code)
+	}
+	if rec := signupPost(r, signupValues(func(v url.Values) {
+		v.Set("email", "livre@example.com")
+		v.Set("collective_name", "Coletivo Livre")
+	}), "198.51.100.72"); rec.Code != http.StatusSeeOther {
+		t.Fatalf("same IP with another email: status = %d, want 303", rec.Code)
 	}
 }
 

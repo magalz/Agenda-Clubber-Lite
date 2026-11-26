@@ -1138,7 +1138,9 @@ func TestNewAppLimits(t *testing.T) {
 	}{
 		{"login", app.Limits.Login, 10, time.Minute},
 		{"signup", app.Limits.Signup, 5, time.Hour},
+		{"signup email", app.Limits.SignupEmail, 5, time.Hour},
 		{"email action", app.Limits.EmailAction, 5, time.Hour},
+		{"email action email", app.Limits.EmailActionEmail, 5, time.Hour},
 		{"suggestions", app.Limits.Suggestions, 60, time.Minute},
 		{"password check", app.Limits.PasswordCheck, 30, time.Minute},
 	}
@@ -1164,8 +1166,12 @@ func TestNewAppLimits(t *testing.T) {
 			}
 		})
 	}
-	if app.Limits.Login == app.Limits.Signup || app.Limits.Signup == app.Limits.EmailAction {
-		t.Error("two flows share one limiter")
+	seen := make(map[*auth.Limiter]string, len(tests))
+	for _, tt := range tests {
+		if prev, dup := seen[tt.l]; dup {
+			t.Errorf("%s and %s share one limiter", prev, tt.name)
+		}
+		seen[tt.l] = tt.name
 	}
 	if msgTooMany != "muitas tentativas. espere alguns minutos e tente de novo." {
 		t.Errorf("msgTooMany = %q", msgTooMany)

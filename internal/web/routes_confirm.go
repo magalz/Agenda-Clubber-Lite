@@ -93,7 +93,7 @@ func (a *App) confirmSubmit(c *gin.Context) {
 // out which addresses are registered.
 func (a *App) confirmResend(c *gin.Context) {
 	now := a.Now()
-	form, allowed, err := a.emailForm(c, a.Limits.EmailAction, "resend", now)
+	form, allowed, err := a.emailForm(c, a.Limits.EmailAction, a.Limits.EmailActionEmail, "resend", now)
 	if err != nil {
 		c.String(http.StatusBadRequest, "requisição inválida")
 		return

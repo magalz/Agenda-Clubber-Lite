@@ -202,9 +202,9 @@ func TestResetForgotRateLimitPerEmail(t *testing.T) {
 // The e-mail budget of the forgot form is the key forgot-email:<hash>, with the
 // hash alone after the prefix (no other prefix nested in it).
 func TestResetForgotEmailKeyIsPrefixAndHash(t *testing.T) {
-	app := signupApp(t, stubStore{}) // a post that is not refused would reach the store and panic
+	app := signupApp(t, stubStore{})
 	for i := 0; i < 5; i++ {
-		app.Limits.EmailAction.Allow("forgot-email:"+formsHash("ana@example.com"), webTestNow)
+		app.Limits.EmailActionEmail.Allow("forgot-email:"+formsHash("ana@example.com"), webTestNow)
 	}
 	rec := resetForgot(app.Router(), " Ana@Example.com ", "198.51.100.95")
 	if rec.Code != http.StatusTooManyRequests || !strings.Contains(rec.Body.String(), msgTooMany) {

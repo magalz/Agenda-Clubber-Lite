@@ -118,6 +118,14 @@ func Signup(ctx context.Context, store domain.Store, origin string, now time.Tim
 	return err
 }
 
+// ValidateSignup validates the fields of a signup form without reading the
+// store or hashing the password. It returns a domain.FieldErrors when any
+// field is invalid, or nil otherwise.
+func ValidateSignup(in SignupInput) error {
+	_, err := signupValidate(in)
+	return err
+}
+
 // signupValidate checks every field and returns all the failures together as a
 // domain.FieldErrors. It reads nothing from the store.
 func signupValidate(in SignupInput) (signupFields, error) {
