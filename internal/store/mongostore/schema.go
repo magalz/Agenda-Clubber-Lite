@@ -99,6 +99,7 @@ func specs() []collectionSpec {
 					"email_verified_at": tDate,
 					"approved_at":       tDate,
 					"approved_by":       tObjectID,
+					"rev":               tInt,
 					"created_at":        tDate,
 					"updated_at":        tDate,
 				}),

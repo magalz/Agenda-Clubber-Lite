@@ -26,15 +26,22 @@ func (r users) Create(ctx context.Context, u *domain.User) error {
 	if err != nil {
 		return err
 	}
-	if err := r.s.mustExist(ctx, colUsers, approvedBy); err != nil {
-		return err
-	}
 	oid := bson.NewObjectID()
-	if _, err := r.coll().InsertOne(ctx, userToDoc(*u, oid, approvedBy)); err != nil {
-		if mongo.IsDuplicateKeyError(err) {
-			return domain.ErrEmailTaken
+	doc := userToDoc(*u, oid, approvedBy)
+	err = r.s.inTx(ctx, func(ctx context.Context) error {
+		if err := r.s.mustExist(ctx, colUsers, approvedBy); err != nil {
+			return err
 		}
-		return wrap("create user", err)
+		if _, err := r.coll().InsertOne(ctx, doc); err != nil {
+			if mongo.IsDuplicateKeyError(err) {
+				return domain.ErrEmailTaken
+			}
+			return wrap("create user", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return err
 	}
 	u.ID = oid.Hex()
 	return nil
@@ -279,9 +286,7 @@ func (r users) ListByStatus(ctx context.Context, status domain.UserStatus, limit
 // exactly one matches. The approver is checked first and nothing changes when it
 // is missing; an empty by names nobody, so it is ErrNotFound like any ID the
 // store never issued. A user whose status and approver are both wrong answers
-// ErrNotFound, because the references are checked before the state. The check of
-// the approver is not isolated from a concurrent Delete of it, the same gap as a
-// Create (ACL-21).
+// ErrNotFound, because the references are checked before the state.
 func (r users) Approve(ctx context.Context, id, by string, now time.Time) error {
 	oid, err := parseID(id)
 	if err != nil {
@@ -291,24 +296,26 @@ func (r users) Approve(ctx context.Context, id, by string, now time.Time) error 
 	if err != nil {
 		return err
 	}
-	if err := r.s.mustExist(ctx, colUsers, &approver); err != nil {
-		return err
-	}
-	res, err := r.coll().UpdateOne(ctx,
-		bson.M{"_id": oid, "status": string(domain.UserStatusPendingApproval)},
-		bson.M{"$set": bson.M{
-			"status":      string(domain.UserStatusActive),
-			"approved_by": approver,
-			"approved_at": now,
-			"updated_at":  now,
-		}})
-	if err != nil {
-		return wrap("approve user", err)
-	}
-	if res.MatchedCount > 0 {
-		return nil
-	}
-	return r.s.notMatched(ctx, colUsers, oid)
+	return r.s.inTx(ctx, func(ctx context.Context) error {
+		if err := r.s.mustExist(ctx, colUsers, &approver); err != nil {
+			return err
+		}
+		res, err := r.coll().UpdateOne(ctx,
+			bson.M{"_id": oid, "status": string(domain.UserStatusPendingApproval)},
+			bson.M{"$set": bson.M{
+				"status":      string(domain.UserStatusActive),
+				"approved_by": approver,
+				"approved_at": now,
+				"updated_at":  now,
+			}})
+		if err != nil {
+			return wrap("approve user", err)
+		}
+		if res.MatchedCount > 0 {
+			return nil
+		}
+		return r.s.notMatched(ctx, colUsers, oid)
+	})
 }
 
 // UpdateProfile writes only the fields the service validated; UpdatedAt moves

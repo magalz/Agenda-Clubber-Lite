@@ -29,18 +29,25 @@ func (r collectives) Create(ctx context.Context, c *domain.Collective) error {
 	if err != nil {
 		return err
 	}
-	if err := r.s.mustExist(ctx, colUsers, createdBy); err != nil {
-		return err
-	}
-	if err := r.s.mustExist(ctx, colUsers, approvedBy); err != nil {
-		return err
-	}
 	oid := bson.NewObjectID()
-	if _, err := r.coll().InsertOne(ctx, collectiveToDoc(*c, oid, createdBy, approvedBy)); err != nil {
-		if mongo.IsDuplicateKeyError(err) {
-			return domain.ErrNameTaken
+	doc := collectiveToDoc(*c, oid, createdBy, approvedBy)
+	err = r.s.inTx(ctx, func(ctx context.Context) error {
+		if err := r.s.mustExist(ctx, colUsers, createdBy); err != nil {
+			return err
 		}
-		return wrap("create collective", err)
+		if err := r.s.mustExist(ctx, colUsers, approvedBy); err != nil {
+			return err
+		}
+		if _, err := r.coll().InsertOne(ctx, doc); err != nil {
+			if mongo.IsDuplicateKeyError(err) {
+				return domain.ErrNameTaken
+			}
+			return wrap("create collective", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return err
 	}
 	c.ID = oid.Hex()
 	return nil
@@ -156,9 +163,6 @@ func (r collectives) Update(ctx context.Context, c domain.Collective) error {
 	if err != nil {
 		return err
 	}
-	if err := r.s.mustExist(ctx, colUsers, approvedBy); err != nil {
-		return err
-	}
 	set := bson.M{
 		"name":           c.Name,
 		"name_key":       c.NameKey,
@@ -182,11 +186,16 @@ func (r collectives) Update(ctx context.Context, c domain.Collective) error {
 	if len(unset) > 0 {
 		update["$unset"] = unset
 	}
-	if err := updateOne(ctx, r.coll(), "update collective", oid, update); err != nil {
-		if mongo.IsDuplicateKeyError(err) {
-			return domain.ErrNameTaken
+	return r.s.inTx(ctx, func(ctx context.Context) error {
+		if err := r.s.mustExist(ctx, colUsers, approvedBy); err != nil {
+			return err
 		}
-		return err
-	}
-	return nil
+		if err := updateOne(ctx, r.coll(), "update collective", oid, update); err != nil {
+			if mongo.IsDuplicateKeyError(err) {
+				return domain.ErrNameTaken
+			}
+			return err
+		}
+		return nil
+	})
 }
