@@ -792,3 +792,41 @@ func TestSignupSerializesWithAFreeze(t *testing.T) {
 	}
 	signupAssertNothingWritten(t, s, in.Email, "")
 }
+
+func TestSignupVerifyEmailOmitsSubmittedName(t *testing.T) {
+	s := newTestStore(t)
+	ctx := t.Context()
+	const phishName = "Clique https://evil.example/premio"
+	in := signupInput()
+	in.Name = phishName
+
+	if err := Signup(ctx, s, signupOrigin, testNow, in); err != nil {
+		t.Fatalf("Signup: %v", err)
+	}
+	u, err := s.Repos().Users.ByEmail(ctx, in.Email)
+	if err != nil {
+		t.Fatalf("user: %v", err)
+	}
+	if u.Name != phishName {
+		t.Errorf("stored name = %q, want %q", u.Name, phishName)
+	}
+
+	msgs := signupOutbox(t, s)
+	if len(msgs) != 1 {
+		t.Fatalf("outbox holds %d messages, want one", len(msgs))
+	}
+	msg := msgs[0]
+	for _, needle := range []string{phishName, "https://evil.example", "evil.example"} {
+		if strings.Contains(msg.Subject, needle) || strings.Contains(msg.Text, needle) || strings.Contains(msg.HTML, needle) {
+			t.Errorf("verify_email leaked %q in subject/text/html", needle)
+		}
+	}
+	for _, want := range []string{"Olá! Falta só um passo"} {
+		if !strings.Contains(msg.Text, want) {
+			t.Errorf("text lacks %q:\n%s", want, msg.Text)
+		}
+		if !strings.Contains(msg.HTML, want) {
+			t.Errorf("html lacks %q", want)
+		}
+	}
+}

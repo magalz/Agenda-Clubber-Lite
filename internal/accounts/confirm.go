@@ -151,7 +151,6 @@ func ResendConfirmation(ctx context.Context, store domain.Store, origin, email s
 			return nil
 		}
 		subject, text, html, err := mail.Render(mail.TemplateVerifyEmail, mail.VerifyEmailData{
-			Name: u.Name,
 			Link: origin + "/confirmar?token=" + raw,
 		})
 		if err != nil {

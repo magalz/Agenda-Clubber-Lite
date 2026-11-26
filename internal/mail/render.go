@@ -32,7 +32,6 @@ const (
 // VerifyEmailData is the data of TemplateVerifyEmail. The link confirms the
 // address and is good for 24 hours.
 type VerifyEmailData struct {
-	Name string
 	Link string
 }
 
