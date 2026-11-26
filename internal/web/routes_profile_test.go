@@ -331,6 +331,16 @@ func TestProfileEmailChangeLimitsTheForm(t *testing.T) {
 	}
 }
 
+func TestProfileEmailChangeLimitsPerEmail(t *testing.T) {
+	e := newProfileEnv(t)
+	e.app.Limits.EmailActionEmail = auth.NewLimiter(1, time.Hour)
+
+	profileWantRedirect(t, e.askEmail(profileNewEmail, header("CF-Connecting-IP", "198.51.100.1")), profilePath+"?msg="+msgEmailPending)
+	confirmAssertPage(t, e.askEmail(profileNewEmail, header("CF-Connecting-IP", "198.51.100.2")), http.StatusTooManyRequests, "Editar Perfil",
+		msgTooMany, `role="alert"`, `name="email" value="`+profileNewEmail+`"`, profileName)
+	profileWantRedirect(t, e.askEmail("outra@example.com", header("CF-Connecting-IP", "198.51.100.2")), profilePath+"?msg="+msgEmailPending)
+}
+
 func TestProfileEmailChangeRefusesTheCurrentAddress(t *testing.T) {
 	e := newProfileEnv(t)
 	body := confirmAssertPage(t, e.askEmail(profileEmail), http.StatusUnprocessableEntity, "Editar Perfil",

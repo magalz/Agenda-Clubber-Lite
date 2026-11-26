@@ -133,7 +133,7 @@ func (a *App) profileEmailSubmit(c *gin.Context) {
 		return
 	}
 	now := a.Now()
-	form, allowed, err := a.emailForm(c, a.Limits.EmailAction, "perfil-email", now)
+	form, allowed, err := a.emailForm(c, a.Limits.EmailAction, a.Limits.EmailActionEmail, "perfil-email", now)
 	if err != nil {
 		c.String(http.StatusBadRequest, "requisição inválida")
 		return

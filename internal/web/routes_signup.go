@@ -73,21 +73,16 @@ func emailHash(email string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// emailForm opens the forms that mail a link (signup, resend, forgot). It counts
-// the post against the client address (key prefix+":"+address) and parses the
-// form; a body that cannot be parsed is the error, which the handler answers
-// with a 400. When the address was allowed and the form names an e-mail, it
-// counts the post against that e-mail too (key prefix+"-email:"+hash, from any
-// address), so one person cannot be mailed in bulk. A refused address does not
-// spend the e-mail's budget. It returns the form and whether the post is allowed.
-func (a *App) emailForm(c *gin.Context, lim *auth.Limiter, prefix string, now time.Time) (url.Values, bool, error) {
-	allowed := lim.Allow(prefix+":"+c.ClientIP(), now)
+func (a *App) emailForm(c *gin.Context, ipLim, emailLim *auth.Limiter, prefix string, now time.Time) (url.Values, bool, error) {
+	allowed := ipLim.Allow(prefix+":"+c.ClientIP(), now)
 	form, err := a.parseForm(c)
 	if err != nil {
 		return nil, false, err
 	}
 	if email := form.Get("email"); allowed && strings.TrimSpace(email) != "" {
-		allowed = lim.Allow(prefix+"-email:"+emailHash(email), now)
+		if _, err := domain.NormalizeEmail(email); err == nil {
+			allowed = emailLim.Allow(prefix+"-email:"+emailHash(email), now)
+		}
 	}
 	return form, allowed, nil
 }
@@ -109,12 +104,10 @@ func (a *App) signupSent(c *gin.Context) {
 	a.page(c, http.StatusOK, "auth/cadastro-enviado", PageData{Title: "Confira seu e-mail"})
 }
 
-// signupSubmit registers the account. The post is counted against the client
-// address and the e-mail (see emailForm). The same page follows whether or not
-// the e-mail already had an account.
 func (a *App) signupSubmit(c *gin.Context) {
 	now := a.Now()
-	form, allowed, err := a.emailForm(c, a.Limits.Signup, "signup", now)
+	allowed := a.Limits.Signup.Allow("signup:"+c.ClientIP(), now)
+	form, err := a.parseForm(c)
 	if err != nil {
 		c.String(http.StatusBadRequest, "requisição inválida")
 		return
@@ -138,6 +131,19 @@ func (a *App) signupSubmit(c *gin.Context) {
 		Role:            domain.Role(form.Get("role")),
 	}
 	var fieldErrs domain.FieldErrors
+	if err := accounts.ValidateSignup(in); err != nil {
+		if errors.As(err, &fieldErrs) {
+			a.formPage(c, "auth/cadastro", signupData(kept, ""), fieldErrs)
+			return
+		}
+		a.Log.Error("signup", "err", err)
+		c.String(http.StatusInternalServerError, "erro interno")
+		return
+	}
+	if !a.Limits.SignupEmail.Allow("signup-email:"+emailHash(in.Email), now) {
+		a.page(c, http.StatusTooManyRequests, "auth/cadastro", signupData(kept, msgTooMany))
+		return
+	}
 	switch err := accounts.Signup(c.Request.Context(), a.Store, a.Cfg.Origin, now, in); {
 	case err == nil:
 		a.redirect(c, "/cadastro/enviado")

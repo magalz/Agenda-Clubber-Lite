@@ -830,3 +830,16 @@ func TestSignupVerifyEmailOmitsSubmittedName(t *testing.T) {
 		}
 	}
 }
+
+func TestValidateSignup(t *testing.T) {
+	if err := ValidateSignup(signupInput()); err != nil {
+		t.Fatalf("ValidateSignup(valid) = %v, want nil", err)
+	}
+
+	in := signupInput()
+	in.Name = ""
+	in.Email = "not-an-email"
+	in.PasswordConfirm = "other"
+	fe := signupFieldErrors(t, ValidateSignup(in))
+	signupAssertKeys(t, fe, "name", "email", "password_confirm")
+}
