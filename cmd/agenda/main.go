@@ -286,6 +286,7 @@ func newSender(cfg config.Config, log *slog.Logger) (mail.Sender, error) {
 		if err != nil {
 			return nil, err // untyped nil: a nil *SMTPSender in a mail.Sender is not nil
 		}
+		s.Log = log
 		log.Info("mail: sending through SMTP", "sender", "smtp")
 		return s, nil
 	default:
