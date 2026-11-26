@@ -360,7 +360,7 @@ func TestResendConfirmationIssuesANewLink(t *testing.T) {
 		t.Fatalf("outbox holds %d messages, want one verification email", len(msgs))
 	}
 	m := msgs[0]
-	if m.To != "ana@example.com" || !strings.Contains(m.Text, "Ana Souza") || !m.NextAttemptAt.Equal(confirmAt) || !m.CreatedAt.Equal(confirmAt) {
+	if m.To != "ana@example.com" || !strings.Contains(m.Text, "Olá! Falta só um passo") || strings.Contains(m.Text, "Ana Souza") || !m.NextAttemptAt.Equal(confirmAt) || !m.CreatedAt.Equal(confirmAt) {
 		t.Errorf("message = to %q next %v created %v text %q", m.To, m.NextAttemptAt, m.CreatedAt, m.Text)
 	}
 	fresh := signupLinkToken(t, m.Text)
@@ -435,5 +435,34 @@ func TestResendConfirmationStoreFailureIsAServerError(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), email) {
 		t.Errorf("the error carries the address: %v", err)
+	}
+}
+
+func TestResendConfirmationOmitsSubmittedName(t *testing.T) {
+	s := newTestStore(t)
+	ctx := t.Context()
+	const phishName = "Clique https://evil.example/premio"
+	u := confirmPendingUser(t, s, "ana@example.com", func(u *domain.User) { u.Name = phishName })
+
+	if err := ResendConfirmation(ctx, s, signupOrigin, u.Email, confirmAt); err != nil {
+		t.Fatalf("ResendConfirmation: %v", err)
+	}
+	msgs := confirmOutbox(t, s, confirmAt)
+	if len(msgs) != 1 {
+		t.Fatalf("outbox holds %d messages, want one", len(msgs))
+	}
+	m := msgs[0]
+	for _, needle := range []string{phishName, "https://evil.example", "evil.example"} {
+		if strings.Contains(m.Subject, needle) || strings.Contains(m.Text, needle) || strings.Contains(m.HTML, needle) {
+			t.Errorf("verify_email leaked %q in subject/text/html", needle)
+		}
+	}
+	for _, want := range []string{"Olá! Falta só um passo"} {
+		if !strings.Contains(m.Text, want) {
+			t.Errorf("text lacks %q:\n%s", want, m.Text)
+		}
+		if !strings.Contains(m.HTML, want) {
+			t.Errorf("html lacks %q", want)
+		}
 	}
 }

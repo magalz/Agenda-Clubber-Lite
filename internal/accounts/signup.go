@@ -90,7 +90,6 @@ func Signup(ctx context.Context, store domain.Store, origin string, now time.Tim
 		return fmt.Errorf("accounts: signup: %w", err)
 	}
 	subject, text, html, err := mail.Render(mail.TemplateVerifyEmail, mail.VerifyEmailData{
-		Name: f.name,
 		Link: origin + "/confirmar?token=" + raw,
 	})
 	if err != nil {
