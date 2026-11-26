@@ -149,6 +149,16 @@ Tokens are defined once in `web/static/css/tokens.css`; every other stylesheet u
   - `Meus Eventos` (`meus-eventos.html`, as well as `Analisar Data` and the calendar) shows a truncation notice when results hit `domain.ListLimitMax` (500);
   - day back link (`routes_day.go`) on an invalid `?data=` (422) points to the current month keeping the active `?uf=`/`?cidade=` filter (`calendarHref`);
   - substyle option (`routes_options.go` `substyleOptions`) renders `domain.StyleOther` (`"outros"`) with label `"Outros"`.
+- SecOps backlog round (`docs/adr/INDEX.md`, `docs/bdr/INDEX.md`):
+  - `ACL-49` / `ACL-32`: upgraded `golang.org/x/crypto` to `v0.59.0` (resolving `GO-2026-5932`) and `github.com/wneessen/go-mail` to `v0.8.2` (fixing socket leaks on Hello/STARTTLS/AUTH failure, verified by active-connection cleanup tests);
+  - `ACL-38`: `SMTPSender.Send` splits dial/send/close (`DialToSMTPClientWithContext`, `SendWithSMTPClient`, `CloseWithSMTPClient`) so a `QUIT` error after `250 DATA` logs a redacted warning via `SMTPSender.Log` and returns `nil` instead of retrying;
+  - `ACL-21` (`ADR-001`): `mongostore` serializes reference-checked writes against concurrent `Users.Delete` / `Collectives.Delete` via atomic `$inc: {rev: 1}` (`mustExist`) inside `inTx`, adding `rev` to `users` alongside `collectives`;
+  - `ACL-67`: `domain.TextProblem` rejects Unicode `Cf` format characters and `U+2028`/`U+2029` separators alongside control characters, unified across `signupValidate` and `newAdmin`;
+  - `ACL-43` (`BDR-001`): login, `POST /senha/trocar`, and `POST /senha/verificar` share the 5-try / 15-min account lockout on wrong non-empty `current_password` (valid `current_password` resets `FailedLogins`; locked accounts skip Argon2);
+  - `ACL-37`: `Outbox.Claim` returns `nil` without claiming when `limit < 1` or `lease <= 0`;
+  - `ACL-48` (`BDR-001`): `verify_email.tmpl` uses a nameless `"Olá!"` greeting (omitting untrusted signup `Name` from `VerifyEmailData`), while `existing_account.tmpl` keeps the stored account name;
+  - `ACL-41` (`ADR-002`): `Limits` isolates IP (`Signup`, `EmailAction`) and email-hash (`SignupEmail`, `EmailActionEmail`) rate limiters, and `POST /cadastro` runs `accounts.ValidateSignup` before charging `SignupEmail`;
+  - `ACL-39` (`BDR-001`): PO accepted the low-value two-step collective-name signup enumeration risk (closed community, 5/h IP limit, 7-day unconfirmed-signup purge); no code change.
 
 ## Testing and checks
 
