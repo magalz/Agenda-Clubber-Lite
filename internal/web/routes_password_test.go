@@ -27,6 +27,7 @@ const (
 
 	passwordMsgDone         = "senha alterada. as outras sessões foram encerradas."
 	passwordMsgExpired      = "sua senha venceu: ela vale por 90 dias. crie uma nova para continuar."
+	passwordMsgLocked       = "muitas tentativas de senha incorreta. a conta está bloqueada por 15 minutos."
 	passwordMsgWrongCurrent = "senha atual incorreta"
 	passwordMsgRequired     = "campo obrigatório"
 	passwordMsgPolicy       = "requisitos da senha:"
@@ -95,9 +96,15 @@ func (e passwordEnv) change(current, password, confirm string) *httptest.Respons
 	return post(e.r, passwordPathChange, form.Encode(), withCookie(e.cookie))
 }
 
-// verify posts a password to the live history check, as the page's script does.
+// verify posts current and new passwords to the live history check, as the page's script does.
 func (e passwordEnv) verify(password string) *httptest.ResponseRecorder {
-	return e.verifyRaw(url.Values{"password": {password}}.Encode())
+	return e.verifyWith(loginTestPassword, password)
+}
+
+// verifyWith posts explicit current_password and password values to the live history check.
+func (e passwordEnv) verifyWith(current, password string) *httptest.ResponseRecorder {
+	form := url.Values{"current_password": {current}, "password": {password}}
+	return e.verifyRaw(form.Encode())
 }
 
 // verifyRaw is verify with the body as it goes on the wire.
@@ -224,7 +231,7 @@ func TestPasswordChangeShowsTheForm(t *testing.T) {
 		`data-email="`+resetEmail+`"`,
 		`<ul class="checklist" id="password-checklist" hx-post="/senha/verificar"`,
 		`hx-trigger="input changed delay:400ms from:#password"`,
-		`hx-target="#password-history"`, `hx-swap="outerHTML"`, `hx-params="password"`)
+		`hx-target="#password-history"`, `hx-swap="outerHTML"`, `hx-params="password,current_password"`)
 	passwordFormChecks(t, body)
 	for _, absent := range []string{`role="alert"`, `role="status"`, "sua senha venceu", `class="field-error"`} {
 		if strings.Contains(body, absent) {
@@ -489,19 +496,96 @@ func TestPasswordVerifyLooksNowhereForInputThatCannotBeChecked(t *testing.T) {
 	for name, body := range map[string]string{
 		"no field":       "",
 		"empty":          "password=",
-		"over 128 runes": "password=" + strings.Repeat("a", auth.MaxLength+1),
+		"empty current":  "password=" + url.QueryEscape(signupPassword),
+		"over 128 runes": url.Values{"current_password": {loginTestPassword}, "password": {strings.Repeat("a", auth.MaxLength+1)}}.Encode(),
 	} {
 		t.Run(name, func(t *testing.T) {
 			passwordItemState(t, e.verifyRaw(body), "pending")
 		})
 	}
-	// At the limit it is looked up.
-	passwordWantServerError(t, e.verifyRaw("password="+url.QueryEscape(strings.Repeat("é", auth.MaxLength))), e.logs)
+	passwordWantServerError(t, e.verifyWith(loginTestPassword, strings.Repeat("é", auth.MaxLength)), e.logs)
 
-	// A body that is not UTF-8 is refused before anything else.
 	if rec := e.verifyRaw("password=%ff"); rec.Code != http.StatusBadRequest {
 		t.Errorf("invalid UTF-8: status = %d, want 400", rec.Code)
 	}
+}
+
+func TestPasswordChangeLocksAfterFiveWrongCurrentPasswords(t *testing.T) {
+	e := newPasswordEnv(t)
+	e.app.Limits.PasswordCheck = auth.NewLimiter(20, time.Minute)
+
+	for i := 1; i < 5; i++ {
+		rec := e.change(passwordWrong, signupPassword, signupPassword)
+		confirmAssertPage(t, rec, http.StatusUnprocessableEntity, "Trocar senha", passwordMsgWrongCurrent)
+	}
+
+	rec := e.change(passwordWrong, signupPassword, signupPassword)
+	body := confirmAssertPage(t, rec, http.StatusTooManyRequests, "Trocar senha", passwordMsgLocked, `role="alert"`)
+	passwordFormChecks(t, body)
+
+	u, err := e.store.Repos().Users.ByID(context.Background(), e.user.ID)
+	if err != nil {
+		t.Fatalf("ByID: %v", err)
+	}
+	wantLock := webTestNow.Add(15 * time.Minute).Truncate(time.Millisecond)
+	if u.LockedUntil == nil || !u.LockedUntil.Equal(wantLock) {
+		t.Fatalf("LockedUntil = %v, want %v", u.LockedUntil, wantLock)
+	}
+
+	rec = e.change(loginTestPassword, signupPassword, signupPassword)
+	confirmAssertPage(t, rec, http.StatusTooManyRequests, "Trocar senha", passwordMsgLocked, `role="alert"`)
+	passwordItemState(t, e.verify(signupPassword), "pending")
+	e.wantUnchanged(t)
+	passwordWantNoSecrets(t, "the log", e.logs.String())
+}
+
+func TestPasswordVerifyLocksAndResetsFailures(t *testing.T) {
+	t.Run("empty current records no failures", func(t *testing.T) {
+		e := newPasswordEnv(t)
+		passwordItemState(t, e.verifyWith("", signupPassword), "pending")
+		u, err := e.store.Repos().Users.ByID(context.Background(), e.user.ID)
+		if err != nil {
+			t.Fatalf("ByID: %v", err)
+		}
+		if u.FailedLogins != 0 || u.LockedUntil != nil {
+			t.Errorf("FailedLogins = %d, LockedUntil = %v; want 0, nil", u.FailedLogins, u.LockedUntil)
+		}
+	})
+
+	t.Run("valid current resets prior failures", func(t *testing.T) {
+		e := newPasswordEnv(t)
+		e.app.Limits.PasswordCheck = auth.NewLimiter(20, time.Minute)
+		for range 2 {
+			passwordItemState(t, e.verifyWith(passwordWrong, signupPassword), "pending")
+		}
+		passwordItemState(t, e.verifyWith(loginTestPassword, signupPassword), "ok")
+		u, err := e.store.Repos().Users.ByID(context.Background(), e.user.ID)
+		if err != nil {
+			t.Fatalf("ByID: %v", err)
+		}
+		if u.FailedLogins != 0 {
+			t.Errorf("FailedLogins = %d, want 0", u.FailedLogins)
+		}
+	})
+
+	t.Run("five wrong current passwords lock the account", func(t *testing.T) {
+		e := newPasswordEnv(t)
+		e.app.Limits.PasswordCheck = auth.NewLimiter(20, time.Minute)
+		for range 5 {
+			passwordItemState(t, e.verifyWith(passwordWrong, signupPassword), "pending")
+		}
+		u, err := e.store.Repos().Users.ByID(context.Background(), e.user.ID)
+		if err != nil {
+			t.Fatalf("ByID: %v", err)
+		}
+		wantLock := webTestNow.Add(15 * time.Minute).Truncate(time.Millisecond)
+		if u.LockedUntil == nil || !u.LockedUntil.Equal(wantLock) {
+			t.Fatalf("LockedUntil = %v, want %v", u.LockedUntil, wantLock)
+		}
+		passwordItemState(t, e.verifyWith(loginTestPassword, signupPassword), "pending")
+		confirmAssertPage(t, e.change(loginTestPassword, signupPassword, signupPassword), http.StatusTooManyRequests, "Trocar senha", passwordMsgLocked, `role="alert"`)
+		passwordWantNoSecrets(t, "the log", e.logs.String())
+	})
 }
 
 func TestPasswordVerifyUnreadableHistoryIsAServerError(t *testing.T) {
@@ -530,7 +614,7 @@ func TestPasswordVerifyIsLimitedPerAccount(t *testing.T) {
 	if rec := e.change(loginTestPassword, signupPassword, signupPassword); rec.Code != http.StatusOK {
 		t.Errorf("change after the checks ran out = %d, want 200", rec.Code)
 	}
-	rec = post(e.r, passwordPathCheck, url.Values{"password": {signupPassword}}.Encode(), withCookie(passwordStranger(t, e)), hx)
+	rec = post(e.r, passwordPathCheck, url.Values{"current_password": {loginTestPassword}, "password": {signupPassword}}.Encode(), withCookie(passwordStranger(t, e)), hx)
 	passwordItemState(t, rec, "ok")
 }
 

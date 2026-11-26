@@ -3,7 +3,6 @@ package web
 import (
 	"errors"
 	"net/http"
-	"unicode/utf8"
 
 	"github.com/gin-gonic/gin"
 
@@ -20,6 +19,9 @@ const (
 
 // changeMsgDone is the status of the done page.
 const changeMsgDone = "senha alterada. as outras sessões foram encerradas."
+
+// changeMsgLocked is the alert shown when the account is locked by wrong current passwords.
+const changeMsgLocked = "muitas tentativas de senha incorreta. a conta está bloqueada por 15 minutos."
 
 // The verdicts of the history item, the State of the password-history partial.
 const (
@@ -106,6 +108,8 @@ func (a *App) changeSubmit(c *gin.Context) {
 	case err == nil:
 		a.page(c, http.StatusOK, "app/senha-trocar", PageData{Title: "Trocar senha", Nav: "perfil", User: a.changePageUser(c),
 			Data: changeView{State: changeStateDone, Message: changeMsgDone}})
+	case errors.Is(err, accounts.ErrLoginLocked):
+		a.page(c, http.StatusTooManyRequests, "app/senha-trocar", a.changeFormData(c, u, changeMsgLocked))
 	case errors.As(err, &fieldErrs):
 		a.formPage(c, "app/senha-trocar", a.changeFormData(c, u, ""), fieldErrs)
 	default:
@@ -115,14 +119,7 @@ func (a *App) changeSubmit(c *gin.Context) {
 }
 
 // changeCheck answers the live check of the history rule with the one history
-// item (the password-history partial), which htmx swaps into the checklist. It
-// checks nothing but that rule: the other rules are the script's and the
-// submit's. An empty or too long password is "pending" without a lookup, which
-// would only cost argon2 work for an answer the submit gives anyway. A history
-// that cannot be read is a 500, which htmx does not swap, never "ok". The
-// budget is per account and apart from the form's, and a refused check is a
-// 429 with an empty body, which htmx does not swap either: the item on the page
-// stays as it was.
+// item (the password-history partial), which htmx swaps into the checklist.
 func (a *App) changeCheck(c *gin.Context) {
 	u, ok := a.signedInUser(c, "change password")
 	if !ok {
@@ -137,17 +134,15 @@ func (a *App) changeCheck(c *gin.Context) {
 		c.String(http.StatusBadRequest, "requisição inválida")
 		return
 	}
+	historyOKFlag, err := accounts.CheckPasswordHistory(c.Request.Context(), a.Store, u.ID, form.Get("current_password"), form.Get("password"), a.Now())
+	if err != nil {
+		a.Log.Error("check password history", "err", err)
+		c.String(http.StatusInternalServerError, "erro interno")
+		return
+	}
 	state := historyPending
-	if password := form.Get("password"); password != "" && utf8.RuneCountInString(password) <= auth.MaxLength {
-		reused, err := accounts.PasswordReused(c.Request.Context(), a.Store, u.ID, password)
-		if err != nil {
-			a.Log.Error("check password history", "err", err)
-			c.String(http.StatusInternalServerError, "erro interno")
-			return
-		}
-		if !reused {
-			state = historyOK
-		}
+	if historyOKFlag {
+		state = historyOK
 	}
 	a.Render.Partial(c, http.StatusOK, "password-history", map[string]any{
 		"State": state,

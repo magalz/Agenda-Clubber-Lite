@@ -47,13 +47,29 @@ func ChangePassword(ctx context.Context, store domain.Store, userID, keepSession
 		return err
 	}
 
+	if u.LockedUntil != nil && now.Before(*u.LockedUntil) {
+		return ErrLoginLocked
+	}
+
 	ok, err := auth.VerifyPassword(u.PasswordHash, current)
 	if err != nil {
 		return fmt.Errorf("accounts: change password: check current password: %w", err)
 	}
 	if !ok {
+		locked, err := store.Repos().Users.RecordLoginFailure(ctx, u.ID, now, LoginMaxFailures, LoginLockFor)
+		if err != nil {
+			return fmt.Errorf("accounts: change password: record failure: %w", err)
+		}
+		if locked {
+			return ErrLoginLocked
+		}
 		fe.Add("current_password", changeMsgWrongCurrent)
 		return fe.Err()
+	}
+	if u.FailedLogins > 0 {
+		if err := store.Repos().Users.ResetLoginFailures(ctx, u.ID); err != nil {
+			return fmt.Errorf("accounts: change password: reset failures: %w", err)
+		}
 	}
 
 	newHash, err := passwordHashPassword(password)
@@ -169,10 +185,45 @@ func passwordFieldErrors(fe *domain.FieldErrors, password, confirm, email string
 	}
 }
 
-// PasswordReused reports whether password matches one of the user's last two
-// hashes; a hash that cannot be read is an error, never false.
-func PasswordReused(ctx context.Context, store domain.Store, userID, password string) (bool, error) {
-	return passwordInHistory(ctx, store.Repos().Users, userID, password)
+// CheckPasswordHistory reports whether password is not in the user's recent
+// password history after verifying current against the account's password.
+// It returns false without hashing when current or password is empty, password
+// exceeds auth.MaxLength runes, or the account is locked.
+func CheckPasswordHistory(ctx context.Context, store domain.Store, userID, current, password string, now time.Time) (bool, error) {
+	if current == "" || password == "" || utf8.RuneCountInString(password) > auth.MaxLength {
+		return false, nil
+	}
+	users := store.Repos().Users
+	u, err := users.ByID(ctx, userID)
+	if err != nil {
+		return false, fmt.Errorf("accounts: check password history: find account: %w", err)
+	}
+	if u.Status != domain.UserStatusActive {
+		return false, fmt.Errorf("accounts: check password history: account %s is not active", userID)
+	}
+	if u.LockedUntil != nil && now.Before(*u.LockedUntil) {
+		return false, nil
+	}
+	ok, err := auth.VerifyPassword(u.PasswordHash, current)
+	if err != nil {
+		return false, fmt.Errorf("accounts: check password history: verify current password: %w", err)
+	}
+	if !ok {
+		if _, err := users.RecordLoginFailure(ctx, u.ID, now, LoginMaxFailures, LoginLockFor); err != nil {
+			return false, fmt.Errorf("accounts: check password history: record failure: %w", err)
+		}
+		return false, nil
+	}
+	if u.FailedLogins > 0 {
+		if err := users.ResetLoginFailures(ctx, u.ID); err != nil {
+			return false, fmt.Errorf("accounts: check password history: reset failures: %w", err)
+		}
+	}
+	reused, err := passwordInHistory(ctx, users, userID, password)
+	if err != nil {
+		return false, err
+	}
+	return !reused, nil
 }
 
 // passwordInHistory reports whether password matches one of the user's last
