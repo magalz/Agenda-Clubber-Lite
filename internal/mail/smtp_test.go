@@ -1,6 +1,7 @@
 package mail
 
 import (
+	"bytes"
 	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
@@ -10,6 +11,7 @@ import (
 	"crypto/x509/pkix"
 	"encoding/base64"
 	"errors"
+	"log/slog"
 	"math/big"
 	"net"
 	"net/textproto"
@@ -17,6 +19,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -44,6 +47,8 @@ type fakeSMTPOptions struct {
 	rcptRefuse    bool // 550 to RCPT
 	dataRefuse    bool // 554 to DATA, before the server asks for the content
 	contentRefuse bool // 554 to the end of the content
+	quitRefuse    bool
+	quitDrop      bool
 }
 
 // deliveredMail is what the fake server got through MAIL, RCPT and DATA.
@@ -59,6 +64,7 @@ type fakeSMTP struct {
 	opts      fakeSMTPOptions
 	ln        net.Listener
 	delivered chan deliveredMail
+	active    atomic.Int32
 
 	mu    sync.Mutex
 	cmds  []string // verbs in order of arrival
@@ -88,9 +94,11 @@ func startFakeSMTP(t *testing.T, opts fakeSMTPOptions) *fakeSMTP {
 			mu.Lock()
 			conns = append(conns, conn)
 			mu.Unlock()
+			f.active.Add(1)
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
+				defer f.active.Add(-1)
 				f.serve(conn)
 			}()
 		}
@@ -164,6 +172,18 @@ func (f *fakeSMTP) noDelivery(t *testing.T) {
 	}
 }
 
+func (f *fakeSMTP) waitNoActiveConns(t *testing.T) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if f.active.Load() == 0 {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("active connections = %d, want 0", f.active.Load())
+}
+
 // addrIn returns the address between the angle brackets of a MAIL or RCPT
 // argument such as "TO:<ana@example.com>".
 func addrIn(arg string) string {
@@ -180,6 +200,7 @@ func (f *fakeSMTP) serve(conn net.Conn) {
 	var (
 		secured    bool
 		cur        deliveredMail
+		lastRcpt   string
 		user, pass string // from the last AUTH PLAIN
 	)
 	for {
@@ -262,6 +283,7 @@ func (f *fakeSMTP) serve(conn net.Conn) {
 				continue
 			}
 			cur.rcpt = append(cur.rcpt, arg)
+			lastRcpt = addrIn(arg)
 			_ = tp.PrintfLine("250 2.1.5 ok")
 		case "DATA":
 			if f.opts.dataRefuse {
@@ -287,6 +309,13 @@ func (f *fakeSMTP) serve(conn net.Conn) {
 		case "NOOP", "RSET":
 			_ = tp.PrintfLine("250 2.0.0 ok")
 		case "QUIT":
+			if f.opts.quitRefuse {
+				_ = tp.PrintfLine("421 4.4.2 closing for <%s> (login %s:%s)", lastRcpt, user, pass)
+				return
+			}
+			if f.opts.quitDrop {
+				return
+			}
 			_ = tp.PrintfLine("221 2.0.0 bye")
 			return
 		default:
@@ -743,6 +772,103 @@ func TestNewSMTPSenderValidatesTheConfig(t *testing.T) {
 				t.Fatal("NewSMTPSender succeeded, want an error")
 			}
 			checkNoSecrets(t, err)
+		})
+	}
+}
+
+func TestSMTPSenderSucceedsWhenQuitFails(t *testing.T) {
+	serverTLS, clientTLS := selfSigned(t)
+	cases := []struct {
+		name string
+		opts fakeSMTPOptions
+	}{
+		{"421 on QUIT", fakeSMTPOptions{tls: serverTLS, auth: true, quitRefuse: true}},
+		{"connection dropped on QUIT", fakeSMTPOptions{tls: serverTLS, auth: true, quitDrop: true}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := startFakeSMTP(t, tc.opts)
+			cfg := srv.config()
+			cfg.Username, cfg.Password = testUsername, testPassword
+			s, err := newSMTPSender(cfg, gomail.WithTLSConfig(clientTLS))
+			if err != nil {
+				t.Fatalf("newSMTPSender: %v", err)
+			}
+			var logBuf bytes.Buffer
+			s.Log = slog.New(slog.NewTextHandler(&logBuf, nil))
+
+			msg := sampleMessage()
+			if err := s.Send(context.Background(), msg); err != nil {
+				t.Fatalf("Send = %v, want nil", err)
+			}
+			checkDelivered(t, srv.next(t))
+			srv.noDelivery(t)
+			srv.waitNoActiveConns(t)
+
+			logged := logBuf.String()
+			if !strings.Contains(logged, "level=WARN") || !strings.Contains(logged, "mail: smtp close failed after delivery") {
+				t.Errorf("log = %q, want WARN about smtp close failure", logged)
+			}
+			checkNoCredentials(t, errors.New(logged), testUsername, testPassword)
+			checkNoAddress(t, logged, msg.To)
+		})
+	}
+}
+
+func TestSMTPSenderDoesNotMaskSendErrorWithCloseError(t *testing.T) {
+	serverTLS, clientTLS := selfSigned(t)
+	srv := startFakeSMTP(t, fakeSMTPOptions{tls: serverTLS, auth: true, rcptRefuse: true, quitRefuse: true})
+	cfg := srv.config()
+	cfg.Username, cfg.Password = testUsername, testPassword
+	s, err := newSMTPSender(cfg, gomail.WithTLSConfig(clientTLS))
+	if err != nil {
+		t.Fatalf("newSMTPSender: %v", err)
+	}
+	var logBuf bytes.Buffer
+	s.Log = slog.New(slog.NewTextHandler(&logBuf, nil))
+
+	msg := sampleMessage()
+	err = s.Send(context.Background(), msg)
+	if err == nil {
+		t.Fatal("Send succeeded after RCPT 550, want an error")
+	}
+	if !strings.Contains(err.Error(), "550") {
+		t.Errorf("error = %q, want 550 RCPT error", err)
+	}
+	checkNoSecrets(t, err)
+	checkNoAddress(t, err.Error(), msg.To)
+	if logBuf.Len() != 0 {
+		t.Errorf("log = %q, want empty when send failed", logBuf.String())
+	}
+	srv.noDelivery(t)
+	srv.waitNoActiveConns(t)
+}
+
+func TestSMTPSenderClosesConnectionOnHandshakeFailure(t *testing.T) {
+	serverTLS, clientTLS := selfSigned(t)
+	cases := []struct {
+		name  string
+		opts  fakeSMTPOptions
+		extra []gomail.Option
+	}{
+		{"STARTTLS unavailable", fakeSMTPOptions{auth: true}, nil},
+		{"untrusted certificate", fakeSMTPOptions{tls: serverTLS, auth: true}, nil},
+		{"AUTH PLAIN refused", fakeSMTPOptions{tls: serverTLS, auth: true, authEcho: true}, []gomail.Option{gomail.WithTLSConfig(clientTLS)}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := startFakeSMTP(t, tc.opts)
+			cfg := srv.config()
+			cfg.Username, cfg.Password = testUsername, testPassword
+			s, err := newSMTPSender(cfg, tc.extra...)
+			if err != nil {
+				t.Fatalf("newSMTPSender: %v", err)
+			}
+			if err := s.Send(context.Background(), sampleMessage()); err == nil {
+				t.Fatal("Send succeeded, want an error")
+			}
+			srv.noDelivery(t)
+			srv.waitNoActiveConns(t)
 		})
 	}
 }
