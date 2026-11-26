@@ -506,8 +506,16 @@ func TestSignupRefusesControlCharactersInNames(t *testing.T) {
 		{"name with a tab", func(in *SignupInput) { in.Name = "Ana\tSouza" }, "name", "Noite Verde"},
 		{"name with NUL", func(in *SignupInput) { in.Name = "Ana\x00Souza" }, "name", "Noite Verde"},
 		{"name with a C1 control", func(in *SignupInput) { in.Name = "Ana\u0085Souza" }, "name", "Noite Verde"},
+		{"name with RLO", func(in *SignupInput) { in.Name = "Ana\u202eSouza" }, "name", "Noite Verde"},
+		{"name with ZWSP", func(in *SignupInput) { in.Name = "Ana\u200bSouza" }, "name", "Noite Verde"},
+		{"name with line separator", func(in *SignupInput) { in.Name = "Ana\u2028Souza" }, "name", "Noite Verde"},
+		{"name with paragraph separator", func(in *SignupInput) { in.Name = "Ana\u2029Souza" }, "name", "Noite Verde"},
 		{"collective name with LF", func(in *SignupInput) { in.CollectiveName = "Noite\nVerde" }, "collective", "Noite\nVerde"},
 		{"collective name with a tab", func(in *SignupInput) { in.CollectiveName = "Noite\tVerde" }, "collective", "Noite\tVerde"},
+		{"collective name with RLO", func(in *SignupInput) { in.CollectiveName = "Noite\u202eVerde" }, "collective", "Noite\u202eVerde"},
+		{"collective name with ZWSP", func(in *SignupInput) { in.CollectiveName = "Noite\u200bVerde" }, "collective", "Noite\u200bVerde"},
+		{"collective name with line separator", func(in *SignupInput) { in.CollectiveName = "Noite\u2028Verde" }, "collective", "Noite\u2028Verde"},
+		{"collective name with paragraph separator", func(in *SignupInput) { in.CollectiveName = "Noite\u2029Verde" }, "collective", "Noite\u2029Verde"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

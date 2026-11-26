@@ -357,12 +357,23 @@ func (e AuditEntry) Validate() error {
 	return f.Err()
 }
 
+func isDisallowedTextRune(r rune, multiline bool) bool {
+	if unicode.Is(unicode.Cf, r) || r == '\u2028' || r == '\u2029' {
+		return true
+	}
+	if !unicode.IsControl(r) {
+		return false
+	}
+	return !multiline || (r != '\n' && r != '\t')
+}
+
 // TextProblem checks free text typed in a form: valid UTF-8 (MsgInvalid), no
-// control character, and a length of min to max runes after trimming surrounding
+// control character, Unicode format character (Cf) or line/paragraph separator
+// (U+2028, U+2029), and a length of min to max runes after trimming surrounding
 // space (see LengthProblem; a min of 0 makes the text optional). It returns the
-// pt-BR message for the field, or "". A single-line text may hold no control
+// pt-BR message for the field, or "". A single-line text may hold no disallowed
 // character at all (MsgControl); a multi-line one may hold line feeds and tabs
-// (msgTextControl for any other). The control check runs on s as given, so a
+// (msgTextControl for any other). The character check runs on s as given, so a
 // line break at the end is refused in a single line even though the length
 // ignores it. A carriage return is a control character: a caller that takes text
 // from a browser textarea turns CRLF into LF first.
@@ -370,9 +381,10 @@ func TextProblem(s string, min, max int, multiline bool) string {
 	switch {
 	case !utf8.ValidString(s):
 		return MsgInvalid
-	case multiline && strings.ContainsFunc(s, func(r rune) bool { return unicode.IsControl(r) && r != '\n' && r != '\t' }):
-		return msgTextControl
-	case !multiline && strings.ContainsFunc(s, unicode.IsControl):
+	case strings.ContainsFunc(s, func(r rune) bool { return isDisallowedTextRune(r, multiline) }):
+		if multiline {
+			return msgTextControl
+		}
 		return MsgControl
 	}
 	return LengthProblem(s, min, max)
