@@ -36,26 +36,29 @@ func (r memberships) Create(ctx context.Context, m domain.Membership) error {
 	if err != nil {
 		return err
 	}
-	for _, ref := range []struct {
-		collection string
-		id         *bson.ObjectID
-	}{
-		{colUsers, &userID},
-		{colCollectives, &collectiveID},
-		{colUsers, adminBy},
-		{colUsers, ownerBy},
-	} {
-		if err := r.s.mustExist(ctx, ref.collection, ref.id); err != nil {
-			return err
+	doc := membershipToDoc(m, userID, collectiveID, adminBy, ownerBy)
+	return r.s.inTx(ctx, func(ctx context.Context) error {
+		for _, ref := range []struct {
+			collection string
+			id         *bson.ObjectID
+		}{
+			{colUsers, &userID},
+			{colCollectives, &collectiveID},
+			{colUsers, adminBy},
+			{colUsers, ownerBy},
+		} {
+			if err := r.s.mustExist(ctx, ref.collection, ref.id); err != nil {
+				return err
+			}
 		}
-	}
-	if _, err := r.coll().InsertOne(ctx, membershipToDoc(m, userID, collectiveID, adminBy, ownerBy)); err != nil {
-		if mongo.IsDuplicateKeyError(err) {
-			return domain.ErrAlreadyMember
+		if _, err := r.coll().InsertOne(ctx, doc); err != nil {
+			if mongo.IsDuplicateKeyError(err) {
+				return domain.ErrAlreadyMember
+			}
+			return wrap("create membership", err)
 		}
-		return wrap("create membership", err)
-	}
-	return nil
+		return nil
+	})
 }
 
 // ListByUser joins each membership with its collective, with the flag that
@@ -224,11 +227,6 @@ func (r memberships) Update(ctx context.Context, m domain.Membership) error {
 	if err != nil {
 		return err
 	}
-	for _, id := range []*bson.ObjectID{adminBy, ownerBy} {
-		if err := r.s.mustExist(ctx, colUsers, id); err != nil {
-			return err
-		}
-	}
 	set := bson.M{"role": string(m.Role), "status": string(m.Status)}
 	unset := bson.M{}
 	for _, f := range []struct {
@@ -252,14 +250,21 @@ func (r memberships) Update(ctx context.Context, m domain.Membership) error {
 	if len(unset) > 0 {
 		update["$unset"] = unset
 	}
-	res, err := r.coll().UpdateOne(ctx, filter, update)
-	if err != nil {
-		return wrap("update membership", err)
-	}
-	if res.MatchedCount == 0 {
-		return domain.ErrNotFound
-	}
-	return nil
+	return r.s.inTx(ctx, func(ctx context.Context) error {
+		for _, id := range []*bson.ObjectID{adminBy, ownerBy} {
+			if err := r.s.mustExist(ctx, colUsers, id); err != nil {
+				return err
+			}
+		}
+		res, err := r.coll().UpdateOne(ctx, filter, update)
+		if err != nil {
+			return wrap("update membership", err)
+		}
+		if res.MatchedCount == 0 {
+			return domain.ErrNotFound
+		}
+		return nil
+	})
 }
 
 func (r memberships) Delete(ctx context.Context, userID, collectiveID string) error {

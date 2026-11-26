@@ -25,16 +25,19 @@ func (r sessions) Create(ctx context.Context, s domain.Session) error {
 	if err != nil {
 		return err
 	}
-	if err := r.s.mustExist(ctx, colUsers, &userID); err != nil {
-		return err
-	}
-	if _, err := r.coll().InsertOne(ctx, sessionToDoc(s, userID)); err != nil {
-		if mongo.IsDuplicateKeyError(err) {
-			return domain.ErrConflict
+	doc := sessionToDoc(s, userID)
+	return r.s.inTx(ctx, func(ctx context.Context) error {
+		if err := r.s.mustExist(ctx, colUsers, &userID); err != nil {
+			return err
 		}
-		return wrap("create session", err)
-	}
-	return nil
+		if _, err := r.coll().InsertOne(ctx, doc); err != nil {
+			if mongo.IsDuplicateKeyError(err) {
+				return domain.ErrConflict
+			}
+			return wrap("create session", err)
+		}
+		return nil
+	})
 }
 
 // Get returns the session even when it has expired: the caller checks ExpiresAt.

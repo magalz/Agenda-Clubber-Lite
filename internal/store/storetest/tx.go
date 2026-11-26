@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -524,6 +525,116 @@ func RunTx(t *testing.T, newStore NewStore) {
 			wantOneWinner(t, "WithTx", errs, domain.ErrEmailTaken)
 			if _, err := e.r.Users.ByEmail(e.ctx, "racer@example.com"); err != nil {
 				t.Errorf("ByEmail: %v", err)
+			}
+		}},
+		{"concurrent Users.Delete vs Sessions.Create, Tokens.Create and Memberships.Create leaves no orphans", func(t *testing.T, e env) {
+			c := e.collective("Casa Race User", coletivo, cApproved)
+			for i := range 20 {
+				u := e.user(fmt.Sprintf("race-user-%d", i))
+				sess := newSession(u.ID, fmt.Sprintf("race-sess-%d", i))
+				tok := newToken(u.ID, resetPassword, fmt.Sprintf("race-tok-%d", i))
+				mem := newMembership(u, c, roleMember, mPending)
+
+				var deleteErr, sessErr, tokErr, memErr error
+				start := make(chan struct{})
+				var wg sync.WaitGroup
+				wg.Add(4)
+				go func() {
+					defer wg.Done()
+					<-start
+					deleteErr = e.r.Users.Delete(e.ctx, u.ID)
+				}()
+				go func() {
+					defer wg.Done()
+					<-start
+					sessErr = e.r.Sessions.Create(e.ctx, sess)
+				}()
+				go func() {
+					defer wg.Done()
+					<-start
+					tokErr = e.r.Tokens.Create(e.ctx, &tok)
+				}()
+				go func() {
+					defer wg.Done()
+					<-start
+					memErr = e.r.Memberships.Create(e.ctx, mem)
+				}()
+				close(start)
+				wg.Wait()
+
+				noErr(t, fmt.Sprintf("iter %d Users.Delete", i), deleteErr)
+				for _, res := range []struct {
+					name string
+					err  error
+				}{
+					{"Sessions.Create", sessErr},
+					{"Tokens.Create", tokErr},
+					{"Memberships.Create", memErr},
+				} {
+					if res.err != nil && !errors.Is(res.err, domain.ErrNotFound) {
+						t.Errorf("iter %d %s: got %v, want nil or ErrNotFound", i, res.name, res.err)
+					}
+				}
+				_, err := e.r.Sessions.Get(e.ctx, sess.Hash)
+				isErr(t, fmt.Sprintf("iter %d orphan session", i), err, domain.ErrNotFound)
+				_, err = e.r.Tokens.Consume(e.ctx, tok.Purpose, tok.Hash, at(time.Minute))
+				isErr(t, fmt.Sprintf("iter %d orphan token", i), err, domain.ErrNotFound)
+				_, err = e.r.Memberships.Get(e.ctx, u.ID, c.ID)
+				isErr(t, fmt.Sprintf("iter %d orphan membership", i), err, domain.ErrNotFound)
+			}
+		}},
+		{"concurrent Collectives.Delete vs Memberships.Create and Events.Create leaves no orphans", func(t *testing.T, e env) {
+			u := e.user("race-collective-user")
+			for i := range 20 {
+				c := e.collective(fmt.Sprintf("Casa Race %d", i), coletivo, cApproved)
+				mem := newMembership(u, c, roleMember, mPending)
+				ev := newEvent(c.ID, u.ID, eventNamed(fmt.Sprintf("Festa Race %d", i)))
+
+				var deleteErr, memErr, evErr error
+				start := make(chan struct{})
+				var wg sync.WaitGroup
+				wg.Add(3)
+				go func() {
+					defer wg.Done()
+					<-start
+					deleteErr = e.r.Collectives.Delete(e.ctx, c.ID)
+				}()
+				go func() {
+					defer wg.Done()
+					<-start
+					memErr = e.r.Memberships.Create(e.ctx, mem)
+				}()
+				go func() {
+					defer wg.Done()
+					<-start
+					evErr = e.r.Events.Create(e.ctx, &ev)
+				}()
+				close(start)
+				wg.Wait()
+
+				noErr(t, fmt.Sprintf("iter %d Collectives.Delete", i), deleteErr)
+				for _, res := range []struct {
+					name string
+					err  error
+				}{
+					{"Memberships.Create", memErr},
+					{"Events.Create", evErr},
+				} {
+					if res.err != nil && !errors.Is(res.err, domain.ErrNotFound) {
+						t.Errorf("iter %d %s: got %v, want nil or ErrNotFound", i, res.name, res.err)
+					}
+				}
+				_, err := e.r.Memberships.Get(e.ctx, u.ID, c.ID)
+				isErr(t, fmt.Sprintf("iter %d orphan membership", i), err, domain.ErrNotFound)
+				if evErr == nil {
+					_, err = e.r.Events.ByID(e.ctx, ev.ID)
+					isErr(t, fmt.Sprintf("iter %d orphan event", i), err, domain.ErrNotFound)
+				}
+				views, err := e.r.Events.ListByCollectives(e.ctx, []string{c.ID}, domain.ListLimitMax)
+				noErr(t, fmt.Sprintf("iter %d ListByCollectives", i), err)
+				if len(views) != 0 {
+					t.Errorf("iter %d orphan events: got %d, want 0", i, len(views))
+				}
 			}
 		}},
 	})
