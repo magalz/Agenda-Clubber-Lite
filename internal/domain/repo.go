@@ -396,7 +396,7 @@ type Outbox interface {
 	// them in the same atomic step as it selects them: a concurrent or later
 	// Claim does not return a message while its lease holds, and returns it again
 	// once the lease has run out. Claim does not change Attempts. A limit below 1
-	// returns nothing and claims nothing.
+	// or a lease of zero or less returns nothing and claims nothing.
 	Claim(ctx context.Context, now time.Time, lease time.Duration, limit int) ([]OutboxMessage, error)
 
 	// MarkSent sets SentAt to now, so the message is never claimed again. An

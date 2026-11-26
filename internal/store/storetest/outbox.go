@@ -109,6 +109,13 @@ func RunOutbox(t *testing.T, newStore NewStore) {
 			}
 			wantIDs(t, "Claim with a limit", e.claim(base, leaseFor, 10), a, b)
 		}},
+		{"Claim with a non-positive lease returns and claims nothing", func(t *testing.T, e env) {
+			a, b := e.message("a@example.com", due(-time.Minute)), e.message("b@example.com")
+			for _, lease := range []time.Duration{0, -time.Minute} {
+				wantIDs(t, fmt.Sprintf("Claim with lease %v", lease), e.claim(base, lease, 10))
+			}
+			wantIDs(t, "Claim with a positive lease", e.claim(base, leaseFor, 10), a, b)
+		}},
 		{"Claim skips the messages that were sent or given up", func(t *testing.T, e env) {
 			sent, gaveUp, live := e.message("a@example.com"), e.message("b@example.com"), e.message("c@example.com")
 			noErr(t, "MarkSent", e.r.Outbox.MarkSent(e.ctx, sent.ID, base))
