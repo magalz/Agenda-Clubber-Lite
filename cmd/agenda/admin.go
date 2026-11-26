@@ -9,7 +9,6 @@ import (
 	"io"
 	"strings"
 	"time"
-	"unicode"
 	"unicode/utf8"
 
 	"github.com/magalz/agenda-clubber-lite/internal/accounts"
@@ -116,12 +115,10 @@ func createAdmin(ctx context.Context, args []string, getenv func(string) string,
 // character is refused as typed, even one at its ends that sign-up would trim.
 // An error is safe to print: it names fields and rules, never the password.
 func newAdmin(name, email, phone, password string, now time.Time) (domain.User, error) {
-	switch {
-	case !utf8.ValidString(name):
-		return domain.User{}, domain.FieldErrors{"name": domain.MsgInvalid}
-	case strings.ContainsFunc(name, unicode.IsControl):
-		return domain.User{}, domain.FieldErrors{"name": domain.MsgControl}
-	case !utf8.ValidString(password):
+	if msg := domain.TextProblem(name, domain.UserNameMin, domain.UserNameMax, false); msg != "" {
+		return domain.User{}, domain.FieldErrors{"name": msg}
+	}
+	if !utf8.ValidString(password) {
 		return domain.User{}, domain.FieldErrors{"password": domain.MsgInvalid}
 	}
 	email, err := domain.NormalizeEmail(email)

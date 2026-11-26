@@ -185,6 +185,11 @@ func TestCreateAdminRefusesControlCharactersInTheName(t *testing.T) {
 		{"tab", "Ana\tAdmin"},
 		{"nul", "Ana\x00Admin"},
 		{"a line feed at the end", "Ana Admin\n"},
+		{"RLO", "Ana\u202eAdmin"},
+		{"ZWSP", "Ana\u200bAdmin"},
+		{"line separator", "Ana\u2028Admin"},
+		{"paragraph separator", "Ana\u2029Admin"},
+		{"trailing line separator", "Ana Admin\u2028"},
 	} {
 		for _, db := range []struct {
 			name string

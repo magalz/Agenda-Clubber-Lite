@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"strings"
 	"time"
-	"unicode"
-	"unicode/utf8"
 
 	"github.com/magalz/agenda-clubber-lite/internal/auth"
 	"github.com/magalz/agenda-clubber-lite/internal/domain"
@@ -128,15 +126,8 @@ func signupValidate(in SignupInput) (signupFields, error) {
 	var f signupFields
 
 	f.name = strings.TrimSpace(in.Name)
-	switch {
-	case !utf8.ValidString(f.name):
-		fe.Add("name", domain.MsgInvalid)
-	case strings.ContainsFunc(f.name, unicode.IsControl):
-		fe.Add("name", domain.MsgControl)
-	default:
-		if msg := domain.LengthProblem(f.name, domain.UserNameMin, domain.UserNameMax); msg != "" {
-			fe.Add("name", msg)
-		}
+	if msg := domain.TextProblem(f.name, domain.UserNameMin, domain.UserNameMax, false); msg != "" {
+		fe.Add("name", msg)
 	}
 
 	email, err := domain.NormalizeEmail(in.Email)
