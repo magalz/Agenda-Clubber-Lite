@@ -637,5 +637,38 @@ func RunTx(t *testing.T, newStore NewStore) {
 				}
 			}
 		}},
+		{"concurrent Users.RecordLoginFailure vs Sessions.Create succeeds without write conflicts", func(t *testing.T, e env) {
+			u := e.user("race-login-failure")
+			const workers = 4
+			const iters = 20
+			for i := range iters {
+				start := make(chan struct{})
+				errs := make([]error, workers*2)
+				var wg sync.WaitGroup
+				wg.Add(workers * 2)
+				for w := range workers {
+					go func(idx int) {
+						defer wg.Done()
+						<-start
+						_, errs[idx] = e.r.Users.RecordLoginFailure(e.ctx, u.ID, base, 1000, time.Minute)
+					}(w)
+					go func(idx int) {
+						defer wg.Done()
+						<-start
+						sess := newSession(u.ID, fmt.Sprintf("race-fail-sess-%d-%d", i, w))
+						errs[idx] = e.r.Sessions.Create(e.ctx, sess)
+					}(workers + w)
+				}
+				close(start)
+				wg.Wait()
+				for idx, err := range errs {
+					noErr(t, fmt.Sprintf("iter %d worker %d", i, idx), err)
+				}
+			}
+			got := e.getUser(u.ID)
+			if got.FailedLogins != workers*iters {
+				t.Errorf("FailedLogins = %d, want %d", got.FailedLogins, workers*iters)
+			}
+		}},
 	})
 }
