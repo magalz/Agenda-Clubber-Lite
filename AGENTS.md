@@ -51,7 +51,7 @@ Dependency rule: for data access, business code (accounts, approvals, events, `i
 |---|---|---|
 | `APP_ENV` | `prod` | `dev` enables dev-only routes/commands and relaxes nothing security-related except the `Secure` cookie requirement on plain http localhost |
 | `APP_ADDR` | `:8120` | listen address |
-| `APP_ORIGIN` | (required) | e.g. `https://agenda.magalz.space`; used for the Origin check and absolute links in emails |
+| `APP_ORIGIN` | (required) | e.g. `https://agendaclubber.magalz.space`; used for the Origin check and absolute links in emails |
 | `APP_TZ` | `America/Fortaleza` | IANA zone; `time/tzdata` is embedded. `seed-dev` reads it too: the sample events' dates and times are in this zone |
 | `MONGO_URI` | (required) | secret (it may carry credentials; never printed or logged). `mongodb://` only (the driver refuses `directConnection` with `mongodb+srv://`), a single-node replica set, and it must carry `directConnection=true` (checked at startup) |
 | `MONGO_DB` | `agenda` | database name: 1 to 38 letters, digits, `_` or `-` |

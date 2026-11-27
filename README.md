@@ -5,7 +5,7 @@ A lightweight, self-hosted shared calendar where collectives and producers sched
 - Backend: Go + Gin; data access through database-agnostic interfaces (`internal/domain`) with a MongoDB implementation (single-node replica set)
 - Frontend: server-rendered `html/template`, HTMX, Alpine.js (CSP build), vanilla CSS
 - Visual identity: ported from CircuitoNE
-- Runs under Podman; production at `agenda.magalz.space`
+- Runs under Podman; production at `agendaclubber.magalz.space`
 
 UI text is in Brazilian Portuguese; code, identifiers and commits are in English.
 
@@ -194,7 +194,7 @@ The flows live in `internal/events`, and the styles and cities in `internal/cata
 Production target (the full operational deploy runbook lands with Phase 6):
 
 - **Host and containers**: an OCI ARM64 VM running a Podman Compose stack under `magalz-infra` with the app container ([deploy/Containerfile](deploy/Containerfile), pure Go / CGO-free cross-compiled for `arm64`) and an authenticated single-node replica set MongoDB on an internal network only (no public database port).
-- **Ingress**: published at `https://agenda.magalz.space` via Cloudflare Tunnel, with the `cloudflared` peer IP/CIDR configured in `TRUSTED_PROXY_CIDRS` so `CF-Connecting-IP` is trusted for rate limiting and request logs, and Cloudflare access/login rules in front.
+- **Ingress**: published at `https://agendaclubber.magalz.space` via Cloudflare Tunnel, with the `cloudflared` peer IP/CIDR configured in `TRUSTED_PROXY_CIDRS` so `CF-Connecting-IP` is trusted for rate limiting and request logs, and Cloudflare access/login rules in front.
 - **Email**: SMTP2GO on port `587` with mandatory STARTTLS and authentication (`SMTP_HOST`, `SMTP_USERNAME`, `SMTP_PASSWORD`), sending as `SMTP_FROM=IgnisDev <ignisdev@magalz.space>`.
 - **Healthcheck and bootstrap**: container health is probed against `/healthz` via `/app/agenda healthcheck` (configured in the compose stack or via `--format docker`, since OCI images ignore `Containerfile` `HEALTHCHECK`), and the initial admin account is bootstrapped with `/app/agenda create-admin`.
 
