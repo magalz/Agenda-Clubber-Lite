@@ -3,7 +3,7 @@ module github.com/magalz/agenda-clubber-lite
 go 1.27
 
 require (
-	github.com/chromedp/cdproto v0.160.1
+	github.com/chromedp/cdproto v0.160.8
 	github.com/chromedp/chromedp v0.24.0
 	github.com/gin-gonic/gin v1.12.0
 	github.com/wneessen/go-mail v0.8.2
