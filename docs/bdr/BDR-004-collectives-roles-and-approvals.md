@@ -4,7 +4,7 @@ title: "Coletivos, Papéis, Governança e Fluxos de Aprovação"
 status: accepted
 date: 2026-11-26
 superseded_by: null
-issues: [ACL-127]
+issues: [ACL-126, ACL-127]
 scope: [internal/approvals, internal/domain, internal/web]
 ---
 
@@ -91,4 +91,4 @@ O Agenda Clubber Lite organiza o acesso e a autoria de eventos em torno de colet
   - `internal/web/routes_admin_manage_test.go`: `TestMngPagesNeedAnAdmin`, `TestMngAccountsListsActiveAndBlocked`, `TestMngBlockAccount`, `TestMngUnblockAccount`, `TestMngCollectivesListsTheApprovedOnes`, `TestMngSetCollectiveBlocks`, `TestMngHistoryShowsTheDecisionsNewestFirst`
   - `internal/web/routes_collectives_test.go`: `TestColetivosListsTheMemberships`, `TestColetivosJoin`, `TestColetivosJoinByTypedName`, `TestColetivosJoinLockedCollective`, `TestColetivosNew`, `TestColetivosRateLimit`, `TestCollectiveLinksUseTheSharedBuilder`
   - `internal/web/routes_collective_test.go`: `TestColetivoPageIsInvisibleToEveryoneButItsAdministradores`, `TestColetivoPageShowsTheMembersTheRequestsAndTheForms`, `TestColetivoPageLockedAndEventsBlocked`, `TestColetivoActions`, `TestColetivoSelfDemotion`, `TestColetivoStaleItems`, `TestColetivoRenameRateLimit`
-- **Cobertura BDD / UAT planejada:** `@BDD-04-01` a `@BDD-04-08`, `UAT-S3-01` a `UAT-S3-08`, `UAT-S4-01` a `UAT-S4-05`.
+- **Cobertura BDD / UAT:** `@BDD-03-01` a `@BDD-03-13`, `UAT-S6-01` a `UAT-S6-07`, `UAT-S7-01` a `UAT-S7-08`.

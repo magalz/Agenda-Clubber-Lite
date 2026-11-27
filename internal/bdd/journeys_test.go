@@ -10,6 +10,7 @@ import (
 	"github.com/magalz/agenda-clubber-lite/internal/approvals"
 	"github.com/magalz/agenda-clubber-lite/internal/auth"
 	"github.com/magalz/agenda-clubber-lite/internal/domain"
+	"github.com/magalz/agenda-clubber-lite/internal/events"
 )
 
 const testPassword = "SenhaForte#2026"
@@ -152,6 +153,21 @@ func TestJourneySignupConfirmApproveLogin(t *testing.T) {
 				}
 			})
 
+			s.Then("o admin recebe o e-mail de novo cadastro para aprovação na outbox", func() {
+				msgs := w.OutboxMessages("admin@agenda.test")
+				found := false
+				for _, m := range msgs {
+					if strings.Contains(m.Subject, "Novo cadastro para aprovar: Ana Silva") &&
+						strings.Contains(m.Text, "Coletivo Aurora") {
+						found = true
+						break
+					}
+				}
+				if !found {
+					s.T.Fatalf("admin@agenda.test did not receive admin_new_signup email: %+v", msgs)
+				}
+			})
+
 			s.And("o admin aprova a pessoa e o coletivo em /admin/pessoa/aprovar-tudo", func() {
 				user, err := w.Store.Repos().Users.ByEmail(context.Background(), "ana@example.com")
 				if err != nil {
@@ -222,7 +238,7 @@ func TestJourneyCollectiveConcealmentAndRename(t *testing.T) {
 			s.When("o Administrador renomeia o coletivo", func() {
 				renamePath := approvals.CollectivePath(col.ID) + "/nome"
 				resp := w.POST(owner, renamePath, url.Values{
-					"name": {"Coletivo Brisa Nova"},
+					"name": {"Coletivo Vento Sul"},
 				})
 				wantLoc := approvals.CollectivePath(col.ID) + "?msg=nome-alterado"
 				if resp.Status != http.StatusSeeOther || resp.Location != wantLoc {
@@ -230,14 +246,22 @@ func TestJourneyCollectiveConcealmentAndRename(t *testing.T) {
 				}
 			})
 
-			s.Then("o Admin recebe e-mail de notificação na outbox e o histórico registra a renomeação", func() {
+			s.Then("o novo nome vale imediatamente, o Admin recebe e-mail e o histórico registra a renomeação", func() {
+				reloaded := w.GET(owner, approvals.CollectivePath(col.ID))
+				if reloaded.Status != http.StatusOK {
+					s.T.Fatalf("owner reload GET %s: status=%d, want 200", approvals.CollectivePath(col.ID), reloaded.Status)
+				}
+				if !strings.Contains(reloaded.Body, "Coletivo Vento Sul") {
+					s.T.Errorf("reloaded collective page missing new name 'Coletivo Vento Sul'")
+				}
+
 				msgs := w.OutboxMessages("admin@agenda.test")
 				if len(msgs) == 0 {
 					s.T.Fatal("expected rename notification email to admin@agenda.test, got none")
 				}
 				found := false
 				for _, m := range msgs {
-					if strings.Contains(m.Text, "Coletivo Brisa") && strings.Contains(m.Text, "Coletivo Brisa Nova") {
+					if strings.Contains(m.Text, "Coletivo Brisa") && strings.Contains(m.Text, "Coletivo Vento Sul") {
 						found = true
 						break
 					}
@@ -250,8 +274,10 @@ func TestJourneyCollectiveConcealmentAndRename(t *testing.T) {
 				if hist.Status != http.StatusOK {
 					s.T.Fatalf("GET /admin/historico: status=%d, want 200", hist.Status)
 				}
-				if !strings.Contains(hist.Body, "coletivo renomeado") || !strings.Contains(hist.Body, "Coletivo Brisa Nova") {
-					s.T.Errorf("admin history missing rename audit entry")
+				if !strings.Contains(hist.Body, "coletivo renomeado") ||
+					!strings.Contains(hist.Body, "Coletivo Brisa") ||
+					!strings.Contains(hist.Body, "Coletivo Vento Sul") {
+					s.T.Errorf("admin history missing rename audit entry with old and new names")
 				}
 			})
 		})
@@ -265,8 +291,12 @@ func TestJourneyEventLifecycleAndEventsBlocked(t *testing.T) {
 			admin := w.NewActor("Admin")
 			owner := w.NewActor("Administrador")
 			var (
-				col     domain.Collective
-				eventID string
+				col      domain.Collective
+				eventID  string
+				eventDay = w.Clock.Now().AddDate(0, 0, 2)
+				dateBR   = eventDay.Format(events.DateLayout)
+				dateISO  = eventDay.Format("2006-01-02")
+				monthISO = eventDay.Format("2006-01")
 			)
 
 			s.Given("um coletivo aprovado com Administrador e um Admin autenticados", func() {
@@ -285,7 +315,7 @@ func TestJourneyEventLifecycleAndEventsBlocked(t *testing.T) {
 					"collective_id":    {col.ID},
 					"name":             {"Noite Solar"},
 					"type":             {string(domain.EventTypeFesta)},
-					"date":             {"14/11/2026"},
+					"date":             {dateBR},
 					"time":             {"22:00"},
 					"duration_hours":   {"6"},
 					"duration_minutes": {"0"},
@@ -308,13 +338,15 @@ func TestJourneyEventLifecycleAndEventsBlocked(t *testing.T) {
 			})
 
 			s.Then("o evento aparece no calendário e em Analisar Data", func() {
-				cal := w.GET(owner, "/?mes=2026-11")
+				calPath := "/?mes=" + monthISO
+				cal := w.GET(owner, calPath)
 				if cal.Status != http.StatusOK || !strings.Contains(cal.Body, "Noite Solar") {
-					s.T.Fatalf("calendar GET /?mes=2026-11: status=%d, contains event=%v", cal.Status, strings.Contains(cal.Body, "Noite Solar"))
+					s.T.Fatalf("calendar GET %s: status=%d, contains event=%v", calPath, cal.Status, strings.Contains(cal.Body, "Noite Solar"))
 				}
-				day := w.GET(owner, "/eventos/dia?data=2026-11-14")
+				dayPath := "/eventos/dia?data=" + dateISO
+				day := w.GET(owner, dayPath)
 				if day.Status != http.StatusOK || !strings.Contains(day.Body, "Noite Solar") {
-					s.T.Fatalf("day GET /eventos/dia: status=%d, contains event=%v", day.Status, strings.Contains(day.Body, "Noite Solar"))
+					s.T.Fatalf("day GET %s: status=%d, contains event=%v", dayPath, day.Status, strings.Contains(day.Body, "Noite Solar"))
 				}
 			})
 
@@ -329,14 +361,34 @@ func TestJourneyEventLifecycleAndEventsBlocked(t *testing.T) {
 				}
 			})
 
-			s.Then("o Administrador recebe 409 com o motivo ao tentar editar o evento", func() {
+			s.Then("o Administrador recebe 409 com o motivo em GET e POST ao tentar editar o evento", func() {
 				editPath := "/eventos/" + url.PathEscape(eventID) + "/editar"
-				resp := w.GET(owner, editPath)
-				if resp.Status != http.StatusConflict {
-					s.T.Fatalf("owner GET %s: status=%d, want 409", editPath, resp.Status)
+				getResp := w.GET(owner, editPath)
+				if getResp.Status != http.StatusConflict {
+					s.T.Fatalf("owner GET %s: status=%d, want 409", editPath, getResp.Status)
 				}
-				if !strings.Contains(resp.Body, "os eventos deste coletivo estão bloqueados pelo admin.") {
-					s.T.Errorf("409 response missing block reason: %q", resp.Body)
+				if !strings.Contains(getResp.Body, "os eventos deste coletivo estão bloqueados pelo admin.") {
+					s.T.Errorf("GET 409 response missing block reason: %q", getResp.Body)
+				}
+
+				postResp := w.POST(owner, editPath, url.Values{
+					"name":             {"Noite Solar Tentativa"},
+					"type":             {string(domain.EventTypeFesta)},
+					"date":             {dateBR},
+					"time":             {"22:00"},
+					"duration_hours":   {"6"},
+					"duration_minutes": {"0"},
+					"free":             {"on"},
+					"style":            {"techno"},
+					"state":            {"CE"},
+					"city":             {"Fortaleza"},
+					"version":          {"1"},
+				})
+				if postResp.Status != http.StatusConflict {
+					s.T.Fatalf("owner POST %s: status=%d, want 409", editPath, postResp.Status)
+				}
+				if !strings.Contains(postResp.Body, "os eventos deste coletivo estão bloqueados pelo admin.") {
+					s.T.Errorf("POST 409 response missing block reason: %q", postResp.Body)
 				}
 			})
 
@@ -345,7 +397,7 @@ func TestJourneyEventLifecycleAndEventsBlocked(t *testing.T) {
 				resp := w.POST(admin, editPath, url.Values{
 					"name":             {"Noite Solar Editada"},
 					"type":             {string(domain.EventTypeFesta)},
-					"date":             {"14/11/2026"},
+					"date":             {dateBR},
 					"time":             {"22:00"},
 					"duration_hours":   {"6"},
 					"duration_minutes": {"0"},

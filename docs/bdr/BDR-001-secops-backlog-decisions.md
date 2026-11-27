@@ -41,5 +41,5 @@ Durante a triagem do backlog SecOps do Agenda Clubber Lite (calendário comunit�
   - `internal/accounts/signup_test.go`: `TestSignupVerifyEmailOmitsSubmittedName`
   - `internal/accounts/confirm_test.go`: `TestResendConfirmationOmitsSubmittedName`
   - `internal/mail/render_test.go`: `TestRenderEscapesUserText`, `TestRenderRejectsBadInput`
-- **Cobertura BDD / UAT planejada:** `@BDD-01-01` (bloqueio compartilhado `ACL-43`), `@BDD-01-02` (saudação sem nome `ACL-48`), `UAT-S1-01`, `UAT-S2-04`.
+- **Cobertura BDD / UAT:** `ACL-43`: `@BDD-01-14`, `UAT-S4-05`, `UAT-S4-06`; `ACL-48`: `@BDD-01-01`, `@BDD-01-04`, `@BDD-01-08`, `UAT-S1-03`, `UAT-S2-04`, `UAT-S10-02`; `ACL-39`: `@BDD-01-05`, `@BDD-01-09`, `UAT-S1-08`, `UAT-S10-04`.
 - **Rastreabilidade:** `ACL-39` (risco aceito, sem commit de código), `ACL-43` (commit `3ac0385`), `ACL-48` (commit `6db5ca5`).

@@ -158,6 +158,49 @@ func TestParseFeatureFileMissingSteps(t *testing.T) {
 	}
 }
 
+func TestParseFeatureFileMisspelledScenarioKeyword(t *testing.T) {
+	src := `# language: pt
+Funcionalidade: Rejeição de linha desconhecida
+  Descrição antes do primeiro cenário continua permitida.
+
+  @BDD-01-01 @coberto
+  Cenário: Primeiro cenário
+    Dado algo
+    Quando ação
+    Então resultado
+
+  @BDD-01-02 @coberto
+  Cenario: X
+    Dado outro estado
+    Quando outra ação
+    Então outro resultado
+`
+	path := writeTempFeature(t, "misspelled.feature", src)
+	_, err := ParseFeatureFile(path)
+	if err == nil {
+		t.Fatal("expected error for misspelled 'Cenario: X', got nil")
+	}
+	if !strings.Contains(err.Error(), "misspelled.feature:12:") {
+		t.Errorf("error = %q, want file and line 12", err.Error())
+	}
+}
+
+func TestExtractLinkBoundary(t *testing.T) {
+	w := &World{}
+	body := "Acesse https://agenda.test/confirmar-email?token=errado para trocar."
+	if got := w.ExtractLink(body, "/confirmar"); got != "" {
+		t.Errorf("ExtractLink matched /confirmar-email for /confirmar: got %q", got)
+	}
+	if got := w.ExtractLink(body, "/confirmar-email"); got != "https://agenda.test/confirmar-email?token=errado" {
+		t.Errorf("ExtractLink(/confirmar-email) = %q", got)
+	}
+
+	valid := "Links: https://agenda.test/confirmar-email?token=1 e https://agenda.test/confirmar?token=2."
+	if got := w.ExtractLink(valid, "/confirmar"); got != "https://agenda.test/confirmar?token=2" {
+		t.Errorf("ExtractLink(/confirmar) = %q, want token=2 link", got)
+	}
+}
+
 var indexBDDIDPattern = regexp.MustCompile(`@?(BDD-\d{2}-\d{2})`)
 
 func TestBDDFeatureSpecsValid(t *testing.T) {

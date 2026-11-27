@@ -84,7 +84,9 @@ type Response struct {
 	Body     string
 }
 
-var defaultWorldTime = time.Date(2026, 11, 12, 16, 0, 0, 0, time.UTC)
+func defaultWorldTime() time.Time {
+	return time.Now().UTC().Truncate(24 * time.Hour).Add(16 * time.Hour)
+}
 
 // NewWorld creates a fresh MongoDB-backed web.App served over an httptest TLS
 // server so __Host- Secure session cookies work natively in Actor cookie jars.
@@ -92,11 +94,11 @@ func NewWorld(t *testing.T) *World {
 	t.Helper()
 
 	store := mongotest.New(t)
-	loc, err := time.LoadLocation("America/Fortaleza")
+	loc, err := time.LoadLocation(config.DefaultTZ)
 	if err != nil {
-		t.Fatalf("load America/Fortaleza: %v", err)
+		t.Fatalf("load %s: %v", config.DefaultTZ, err)
 	}
-	clock := NewClock(defaultWorldTime)
+	clock := NewClock(defaultWorldTime())
 
 	gin.SetMode(gin.TestMode)
 
@@ -210,8 +212,8 @@ func (w *World) OutboxMessages(to string) []domain.OutboxMessage {
 
 var linkPattern = regexp.MustCompile(`https?://[^\s"'<>]+`)
 
-// ExtractLink returns the first URL in body whose path starts with pathPrefix,
-// or an empty string if none is found.
+// ExtractLink returns the first URL in body whose path starts with pathPrefix
+// on a path segment boundary, or an empty string if none is found.
 func (w *World) ExtractLink(body, pathPrefix string) string {
 	for _, raw := range linkPattern.FindAllString(body, -1) {
 		cleaned := strings.TrimRight(raw, ".,);:")
@@ -219,11 +221,21 @@ func (w *World) ExtractLink(body, pathPrefix string) string {
 		if err != nil {
 			continue
 		}
-		if strings.HasPrefix(u.Path, pathPrefix) {
+		if pathHasPrefixBoundary(u.Path, pathPrefix) {
 			return cleaned
 		}
 	}
 	return ""
+}
+
+func pathHasPrefixBoundary(path, prefix string) bool {
+	if !strings.HasPrefix(path, prefix) {
+		return false
+	}
+	if len(path) == len(prefix) || strings.HasSuffix(prefix, "/") {
+		return true
+	}
+	return path[len(prefix)] == '/'
 }
 
 func (w *World) resolveURL(path string) string {

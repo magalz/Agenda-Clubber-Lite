@@ -51,7 +51,7 @@ Dependency rule: for data access, business code (accounts, approvals, events, `i
 |---|---|---|
 | `APP_ENV` | `prod` | `dev` enables dev-only routes/commands and relaxes nothing security-related except the `Secure` cookie requirement on plain http localhost |
 | `APP_ADDR` | `:8120` | listen address |
-| `APP_ORIGIN` | (required) | e.g. `https://agenda.magalz.space`; used for the Origin check and absolute links in emails |
+| `APP_ORIGIN` | (required) | e.g. `https://agendaclubber.magalz.space`; used for the Origin check and absolute links in emails |
 | `APP_TZ` | `America/Fortaleza` | IANA zone; `time/tzdata` is embedded. `seed-dev` reads it too: the sample events' dates and times are in this zone |
 | `MONGO_URI` | (required) | secret (it may carry credentials; never printed or logged). `mongodb://` only (the driver refuses `directConnection` with `mongodb+srv://`), a single-node replica set, and it must carry `directConnection=true` (checked at startup) |
 | `MONGO_DB` | `agenda` | database name: 1 to 38 letters, digits, `_` or `-` |
@@ -159,7 +159,7 @@ Tokens are defined once in `web/static/css/tokens.css`; every other stylesheet u
   - `ACL-48` (`BDR-001`): `verify_email.tmpl` uses a nameless `"Olá!"` greeting (omitting untrusted signup `Name` from `VerifyEmailData`), while `existing_account.tmpl` keeps the stored account name;
   - `ACL-41` (`ADR-002`): `Limits` isolates IP (`Signup`, `EmailAction`) and email-hash (`SignupEmail`, `EmailActionEmail`) rate limiters, and `POST /cadastro` runs `accounts.ValidateSignup` before charging `SignupEmail`;
   - `ACL-39` (`BDR-001`): PO accepted the low-value two-step collective-name signup enumeration risk (closed community, 5/h IP limit, 7-day unconfirmed-signup purge); no code change.
-- BDD specification & test scaffolding (`docs/bdd/01..06-*.feature`, `docs/bdd/INDEX.md`, `internal/bdd/`): Gherkin specs use `# language: pt` and stay synced 1:1 with `docs/bdd/INDEX.md`; `internal/bdd/` is a stdlib-only test harness (never imported by production code) whose `TestBDDFeatureSpecsValid` enforces Gherkin syntax, `@BDR-00N` file links, and 1:1 `INDEX.md` status parity.
+- BDD specification & test scaffolding (`docs/bdd/01..06-*.feature`, `docs/bdd/INDEX.md`, `internal/bdd/`): Gherkin specs use `# language: pt` and stay synced 1:1 with `docs/bdd/INDEX.md`; `internal/bdd/` is a test harness with zero external test-framework dependencies (no `godog`/`ginkgo`), never imported by production code, whose `TestBDDFeatureSpecsValid` enforces Gherkin syntax, `@BDR-00N` file links, and 1:1 `INDEX.md` status parity.
 
 ## Testing and checks
 

@@ -67,15 +67,16 @@ func ParseFeatureFile(path string) (FeatureSpec, error) {
 
 	spec := FeatureSpec{Path: path}
 	var (
-		pendingTags  []string
-		inFeature    bool
-		inBackground bool
-		inExamples   bool
-		hasBgGiven   bool
-		current      *ScenarioSpec
-		currentTable *ExampleTable
-		lastStepKind string
-		lineNum      int
+		pendingTags    []string
+		inFeature      bool
+		startedSection bool
+		inBackground   bool
+		inExamples     bool
+		hasBgGiven     bool
+		current        *ScenarioSpec
+		currentTable   *ExampleTable
+		lastStepKind   string
+		lineNum        int
 	)
 
 	flushScenario := func() error {
@@ -147,6 +148,7 @@ func ParseFeatureFile(path string) (FeatureSpec, error) {
 			if err := flushScenario(); err != nil {
 				return FeatureSpec{}, err
 			}
+			startedSection = true
 			inBackground = true
 			inExamples = false
 			lastStepKind = ""
@@ -158,6 +160,7 @@ func ParseFeatureFile(path string) (FeatureSpec, error) {
 			if err := flushScenario(); err != nil {
 				return FeatureSpec{}, err
 			}
+			startedSection = true
 			inBackground = false
 			sc, err := newScenarioSpec(path, lineNum, title, pendingTags, true)
 			if err != nil {
@@ -172,6 +175,7 @@ func ParseFeatureFile(path string) (FeatureSpec, error) {
 			if err := flushScenario(); err != nil {
 				return FeatureSpec{}, err
 			}
+			startedSection = true
 			inBackground = false
 			sc, err := newScenarioSpec(path, lineNum, title, pendingTags, false)
 			if err != nil {
@@ -237,6 +241,10 @@ func ParseFeatureFile(path string) (FeatureSpec, error) {
 				Line:    lineNum,
 			})
 			continue
+		}
+
+		if startedSection {
+			return FeatureSpec{}, fmt.Errorf("%s:%d: unrecognized line %q", path, lineNum, raw)
 		}
 	}
 	if err := scanner.Err(); err != nil {

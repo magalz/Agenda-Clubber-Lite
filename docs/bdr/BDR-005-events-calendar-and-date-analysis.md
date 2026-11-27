@@ -4,7 +4,7 @@ title: "Eventos, Calendário Mensal, Análise de Data e Meus Eventos"
 status: accepted
 date: 2026-11-26
 superseded_by: null
-issues: [ACL-127]
+issues: [ACL-126, ACL-127]
 scope: [internal/events, internal/catalog, internal/domain, internal/web]
 ---
 
@@ -87,4 +87,4 @@ As permissões são centralizadas em `internal/events/permissions.go` e comparti
   - `internal/web/routes_events_test.go`: `TestEvdDetailPageShowsTheEvent`, `TestEvdDetailOffersWhatTheViewerMayDo`, `TestEvdTicketLink`, `TestEvdDeleteByAnAdministrador`, `TestEvdDeleteRefusedWithoutTheRight`, `TestEvdDeleteWhileTheCollectivesEventsAreBlocked`
   - `internal/web/routes_my_events_test.go`: `TestMineOwnerRows`, `TestMineMemberRowsAreReadOnly`, `TestMineUnapprovedCollectiveRowIsReadOnly`, `TestMineSplitsUpcomingAndPast`, `TestMineTruncatedNote`
   - `internal/store/mongostore/mongostore_test.go`: `TestStore` (executa a suíte de contrato `storetest.RunEvents` e `storetest.RunMemberships`, incluindo `UserCanCreateEvents`)
-- **Rastreabilidade planejada (BDD / UAT):** `@BDD-05-01` a `@BDD-05-12`, `UAT-S5-01` a `UAT-S5-08`.
+- **Cobertura BDD / UAT:** `@BDD-04-01` a `@BDD-04-12`, `UAT-S8-01` a `UAT-S8-07`, `UAT-S9-01` a `UAT-S9-06`.

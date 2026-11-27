@@ -4,7 +4,7 @@ title: "Segurança Web, Progressive Enhancement, Interatividade e Acessibilidade
 status: accepted
 date: 2026-11-26
 superseded_by: null
-issues: [ACL-127]
+issues: [ACL-126, ACL-127]
 scope: [internal/web, web/static/js/app.js, web/static/css, web/templates]
 ---
 
@@ -100,4 +100,4 @@ O Agenda Clubber Lite é uma aplicação auto-hospedada sem etapa de build front
   - `internal/web/routes_collective_test.go`: `TestColetivoNoticeCodes`
   - `internal/web/routes_collectives_test.go`: `TestColetivosMessageCodes`
   - `internal/web/routes_profile_test.go`: `TestProfileNoticesComeFromTheFixedTable`
-- **Rastreabilidade planejada (BDD / UAT):** `@BDD-07-01` a `@BDD-07-12`, `UAT-S7-01` a `UAT-S7-08`.
+- **Cobertura BDD / UAT:** `@BDD-06-01` a `@BDD-06-11`, `UAT-S0-01` a `UAT-S0-08`, `UAT-S11-01` a `UAT-S11-05`.

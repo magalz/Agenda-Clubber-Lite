@@ -4,7 +4,7 @@ title: "Ciclo de Vida de Contas e Política de Autenticação"
 status: accepted
 date: 2026-11-26
 superseded_by: null
-issues: [ACL-127, ACL-41]
+issues: [ACL-126, ACL-127, ACL-41]
 scope: [internal/accounts, internal/auth, internal/domain, internal/web]
 ---
 
@@ -30,7 +30,7 @@ Decisões específicas do backlog SecOps sobre enumeração de coletivos no cada
 - **Proteção contra scanners de e-mail:** `GET /confirmar?token=...` apenas renderiza o botão de confirmação com o token em campo oculto, sem consultar o banco nem consumir o token. Sem `token`, responde `400` com formulário de reenvio.
 - **Consumo do token (`ConfirmEmail`):** `POST /confirmar` consome o token (`Tokens.Consume`), promove a conta de `pending_email` para `pending_approval` (`Users.MarkEmailVerified`) e enfileira `TemplateAdminNewSignup` para todos os admins ativos, tudo em uma única `WithTx`. Sucesso redireciona para `/aguardando`.
 - **Reenvio silencioso (`ResendConfirmation`):** `POST /confirmar/reenviar` gera novo token de 24h (aposentando links anteriores não usados via `Tokens.Create`) apenas se a conta existir em `UserStatusPendingEmail`. Para qualquer outro endereço (malformado, inexistente ou em outro status), não faz nada e retorna a mesma mensagem neutra (`confirmMsgSent`).
-- **Purga automática após 7 dias (`PurgeUnconfirmedSignups`):** rotina diária (`dailyLoop`) remove contas em `UserStatusPendingEmail` criadas há mais de 7 dias, junto aos coletivos pendentes criados por elas que ainda tenham vínculo pendente, cada conta em sua própria `WithTx`. Não envia e-mail nem registra entrada de auditoria.
+- **Purga automática após 7 dias (`PurgeUnconfirmedSignups`):** rotina diária (`dailyLoop`) remove contas em `UserStatusPendingEmail` criadas há mais de 7 dias, junto aos coletivos pendentes criados por elas (`Status == CollectiveStatusPending && CreatedBy == userID`), cada conta em sua própria `WithTx`. Não envia e-mail nem registra entrada de auditoria.
 
 ### 3. Estados da Conta, Login e Redirecionamento Seguro (`GET/POST /entrar`, `POST /sair`)
 - **Ciclo de estados (`domain.UserStatus`):** o domínio define 4 estados válidos: `pending_email`, `pending_approval`, `active` e `disabled`. Contas recusadas na aprovação são excluídas do banco (não existe estado `rejected` armazenado), comportando-se como inexistentes no login.
@@ -103,4 +103,4 @@ Todos os limitadores usam janela fixa em memória (`auth.Limiter`) com teto de `
   - `internal/web/routes_login_test.go`: `TestLoginSuccess`, `TestLoginSuccessGoesToASafeNextOnly`, `TestLoginSuccessRotatesTheSession`, `TestLoginWithAnExpiredPasswordStillSignsIn`, `TestLoginDoesNotRevealTheStatusWithoutThePassword`, `TestLoginLocksTheAccountAfterFiveWrongPasswords`, `TestLoginAnswersTheSameForARegisteredAndAnUnknownEmail`, `TestLoginRateLimit`, `TestLogoutEndsTheSession`
   - `internal/web/routes_password_test.go`: `TestPasswordChangeSetsThePasswordAndEndsTheOtherSessions`, `TestPasswordChangeLetsAnExpiredPasswordThrough`, `TestPasswordChangeIsLimitedPerAccount`, `TestPasswordVerifyIsLimitedPerAccount`
   - `internal/web/routes_reset_test.go`: `TestResetForgotAnswersTheSameForEveryAddress`, `TestResetGetDoesNotConsumeTheToken`, `TestResetPostChangesThePasswordAndEndsEverySession`, `TestResetPostFieldErrorsKeepTheLinkUsable`, `TestResetFlowKeepsTheTokenTheAddressAndThePasswordOutOfTheLogs`
-- **Cobertura BDD / UAT planejada:** `@BDD-02-01` a `@BDD-02-08`, `UAT-S1-01` a `UAT-S1-06`, `UAT-S2-01` a `UAT-S2-05`.
+- **Cobertura BDD / UAT:** `@BDD-01-01` a `@BDD-01-18`, `UAT-S1` a `UAT-S4`.

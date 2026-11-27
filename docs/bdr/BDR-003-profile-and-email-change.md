@@ -4,7 +4,7 @@ title: "Edição de Perfil e Troca de E-mail em Duas Etapas"
 status: accepted
 date: 2026-11-26
 superseded_by: null
-issues: [ACL-127]
+issues: [ACL-126, ACL-127]
 scope: [internal/accounts, internal/domain, internal/mail, internal/web]
 ---
 
@@ -67,4 +67,4 @@ A página `/perfil` só exibe textos da tabela fixa `perfilNotices`; códigos de
   - `internal/mail/render_test.go`: `TestRenderChangeEmailKeepsTheLinkInPlace`, `TestRenderEmailChangeNoticeHasNoActionLink`
 - **Rotas HTTP (`internal/web`):**
   - `internal/web/routes_profile_test.go`: `TestProfilePageShowsTheSignedInPerson`, `TestProfilePageNeedsASession`, `TestProfileNoticesComeFromTheFixedTable`, `TestProfilePostsNeedTheAppsOrigin`, `TestProfileSaveUpdatesTheAccountAndRedirects`, `TestProfileSaveRefusesBadFieldsAndKeepsThem`, `TestProfileSaveRedirectsHTMXRequests`, `TestProfileEmailChangeEnqueuesAndRedirects`, `TestProfileEmailChangeLimitsTheForm`, `TestProfileEmailChangeLimitsPerEmail`, `TestProfileEmailChangeRefusesTheCurrentAddress`, `TestProfileConfirmLinkShowsAButtonAndSpendsNothing`, `TestProfileConfirmChangesTheEmailAndRedirects`, `TestProfileConfirmWorksForAnAnonymousVisitor`, `TestProfileConfirmRefusesAnInvalidLink`, `TestProfileConfirmPostRateLimitPerIP`, `TestProfileConfirmReportsAnInterimTakenAddress`, `TestProfilePagesShowNoOtherAddress`
-- **Cobertura BDD / UAT planejada:** `@BDD-03-01` a `@BDD-03-04`, `UAT-S2-06`, `UAT-S2-07`.
+- **Cobertura BDD / UAT:** `@BDD-02-01` a `@BDD-02-09`, `UAT-S5-01` a `UAT-S5-06`.

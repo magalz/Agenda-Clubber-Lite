@@ -4,7 +4,7 @@ title: "Trilha de Auditoria e Notificações Transacionais"
 status: accepted
 date: 2026-11-26
 superseded_by: null
-issues: [ACL-32, ACL-37, ACL-38, ACL-48, ACL-127]
+issues: [ACL-32, ACL-37, ACL-38, ACL-48, ACL-126, ACL-127]
 scope: [internal/domain, internal/approvals, internal/events, internal/accounts, internal/mail, cmd/agenda]
 ---
 
@@ -106,4 +106,4 @@ Todos os e-mails são renderizados em `multipart/alternative` (texto plano + HTM
   - `internal/mail/drop_test.go`: `TestDropSenderWritesAParsableMessage`, `TestDropSenderWritesOneFilePerSend`, `TestDropSenderUsesItsFromAddress`, `TestNewDropSenderRefusesAnUnusableFolder`
   - `internal/mail/mail_test.go`: `TestSendersRefuseUnsafeMessages`
   - `cmd/agenda/main_test.go`: `TestNewSender`, `TestRunServeDeliversQueuedMailThroughTheDropFolder`, `TestRunServeWithoutASenderWarnsOnceAndLeavesTheOutbox`, `TestStartJobsStopWaitsForTheMessageInFlight`
-- **Rastreabilidade planejada (BDD / UAT):** `@BDD-06-01` a `@BDD-06-10`, `UAT-S6-01` a `UAT-S6-06`.
+- **Cobertura BDD / UAT:** `@BDD-05-01` a `@BDD-05-10`, `UAT-S10-01` a `UAT-S10-05`.
