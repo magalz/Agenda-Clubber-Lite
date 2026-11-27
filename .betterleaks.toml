@@ -1,0 +1,12 @@
+title = "Agenda Clubber Lite — Betterleaks config"
+betterleaksMinVersion = "1.10.1"
+
+# Go test fixtures use synthetic passwords and dummy MongoDB URIs to exercise
+# password policy and secret-redaction checks. Keep all other rules active in tests.
+filter = '''
+(attributes["path"] ?? "") endsWith "_test.go" &&
+(finding["rule_id"] ?? "") in ["generic-password", "mongodb-connection-string"]
+'''
+
+[extend]
+useDefault = true

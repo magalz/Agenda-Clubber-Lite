@@ -1,0 +1,58 @@
+name: Betterleaks
+
+on:
+  push:
+    branches: [main, "phase/**"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+
+concurrency:
+  group: betterleaks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  secret-scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # Every action is pinned to a full commit SHA; the comment names the release.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install Betterleaks CLI
+        env:
+          BETTERLEAKS_VERSION: "1.10.1"
+          BETTERLEAKS_SHA256: "c174b42d7aa60caf58c0c3e555c0e4bed01fe6b0d99a412bce777b5af4ce913e"
+        run: |
+          set -euo pipefail
+          archive="betterleaks_${BETTERLEAKS_VERSION}_linux_x64.tar.gz"
+          curl -sSfL "https://github.com/betterleaks/betterleaks/releases/download/v${BETTERLEAKS_VERSION}/${archive}" -o "${archive}"
+          echo "${BETTERLEAKS_SHA256}  ${archive}" | sha256sum -c -
+          tar -xzf "${archive}" betterleaks
+          sudo install -m 0755 betterleaks /usr/local/bin/betterleaks
+          rm -f "${archive}" betterleaks
+          betterleaks --version
+
+      - name: Validate Betterleaks config
+        run: betterleaks config check --config .betterleaks.toml
+
+      - name: Run Betterleaks Git scan
+        run: |
+          betterleaks git . \
+            --config .betterleaks.toml \
+            --redact \
+            --report-format sarif \
+            --report-path betterleaks.sarif
+
+      - name: Upload SARIF report to GitHub Security
+        uses: github/codeql-action/upload-sarif@915412ff23e8b7659517e607487dbeae018f2934 # v4
+        if: always() && hashFiles('betterleaks.sarif') != ''
+        with:
+          sarif_file: betterleaks.sarif
+          category: betterleaks
