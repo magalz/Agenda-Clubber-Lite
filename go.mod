@@ -7,7 +7,7 @@ require (
 	github.com/chromedp/chromedp v0.24.0
 	github.com/gin-gonic/gin v1.12.0
 	github.com/wneessen/go-mail v0.8.2
-	go.mongodb.org/mongo-driver/v2 v2.10.0
+	go.mongodb.org/mongo-driver/v2 v2.10.1
 	golang.org/x/crypto v0.59.0
 )
 
