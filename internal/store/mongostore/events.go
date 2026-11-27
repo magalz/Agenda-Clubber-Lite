@@ -16,10 +16,7 @@ var _ domain.Events = events{}
 func (r events) coll() *mongo.Collection { return r.s.db.Collection(colEvents) }
 
 // Create checks the references and inserts the event in one transaction (the
-// caller's, when it has one). The check is a read in that transaction, so a
-// concurrent delete of the collective or of a user can still slip between the
-// two steps (known gap ACL-21): the event then keeps a reference that names
-// nothing.
+// caller's, when it has one).
 func (r events) Create(ctx context.Context, e *domain.Event) error {
 	if err := e.Validate(); err != nil {
 		return err
@@ -63,10 +60,8 @@ func (r events) Create(ctx context.Context, e *domain.Event) error {
 
 // views runs the stages over the events, then joins each event with its
 // collective, as "collective", for the name: the order of the stages is the order
-// of the result, and a $limit among them cuts before the join. Collectives.Delete
-// removes the events of its collective, but a Create that runs at the same time
-// can still leave one behind (see Create): an event whose collective is gone is
-// still read, with an empty name. op names the operation in the error.
+// of the result, and a $limit among them cuts before the join. op names the
+// operation in the error.
 func (r events) views(ctx context.Context, op string, stages ...bson.D) ([]domain.EventView, error) {
 	cur, err := r.coll().Aggregate(ctx, append(mongo.Pipeline(stages),
 		bson.D{{Key: "$lookup", Value: bson.M{
@@ -110,7 +105,7 @@ func (r events) ByID(ctx context.Context, id string) (domain.EventView, error) {
 
 // Update looks at the editor first, then writes with the version in the filter:
 // a filter that matches nothing is a conflict when the event exists and not found
-// when it does not. The check of the editor is a read in the same transaction.
+// when it does not.
 func (r events) Update(ctx context.Context, e domain.Event) error {
 	if err := e.Validate(); err != nil {
 		return err

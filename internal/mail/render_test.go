@@ -41,10 +41,11 @@ func renderCases() []renderCase {
 		{
 			name:    "verify email",
 			tmpl:    TemplateVerifyEmail,
-			data:    VerifyEmailData{Name: "Ana Souza", Link: linkConfirm},
+			data:    VerifyEmailData{Link: linkConfirm},
 			subject: "Confirme seu e-mail · Agenda Clubber",
 			links:   []string{linkConfirm},
-			phrases: []string{"Ana Souza", "24 horas"},
+			phrases: []string{"Olá! Falta só um passo", "24 horas"},
+			absent:  []string{"Olá,"},
 		},
 		{
 			name:    "change email",
@@ -409,7 +410,6 @@ func TestRenderEscapesUserText(t *testing.T) {
 		data      any
 		inSubject bool // the subject carries user text
 	}{
-		{"verify email", TemplateVerifyEmail, VerifyEmailData{Name: xssName, Link: linkConfirm}, false},
 		{"change email", TemplateChangeEmail, ChangeEmailData{Name: xssName, Link: linkConfirm}, false},
 		{"password expiring", TemplatePasswordExpiring, PasswordExpiringData{Name: xssName, Days: 3, Link: linkChangePassword}, false},
 		{"email change notice", TemplateEmailChangeNotice, EmailChangeNoticeData{Name: xssName, NewEmail: xssName}, false},
@@ -691,7 +691,7 @@ func TestRenderRejectsBadInput(t *testing.T) {
 		{"empty template", Template(""), VerifyEmailData{}},
 		{"nil data", TemplateVerifyEmail, nil},
 		{"wrong data type", TemplateVerifyEmail, "Ana"},
-		{"decision with another template's data", TemplateDecision, VerifyEmailData{Name: "Ana", Link: linkLogin}},
+		{"decision with another template's data", TemplateDecision, VerifyEmailData{Link: linkLogin}},
 		{"change email with the notice's data", TemplateChangeEmail, EmailChangeNoticeData{Name: "Ana", NewEmail: "novo@example.com"}},
 		{"email change notice with the change email's data", TemplateEmailChangeNotice, ChangeEmailData{Name: "Ana", Link: linkConfirm}},
 		{"password expiring with another template's data", TemplatePasswordExpiring, PasswordResetData{Name: "Ana", Link: linkReset}},

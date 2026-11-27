@@ -506,8 +506,16 @@ func TestSignupRefusesControlCharactersInNames(t *testing.T) {
 		{"name with a tab", func(in *SignupInput) { in.Name = "Ana\tSouza" }, "name", "Noite Verde"},
 		{"name with NUL", func(in *SignupInput) { in.Name = "Ana\x00Souza" }, "name", "Noite Verde"},
 		{"name with a C1 control", func(in *SignupInput) { in.Name = "Ana\u0085Souza" }, "name", "Noite Verde"},
+		{"name with RLO", func(in *SignupInput) { in.Name = "Ana\u202eSouza" }, "name", "Noite Verde"},
+		{"name with ZWSP", func(in *SignupInput) { in.Name = "Ana\u200bSouza" }, "name", "Noite Verde"},
+		{"name with line separator", func(in *SignupInput) { in.Name = "Ana\u2028Souza" }, "name", "Noite Verde"},
+		{"name with paragraph separator", func(in *SignupInput) { in.Name = "Ana\u2029Souza" }, "name", "Noite Verde"},
 		{"collective name with LF", func(in *SignupInput) { in.CollectiveName = "Noite\nVerde" }, "collective", "Noite\nVerde"},
 		{"collective name with a tab", func(in *SignupInput) { in.CollectiveName = "Noite\tVerde" }, "collective", "Noite\tVerde"},
+		{"collective name with RLO", func(in *SignupInput) { in.CollectiveName = "Noite\u202eVerde" }, "collective", "Noite\u202eVerde"},
+		{"collective name with ZWSP", func(in *SignupInput) { in.CollectiveName = "Noite\u200bVerde" }, "collective", "Noite\u200bVerde"},
+		{"collective name with line separator", func(in *SignupInput) { in.CollectiveName = "Noite\u2028Verde" }, "collective", "Noite\u2028Verde"},
+		{"collective name with paragraph separator", func(in *SignupInput) { in.CollectiveName = "Noite\u2029Verde" }, "collective", "Noite\u2029Verde"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -783,4 +791,55 @@ func TestSignupSerializesWithAFreeze(t *testing.T) {
 		t.Errorf("collective after the race = %+v, err %v; want it still locked", got, err)
 	}
 	signupAssertNothingWritten(t, s, in.Email, "")
+}
+
+func TestSignupVerifyEmailOmitsSubmittedName(t *testing.T) {
+	s := newTestStore(t)
+	ctx := t.Context()
+	const phishName = "Clique https://evil.example/premio"
+	in := signupInput()
+	in.Name = phishName
+
+	if err := Signup(ctx, s, signupOrigin, testNow, in); err != nil {
+		t.Fatalf("Signup: %v", err)
+	}
+	u, err := s.Repos().Users.ByEmail(ctx, in.Email)
+	if err != nil {
+		t.Fatalf("user: %v", err)
+	}
+	if u.Name != phishName {
+		t.Errorf("stored name = %q, want %q", u.Name, phishName)
+	}
+
+	msgs := signupOutbox(t, s)
+	if len(msgs) != 1 {
+		t.Fatalf("outbox holds %d messages, want one", len(msgs))
+	}
+	msg := msgs[0]
+	for _, needle := range []string{phishName, "https://evil.example", "evil.example"} {
+		if strings.Contains(msg.Subject, needle) || strings.Contains(msg.Text, needle) || strings.Contains(msg.HTML, needle) {
+			t.Errorf("verify_email leaked %q in subject/text/html", needle)
+		}
+	}
+	for _, want := range []string{"Olá! Falta só um passo"} {
+		if !strings.Contains(msg.Text, want) {
+			t.Errorf("text lacks %q:\n%s", want, msg.Text)
+		}
+		if !strings.Contains(msg.HTML, want) {
+			t.Errorf("html lacks %q", want)
+		}
+	}
+}
+
+func TestValidateSignup(t *testing.T) {
+	if err := ValidateSignup(signupInput()); err != nil {
+		t.Fatalf("ValidateSignup(valid) = %v, want nil", err)
+	}
+
+	in := signupInput()
+	in.Name = ""
+	in.Email = "not-an-email"
+	in.PasswordConfirm = "other"
+	fe := signupFieldErrors(t, ValidateSignup(in))
+	signupAssertKeys(t, fe, "name", "email", "password_confirm")
 }

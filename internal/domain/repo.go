@@ -30,10 +30,6 @@ import (
 //     indexes): an expired session or token stays until a method removes it.
 //   - Every call is atomic by itself. Several calls are atomic together only
 //     inside Store.WithTx.
-//   - Known gap (ACL-21): the reference check of a Create (the user or
-//     collective must exist) is not isolated from a concurrent Users.Delete or
-//     Collectives.Delete, so a document created while the cascade runs can be
-//     left pointing at a deleted user or collective.
 //   - Serialization of collectives: an operation that depends on the state of a
 //     collective (a join decision, a role change, a rename, a join request, a
 //     change of the blocks, the creation, edit or deletion of an event) runs in
@@ -400,7 +396,7 @@ type Outbox interface {
 	// them in the same atomic step as it selects them: a concurrent or later
 	// Claim does not return a message while its lease holds, and returns it again
 	// once the lease has run out. Claim does not change Attempts. A limit below 1
-	// returns nothing and claims nothing.
+	// or a lease of zero or less returns nothing and claims nothing.
 	Claim(ctx context.Context, now time.Time, lease time.Duration, limit int) ([]OutboxMessage, error)
 
 	// MarkSent sets SentAt to now, so the message is never claimed again. An

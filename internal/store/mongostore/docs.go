@@ -80,6 +80,7 @@ type userDoc struct {
 	EmailVerifiedAt    *time.Time     `bson:"email_verified_at,omitempty"`
 	ApprovedAt         *time.Time     `bson:"approved_at,omitempty"`
 	ApprovedBy         *bson.ObjectID `bson:"approved_by,omitempty"`
+	Rev                int64          `bson:"rev,omitempty"`
 	CreatedAt          time.Time      `bson:"created_at"`
 	UpdatedAt          time.Time      `bson:"updated_at"`
 }

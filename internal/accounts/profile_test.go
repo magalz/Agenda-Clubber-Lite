@@ -189,23 +189,36 @@ func TestUpdateProfileValidatesAndSaves(t *testing.T) {
 // A name is copied into emails, so a line break in it must be refused the way
 // signup refuses one, before any write.
 func TestUpdateProfileRefusesControlCharactersInName(t *testing.T) {
-	s := newTestStore(t)
-	ctx := t.Context()
-	u := insertLoginUser(t, s)
-	session := profileSession(t, s, u.ID, 1)
+	for _, tc := range []struct {
+		name  string
+		value string
+	}{
+		{"line feed", "Ana\nSouza"},
+		{"RLO", "Ana\u202eSouza"},
+		{"ZWSP", "Ana\u200bSouza"},
+		{"line separator", "Ana\u2028Souza"},
+		{"paragraph separator", "Ana\u2029Souza"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := newTestStore(t)
+			ctx := t.Context()
+			u := insertLoginUser(t, s)
+			session := profileSession(t, s, u.ID, 1)
 
-	fe := profileFieldErrors(t, UpdateProfile(ctx, s, u, "Ana\nSouza", "(81) 98765-4321", false, testNow))
-	if len(fe) != 1 || fe["name"] != domain.MsgControl {
-		t.Errorf("field errors = %v, want only name with %q", fe, domain.MsgControl)
+			fe := profileFieldErrors(t, UpdateProfile(ctx, s, u, tc.value, "(81) 98765-4321", false, testNow))
+			if len(fe) != 1 || fe["name"] != domain.MsgControl {
+				t.Errorf("field errors = %v, want only name with %q", fe, domain.MsgControl)
+			}
+			got, err := s.Repos().Users.ByID(ctx, u.ID)
+			if err != nil {
+				t.Fatalf("reload user: %v", err)
+			}
+			if got.Name != u.Name || got.Phone != u.Phone {
+				t.Errorf("user after the refused update = name %q phone %q; want it unchanged", got.Name, got.Phone)
+			}
+			profileSessionAlive(t, s, session)
+		})
 	}
-	got, err := s.Repos().Users.ByID(ctx, u.ID)
-	if err != nil {
-		t.Fatalf("reload user: %v", err)
-	}
-	if got.Name != u.Name || got.Phone != u.Phone {
-		t.Errorf("user after the refused update = name %q phone %q; want it unchanged", got.Name, got.Phone)
-	}
-	profileSessionAlive(t, s, session)
 }
 
 func TestRequestEmailChangeRefusesOwnAddress(t *testing.T) {

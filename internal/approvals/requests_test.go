@@ -436,6 +436,10 @@ func TestRequestCollectiveBadInput(t *testing.T) {
 		{"too long", requestsLongName, domain.CollectiveKindColetivo, []string{"name"}},
 		{"line break", "Nova\nCasa", domain.CollectiveKindColetivo, []string{"name"}},
 		{"control character", "Nova\x00Casa", domain.CollectiveKindColetivo, []string{"name"}},
+		{"RLO", "Nova\u202eCasa", domain.CollectiveKindColetivo, []string{"name"}},
+		{"ZWSP", "Nova\u200bCasa", domain.CollectiveKindColetivo, []string{"name"}},
+		{"line separator", "Nova\u2028Casa", domain.CollectiveKindColetivo, []string{"name"}},
+		{"paragraph separator", "Nova\u2029Casa", domain.CollectiveKindColetivo, []string{"name"}},
 		{"invalid UTF-8", "Nova\xffCasa", domain.CollectiveKindColetivo, []string{"name"}},
 		{"only combining marks", requestsCombiningOnly, domain.CollectiveKindColetivo, []string{"name"}},
 		{"empty kind", "Nova Casa", "", []string{"kind"}},
@@ -675,6 +679,10 @@ func TestRenameCollectiveRefused(t *testing.T) {
 		{name: "one letter", actor: f.master, collectiveID: f.c.ID, newName: "A", keys: []string{"name"}},
 		{name: "too long", actor: f.master, collectiveID: f.c.ID, newName: requestsLongName, keys: []string{"name"}},
 		{name: "line break", actor: f.master, collectiveID: f.c.ID, newName: "Alfa\nPrime", keys: []string{"name"}},
+		{name: "RLO", actor: f.master, collectiveID: f.c.ID, newName: "Alfa\u202ePrime", fields: domain.FieldErrors{"name": domain.MsgControl}},
+		{name: "ZWSP", actor: f.master, collectiveID: f.c.ID, newName: "Alfa\u200bPrime", fields: domain.FieldErrors{"name": domain.MsgControl}},
+		{name: "line separator", actor: f.master, collectiveID: f.c.ID, newName: "Alfa\u2028Prime", fields: domain.FieldErrors{"name": domain.MsgControl}},
+		{name: "paragraph separator", actor: f.master, collectiveID: f.c.ID, newName: "Alfa\u2029Prime", fields: domain.FieldErrors{"name": domain.MsgControl}},
 		{name: "only combining marks", actor: f.master, collectiveID: f.c.ID, newName: requestsCombiningOnly, keys: []string{"name"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

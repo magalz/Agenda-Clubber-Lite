@@ -133,13 +133,12 @@ func enqueue(t *testing.T, ob domain.Outbox, to string, next time.Time) domain.O
 	return m
 }
 
-// peek returns the oldest message that is due at at, or none. The outbox has no
-// Get, so Claim is the only way to look. A lease of 0 has run out when Claim
-// returns, so peeking leaves nothing leased; the limit is 1 because a call that
-// leases for 0 may return the same message again.
+const peekLease = time.Millisecond
+
+// peek returns the oldest message that is due at at, or none, holding it for peekLease.
 func peek(t *testing.T, ob domain.Outbox, at time.Time) []domain.OutboxMessage {
 	t.Helper()
-	msgs, err := ob.Claim(t.Context(), at, 0, 1)
+	msgs, err := ob.Claim(t.Context(), at, peekLease, 1)
 	if err != nil {
 		t.Fatalf("peek at %s: %v", at.Format(time.RFC3339), err)
 	}
@@ -271,7 +270,7 @@ func TestWorkerRetrySchedule(t *testing.T) {
 			t.Fatalf("attempt %d: stored message = %+v, want attempts %d, last error %q, next attempt %s",
 				i+1, got[0], i+1, failure.Error(), retryAt.Format(time.RFC3339))
 		}
-		due = retryAt
+		due = retryAt.Add(peekLease)
 	}
 
 	// The 6th attempt fails too, and the message is given up.

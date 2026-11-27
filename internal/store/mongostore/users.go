@@ -26,15 +26,22 @@ func (r users) Create(ctx context.Context, u *domain.User) error {
 	if err != nil {
 		return err
 	}
-	if err := r.s.mustExist(ctx, colUsers, approvedBy); err != nil {
-		return err
-	}
 	oid := bson.NewObjectID()
-	if _, err := r.coll().InsertOne(ctx, userToDoc(*u, oid, approvedBy)); err != nil {
-		if mongo.IsDuplicateKeyError(err) {
-			return domain.ErrEmailTaken
+	doc := userToDoc(*u, oid, approvedBy)
+	err = r.s.inTx(ctx, func(ctx context.Context) error {
+		if err := r.s.mustExist(ctx, colUsers, approvedBy); err != nil {
+			return err
 		}
-		return wrap("create user", err)
+		if _, err := r.coll().InsertOne(ctx, doc); err != nil {
+			if mongo.IsDuplicateKeyError(err) {
+				return domain.ErrEmailTaken
+			}
+			return wrap("create user", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return err
 	}
 	u.ID = oid.Hex()
 	return nil
@@ -75,7 +82,9 @@ func (r users) update(ctx context.Context, id string, update any) error {
 	if err != nil {
 		return err
 	}
-	return updateOne(ctx, r.coll(), "update user", oid, update)
+	return r.s.inTx(ctx, func(ctx context.Context) error {
+		return updateOne(ctx, r.coll(), "update user", oid, update)
+	})
 }
 
 func (r users) SetStatus(ctx context.Context, id string, status domain.UserStatus, now time.Time) error {
@@ -90,20 +99,22 @@ func (r users) MarkEmailVerified(ctx context.Context, id string, now time.Time) 
 	if err != nil {
 		return err
 	}
-	res, err := r.coll().UpdateOne(ctx,
-		bson.M{"_id": oid, "status": string(domain.UserStatusPendingEmail)},
-		bson.M{"$set": bson.M{
-			"email_verified_at": now,
-			"updated_at":        now,
-			"status":            string(domain.UserStatusPendingApproval),
-		}})
-	if err != nil {
-		return wrap("verify user email", err)
-	}
-	if res.MatchedCount > 0 {
-		return nil
-	}
-	return r.s.notMatched(ctx, colUsers, oid)
+	return r.s.inTx(ctx, func(ctx context.Context) error {
+		res, err := r.coll().UpdateOne(ctx,
+			bson.M{"_id": oid, "status": string(domain.UserStatusPendingEmail)},
+			bson.M{"$set": bson.M{
+				"email_verified_at": now,
+				"updated_at":        now,
+				"status":            string(domain.UserStatusPendingApproval),
+			}})
+		if err != nil {
+			return wrap("verify user email", err)
+		}
+		if res.MatchedCount > 0 {
+			return nil
+		}
+		return r.s.notMatched(ctx, colUsers, oid)
+	})
 }
 
 // ChangePassword is one update with an aggregation pipeline, so the hash that
@@ -163,18 +174,26 @@ func (r users) RecordLoginFailure(ctx context.Context, id string, now time.Time,
 		}}},
 		{{Key: "$unset", Value: "lock_now"}},
 	}
-	var after struct {
-		FailedLogins int `bson:"failed_logins"`
-	}
-	err = r.coll().FindOneAndUpdate(ctx, bson.M{"_id": oid}, pipeline,
-		options.FindOneAndUpdate().SetReturnDocument(options.After).SetProjection(bson.M{"failed_logins": 1})).Decode(&after)
-	if err != nil {
-		if errors.Is(err, mongo.ErrNoDocuments) {
-			return false, domain.ErrNotFound
+	var locked bool
+	err = r.s.inTx(ctx, func(ctx context.Context) error {
+		var after struct {
+			FailedLogins int `bson:"failed_logins"`
 		}
-		return false, wrap("record login failure", err)
+		err := r.coll().FindOneAndUpdate(ctx, bson.M{"_id": oid}, pipeline,
+			options.FindOneAndUpdate().SetReturnDocument(options.After).SetProjection(bson.M{"failed_logins": 1})).Decode(&after)
+		if err != nil {
+			if errors.Is(err, mongo.ErrNoDocuments) {
+				return domain.ErrNotFound
+			}
+			return wrap("record login failure", err)
+		}
+		locked = after.FailedLogins == 0
+		return nil
+	})
+	if err != nil {
+		return false, err
 	}
-	return after.FailedLogins == 0, nil
+	return locked, nil
 }
 
 func (r users) ResetLoginFailures(ctx context.Context, id string) error {
@@ -279,9 +298,7 @@ func (r users) ListByStatus(ctx context.Context, status domain.UserStatus, limit
 // exactly one matches. The approver is checked first and nothing changes when it
 // is missing; an empty by names nobody, so it is ErrNotFound like any ID the
 // store never issued. A user whose status and approver are both wrong answers
-// ErrNotFound, because the references are checked before the state. The check of
-// the approver is not isolated from a concurrent Delete of it, the same gap as a
-// Create (ACL-21).
+// ErrNotFound, because the references are checked before the state.
 func (r users) Approve(ctx context.Context, id, by string, now time.Time) error {
 	oid, err := parseID(id)
 	if err != nil {
@@ -291,24 +308,26 @@ func (r users) Approve(ctx context.Context, id, by string, now time.Time) error 
 	if err != nil {
 		return err
 	}
-	if err := r.s.mustExist(ctx, colUsers, &approver); err != nil {
-		return err
-	}
-	res, err := r.coll().UpdateOne(ctx,
-		bson.M{"_id": oid, "status": string(domain.UserStatusPendingApproval)},
-		bson.M{"$set": bson.M{
-			"status":      string(domain.UserStatusActive),
-			"approved_by": approver,
-			"approved_at": now,
-			"updated_at":  now,
-		}})
-	if err != nil {
-		return wrap("approve user", err)
-	}
-	if res.MatchedCount > 0 {
-		return nil
-	}
-	return r.s.notMatched(ctx, colUsers, oid)
+	return r.s.inTx(ctx, func(ctx context.Context) error {
+		if err := r.s.mustExist(ctx, colUsers, &approver); err != nil {
+			return err
+		}
+		res, err := r.coll().UpdateOne(ctx,
+			bson.M{"_id": oid, "status": string(domain.UserStatusPendingApproval)},
+			bson.M{"$set": bson.M{
+				"status":      string(domain.UserStatusActive),
+				"approved_by": approver,
+				"approved_at": now,
+				"updated_at":  now,
+			}})
+		if err != nil {
+			return wrap("approve user", err)
+		}
+		if res.MatchedCount > 0 {
+			return nil
+		}
+		return r.s.notMatched(ctx, colUsers, oid)
+	})
 }
 
 // UpdateProfile writes only the fields the service validated; UpdatedAt moves
@@ -334,20 +353,22 @@ func (r users) SetEmail(ctx context.Context, id, email string, now time.Time) er
 	if err != nil {
 		return err
 	}
-	res, err := r.coll().UpdateOne(ctx, bson.M{"_id": oid}, bson.M{"$set": bson.M{
-		"email":      normalized,
-		"updated_at": now,
-	}})
-	if err != nil {
-		if mongo.IsDuplicateKeyError(err) {
-			return domain.ErrEmailTaken
+	return r.s.inTx(ctx, func(ctx context.Context) error {
+		res, err := r.coll().UpdateOne(ctx, bson.M{"_id": oid}, bson.M{"$set": bson.M{
+			"email":      normalized,
+			"updated_at": now,
+		}})
+		if err != nil {
+			if mongo.IsDuplicateKeyError(err) {
+				return domain.ErrEmailTaken
+			}
+			return wrap("set user email", err)
 		}
-		return wrap("set user email", err)
-	}
-	if res.MatchedCount == 0 {
-		return domain.ErrNotFound
-	}
-	return nil
+		if res.MatchedCount == 0 {
+			return domain.ErrNotFound
+		}
+		return nil
+	})
 }
 
 // MarkPasswordReminded moves UpdatedAt too, like every other mutating Users

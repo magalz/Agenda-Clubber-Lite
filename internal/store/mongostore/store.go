@@ -175,16 +175,18 @@ func (s *Store) notMatched(ctx context.Context, collection string, id bson.Objec
 }
 
 // mustExist returns domain.ErrNotFound when the reference id (an optional
-// reference when empty) names nothing in the collection.
+// reference when empty) names nothing in the collection. It bumps rev on the
+// referenced document so a transaction holding the check conflicts with a
+// concurrent Delete of that document.
 func (s *Store) mustExist(ctx context.Context, collection string, id *bson.ObjectID) error {
 	if id == nil {
 		return nil
 	}
-	ok, err := s.exists(ctx, collection, *id)
+	res, err := s.db.Collection(collection).UpdateOne(ctx, bson.M{"_id": *id}, bson.M{"$inc": bson.M{"rev": int64(1)}})
 	if err != nil {
-		return err
+		return fmt.Errorf("mongostore: look up in %s: %w", collection, err)
 	}
-	if !ok {
+	if res.MatchedCount == 0 {
 		return domain.ErrNotFound
 	}
 	return nil

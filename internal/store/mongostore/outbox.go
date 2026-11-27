@@ -38,6 +38,9 @@ func (r outbox) Enqueue(ctx context.Context, m *domain.OutboxMessage) error {
 // messages it does not return; their leases run out and a later Claim returns
 // them.
 func (r outbox) Claim(ctx context.Context, now time.Time, lease time.Duration, limit int) ([]domain.OutboxMessage, error) {
+	if limit < 1 || lease <= 0 {
+		return nil, nil
+	}
 	filter := bson.M{
 		"sent_at":         nil,
 		"gave_up":         false,

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/mail"
 	"net/textproto"
 	"regexp"
@@ -33,9 +34,20 @@ const (
 // username it neither encrypts nor logs in, which is a local relay such as
 // Mailpit. Send is safe for concurrent use: each call dials its own connection.
 type SMTPSender struct {
+	// Log receives warnings when closing the SMTP connection fails after
+	// delivery; nil falls back to slog.Default().
+	Log *slog.Logger
+
 	client   *gomail.Client
 	from     *mail.Address
 	redactor *strings.Replacer // hides the username and the password; nil when there are none
+}
+
+func (s *SMTPSender) log() *slog.Logger {
+	if s.Log != nil {
+		return s.Log
+	}
+	return slog.Default()
 }
 
 // NewSMTPSender returns a sender for cfg. It rejects a configuration that
@@ -97,11 +109,23 @@ func (s *SMTPSender) Send(ctx context.Context, m domain.OutboxMessage) error {
 	if err != nil {
 		return err
 	}
-	if err := s.client.DialAndSendWithContext(ctx, msg); err != nil {
+	sc, err := s.client.DialToSMTPClientWithContext(ctx)
+	if err != nil {
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return fmt.Errorf("mail: send: %w", ctxErr)
 		}
 		return s.sendError(err, m.To)
+	}
+	sendErr := s.client.SendWithSMTPClient(sc, msg)
+	closeErr := s.client.CloseWithSMTPClient(sc)
+	if sendErr != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return fmt.Errorf("mail: send: %w", ctxErr)
+		}
+		return s.sendError(sendErr, m.To)
+	}
+	if closeErr != nil {
+		s.log().Warn("mail: smtp close failed after delivery", "error", s.sendError(closeErr, m.To))
 	}
 	return nil
 }

@@ -84,6 +84,10 @@ func TestCheckReason(t *testing.T) {
 		{"ESC", "a\x1bb", "", true},
 		{"DEL", "a\x7fb", "", true},
 		{"C1 control", "a\u0085b", "", true},
+		{"RLO", "a\u202eb", "", true},
+		{"ZWSP", "a\u200bb", "", true},
+		{"line separator", "a\u2028b", "", true},
+		{"paragraph separator", "a\u2029b", "", true},
 		{"invalid UTF-8", "a\xffb", "", true},
 	}
 	for _, tt := range tests {
@@ -112,9 +116,11 @@ func TestCheckReasonMessages(t *testing.T) {
 	if !errors.As(err, &fe) || fe["reason"] != "use no máximo 500 caracteres" {
 		t.Errorf("too long: err = %v, want reason: use no máximo 500 caracteres", err)
 	}
-	_, err = CheckReason("a\x00b")
-	if !errors.As(err, &fe) || fe["reason"] != "use só texto, sem caracteres de controle" {
-		t.Errorf("control character: err = %v, want reason: use só texto, sem caracteres de controle", err)
+	for _, in := range []string{"a\x00b", "a\u202eb", "a\u200bb", "a\u2028b", "a\u2029b"} {
+		_, err = CheckReason(in)
+		if !errors.As(err, &fe) || fe["reason"] != "use só texto, sem caracteres de controle" {
+			t.Errorf("CheckReason(%q): err = %v, want reason: use só texto, sem caracteres de controle", in, err)
+		}
 	}
 	// The UTF-8 rule lives in domain.TextProblem, so an invalid reason gets
 	// the domain's message instead of the approvals-only one it used to have.

@@ -95,11 +95,8 @@ func TestChangePasswordSetsThePasswordAndEndsTheOtherSessions(t *testing.T) {
 	theirs := passwordStart(t, s, other.ID)
 	calls := passwordCountHashes(t)
 
-	// The account was locked by wrong passwords and has one more failure on the
-	// books: the change must clear both. Without this seed the assertions after
-	// the change would pass on a fixture that starts clean.
 	for range LoginMaxFailures + 1 {
-		if _, err := s.Repos().Users.RecordLoginFailure(ctx, u.ID, passwordAt, LoginMaxFailures, LoginLockFor); err != nil {
+		if _, err := s.Repos().Users.RecordLoginFailure(ctx, u.ID, testNow, LoginMaxFailures, LoginLockFor); err != nil {
 			t.Fatalf("RecordLoginFailure: %v", err)
 		}
 	}
@@ -339,36 +336,219 @@ func TestChangePasswordStoreFailureIsAServerError(t *testing.T) {
 	passwordAssertUntouched(t, s, u.ID)
 }
 
-func TestPasswordReused(t *testing.T) {
+func TestChangePasswordLocksAfterRepeatedWrongCurrentPasswords(t *testing.T) {
 	s := newTestStore(t)
+	ctx := t.Context()
 	u := resetUser(t, s)
-	for _, tc := range []struct {
-		name, password string
-		want           bool
-	}{
-		{"the current password", loginPassword, true},
-		{"the previous password", resetPrevPassword, true},
-		{"a password nobody used", resetNewPassword, false},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			got, err := PasswordReused(t.Context(), s, u.ID, tc.password)
-			if err != nil || got != tc.want {
-				t.Errorf("PasswordReused = %v, %v; want %v, nil", got, err, tc.want)
-			}
-		})
+	session := passwordStart(t, s, u.ID)
+	calls := passwordCountHashes(t)
+
+	for i := 1; i < LoginMaxFailures; i++ {
+		err := ChangePassword(ctx, s, u.ID, session, loginWrong, resetNewPassword, resetNewPassword, passwordAt)
+		fe := signupFieldErrors(t, err)
+		signupAssertKeys(t, fe, "current_password")
+		if fe["current_password"] != passwordMsgWrongCurrent {
+			t.Fatalf("attempt %d: current_password = %q, want %q", i, fe["current_password"], passwordMsgWrongCurrent)
+		}
+		got := loginReload(t, s, u.ID)
+		if got.FailedLogins != i || got.LockedUntil != nil {
+			t.Fatalf("attempt %d: FailedLogins = %d, LockedUntil = %v; want %d, nil", i, got.FailedLogins, got.LockedUntil, i)
+		}
+	}
+
+	err := ChangePassword(ctx, s, u.ID, session, loginWrong, resetNewPassword, resetNewPassword, passwordAt)
+	loginIs(t, "5th wrong current password", err, ErrLoginLocked)
+
+	wantLock := passwordAt.Add(LoginLockFor).Truncate(time.Millisecond)
+	locked := loginReload(t, s, u.ID)
+	if locked.LockedUntil == nil || !locked.LockedUntil.Equal(wantLock) {
+		t.Fatalf("LockedUntil = %v, want %v", locked.LockedUntil, wantLock)
+	}
+
+	err = ChangePassword(ctx, s, u.ID, session, loginPassword, resetNewPassword, resetNewPassword, passwordAt.Add(time.Minute))
+	loginIs(t, "valid password while locked", err, ErrLoginLocked)
+	if *calls != 0 {
+		t.Errorf("new password was hashed %d times while locked, want 0", *calls)
+	}
+	passwordAssertUntouched(t, s, u.ID, session)
+
+	afterLock := passwordAt.Add(LoginLockFor)
+	if err := ChangePassword(ctx, s, u.ID, session, loginPassword, resetNewPassword, resetNewPassword, afterLock); err != nil {
+		t.Fatalf("ChangePassword after lock expired: %v", err)
+	}
+	got := loginReload(t, s, u.ID)
+	if got.FailedLogins != 0 || got.LockedUntil != nil {
+		t.Errorf("after unlock: FailedLogins = %d, LockedUntil = %v; want 0, nil", got.FailedLogins, got.LockedUntil)
 	}
 }
 
-func TestPasswordReusedUnreadableHistoryIsAnError(t *testing.T) {
+func TestChangePasswordLockedSkipsArgon2(t *testing.T) {
 	s := newTestStore(t)
 	ctx := t.Context()
-	broken := insertActiveUser(t, s, resetEmail) // a placeholder hash no verify can read
+	lockUntil := passwordAt.Add(LoginLockFor)
+	u := insertActiveUser(t, s, resetEmail, func(u *domain.User) {
+		u.LockedUntil = &lockUntil
+	})
 
-	if used, err := PasswordReused(ctx, s, broken.ID, resetNewPassword); err == nil || used {
-		t.Errorf("unreadable hash: PasswordReused = %v, %v; want false and an error", used, err)
+	err := ChangePassword(ctx, s, u.ID, "", loginPassword, resetNewPassword, resetNewPassword, passwordAt)
+	loginIs(t, "locked user with unreadable hash", err, ErrLoginLocked)
+}
+
+func TestChangePasswordValidCurrentResetsFailedLoginsEvenOnHistoryRefusal(t *testing.T) {
+	s := newTestStore(t)
+	ctx := t.Context()
+	u := resetUser(t, s)
+	for range 2 {
+		if _, err := s.Repos().Users.RecordLoginFailure(ctx, u.ID, passwordAt, LoginMaxFailures, LoginLockFor); err != nil {
+			t.Fatalf("RecordLoginFailure: %v", err)
+		}
 	}
-	if used, err := PasswordReused(ctx, s, "000000000000000000000000", resetNewPassword); err == nil || used {
-		t.Errorf("unknown account: PasswordReused = %v, %v; want false and an error", used, err)
+
+	err := ChangePassword(ctx, s, u.ID, "", loginPassword, loginPassword, loginPassword, passwordAt)
+	fe := signupFieldErrors(t, err)
+	signupAssertKeys(t, fe, "password")
+	if got := loginReload(t, s, u.ID); got.FailedLogins != 0 {
+		t.Errorf("FailedLogins = %d after valid current password, want 0", got.FailedLogins)
+	}
+}
+
+func TestChangePasswordFieldErrorsRecordNoFailures(t *testing.T) {
+	s := newTestStore(t)
+	ctx := t.Context()
+	u := resetUser(t, s)
+
+	err := ChangePassword(ctx, s, u.ID, "", "", resetNewPassword, resetNewPassword, passwordAt)
+	signupAssertKeys(t, signupFieldErrors(t, err), "current_password")
+	err = ChangePassword(ctx, s, u.ID, "", loginWrong, "abc", "abc", passwordAt)
+	signupAssertKeys(t, signupFieldErrors(t, err), "password")
+
+	if got := loginReload(t, s, u.ID); got.FailedLogins != 0 || got.LockedUntil != nil {
+		t.Errorf("FailedLogins = %d, LockedUntil = %v; want 0, nil", got.FailedLogins, got.LockedUntil)
+	}
+}
+
+func TestCheckPasswordHistory(t *testing.T) {
+	s := newTestStore(t)
+	u := resetUser(t, s)
+	for _, tc := range []struct {
+		name, current, password string
+		want                    bool
+	}{
+		{"fresh password", loginPassword, resetNewPassword, true},
+		{"current password", loginPassword, loginPassword, false},
+		{"previous password", loginPassword, resetPrevPassword, false},
+		{"empty current password", "", resetNewPassword, false},
+		{"empty new password", loginPassword, "", false},
+		{"over max length", loginPassword, strings.Repeat("a", auth.MaxLength+1), false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := CheckPasswordHistory(t.Context(), s, u.ID, tc.current, tc.password, passwordAt)
+			if err != nil || got != tc.want {
+				t.Errorf("CheckPasswordHistory = %v, %v; want %v, nil", got, err, tc.want)
+			}
+		})
+	}
+	if got := loginReload(t, s, u.ID); got.FailedLogins != 0 || got.LockedUntil != nil {
+		t.Errorf("FailedLogins = %d, LockedUntil = %v; want 0, nil", got.FailedLogins, got.LockedUntil)
+	}
+}
+
+func TestCheckPasswordHistorySkipsStoreAndArgon2OnEmptyOrOverlong(t *testing.T) {
+	s := newTestStore(t)
+	ctx := t.Context()
+	broken := insertActiveUser(t, s, resetEmail)
+
+	for _, tc := range []struct{ name, current, password string }{
+		{"empty current", "", resetNewPassword},
+		{"empty password", loginPassword, ""},
+		{"over max length", loginPassword, strings.Repeat("a", auth.MaxLength+1)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ok, err := CheckPasswordHistory(ctx, s, broken.ID, tc.current, tc.password, passwordAt)
+			if err != nil || ok {
+				t.Errorf("CheckPasswordHistory = %v, %v; want false, nil", ok, err)
+			}
+		})
+	}
+	if got := loginReload(t, s, broken.ID); got.FailedLogins != 0 {
+		t.Errorf("FailedLogins = %d, want 0", got.FailedLogins)
+	}
+}
+
+func TestCheckPasswordHistoryLocksAndSkipsArgon2WhenLocked(t *testing.T) {
+	s := newTestStore(t)
+	ctx := t.Context()
+	u := resetUser(t, s)
+
+	for i := 1; i <= LoginMaxFailures; i++ {
+		ok, err := CheckPasswordHistory(ctx, s, u.ID, loginWrong, resetNewPassword, passwordAt)
+		if err != nil || ok {
+			t.Fatalf("attempt %d: CheckPasswordHistory = %v, %v; want false, nil", i, ok, err)
+		}
+	}
+
+	wantLock := passwordAt.Add(LoginLockFor).Truncate(time.Millisecond)
+	locked := loginReload(t, s, u.ID)
+	if locked.LockedUntil == nil || !locked.LockedUntil.Equal(wantLock) {
+		t.Fatalf("LockedUntil = %v, want %v", locked.LockedUntil, wantLock)
+	}
+
+	ok, err := CheckPasswordHistory(ctx, s, u.ID, loginPassword, resetNewPassword, passwordAt.Add(time.Minute))
+	if err != nil || ok {
+		t.Errorf("while locked: CheckPasswordHistory = %v, %v; want false, nil", ok, err)
+	}
+
+	lockUntil := passwordAt.Add(LoginLockFor)
+	broken := insertActiveUser(t, s, "broken-locked@agenda.test", func(u *domain.User) {
+		u.LockedUntil = &lockUntil
+	})
+	ok, err = CheckPasswordHistory(ctx, s, broken.ID, loginPassword, resetNewPassword, passwordAt)
+	if err != nil || ok {
+		t.Errorf("locked with unreadable hash: CheckPasswordHistory = %v, %v; want false, nil", ok, err)
+	}
+}
+
+func TestCheckPasswordHistoryValidCurrentResetsFailedLogins(t *testing.T) {
+	s := newTestStore(t)
+	ctx := t.Context()
+	u := resetUser(t, s)
+
+	for range 3 {
+		ok, err := CheckPasswordHistory(ctx, s, u.ID, loginWrong, resetNewPassword, passwordAt)
+		if err != nil || ok {
+			t.Fatalf("wrong current: CheckPasswordHistory = %v, %v; want false, nil", ok, err)
+		}
+	}
+	if got := loginReload(t, s, u.ID); got.FailedLogins != 3 {
+		t.Fatalf("FailedLogins = %d, want 3", got.FailedLogins)
+	}
+
+	ok, err := CheckPasswordHistory(ctx, s, u.ID, loginPassword, resetNewPassword, passwordAt)
+	if err != nil || !ok {
+		t.Fatalf("valid current: CheckPasswordHistory = %v, %v; want true, nil", ok, err)
+	}
+	if got := loginReload(t, s, u.ID); got.FailedLogins != 0 {
+		t.Errorf("FailedLogins = %d after valid current, want 0", got.FailedLogins)
+	}
+}
+
+func TestCheckPasswordHistoryErrorsOnUnreadableUnknownOrInactive(t *testing.T) {
+	s := newTestStore(t)
+	ctx := t.Context()
+	broken := insertActiveUser(t, s, resetEmail)
+	disabled := insertLoginUser(t, s, func(u *domain.User) {
+		u.Email = "disabled-hist@agenda.test"
+		u.Status = domain.UserStatusDisabled
+	})
+
+	if ok, err := CheckPasswordHistory(ctx, s, broken.ID, loginPassword, resetNewPassword, passwordAt); err == nil || ok {
+		t.Errorf("unreadable hash: CheckPasswordHistory = %v, %v; want false and an error", ok, err)
+	}
+	if ok, err := CheckPasswordHistory(ctx, s, "000000000000000000000000", loginPassword, resetNewPassword, passwordAt); err == nil || ok {
+		t.Errorf("unknown account: CheckPasswordHistory = %v, %v; want false and an error", ok, err)
+	}
+	if ok, err := CheckPasswordHistory(ctx, s, disabled.ID, loginPassword, resetNewPassword, passwordAt); err == nil || ok {
+		t.Errorf("inactive account: CheckPasswordHistory = %v, %v; want false and an error", ok, err)
 	}
 }
 

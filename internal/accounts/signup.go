@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"strings"
 	"time"
-	"unicode"
-	"unicode/utf8"
 
 	"github.com/magalz/agenda-clubber-lite/internal/auth"
 	"github.com/magalz/agenda-clubber-lite/internal/domain"
@@ -92,7 +90,6 @@ func Signup(ctx context.Context, store domain.Store, origin string, now time.Tim
 		return fmt.Errorf("accounts: signup: %w", err)
 	}
 	subject, text, html, err := mail.Render(mail.TemplateVerifyEmail, mail.VerifyEmailData{
-		Name: f.name,
 		Link: origin + "/confirmar?token=" + raw,
 	})
 	if err != nil {
@@ -121,6 +118,14 @@ func Signup(ctx context.Context, store domain.Store, origin string, now time.Tim
 	return err
 }
 
+// ValidateSignup validates the fields of a signup form without reading the
+// store or hashing the password. It returns a domain.FieldErrors when any
+// field is invalid, or nil otherwise.
+func ValidateSignup(in SignupInput) error {
+	_, err := signupValidate(in)
+	return err
+}
+
 // signupValidate checks every field and returns all the failures together as a
 // domain.FieldErrors. It reads nothing from the store.
 func signupValidate(in SignupInput) (signupFields, error) {
@@ -128,15 +133,8 @@ func signupValidate(in SignupInput) (signupFields, error) {
 	var f signupFields
 
 	f.name = strings.TrimSpace(in.Name)
-	switch {
-	case !utf8.ValidString(f.name):
-		fe.Add("name", domain.MsgInvalid)
-	case strings.ContainsFunc(f.name, unicode.IsControl):
-		fe.Add("name", domain.MsgControl)
-	default:
-		if msg := domain.LengthProblem(f.name, domain.UserNameMin, domain.UserNameMax); msg != "" {
-			fe.Add("name", msg)
-		}
+	if msg := domain.TextProblem(f.name, domain.UserNameMin, domain.UserNameMax, false); msg != "" {
+		fe.Add("name", msg)
 	}
 
 	email, err := domain.NormalizeEmail(in.Email)
