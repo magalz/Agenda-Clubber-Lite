@@ -9,7 +9,7 @@ A self-hosted shared calendar for party collectives and producers (Nordeste, Bra
 ## Language
 
 - UI text, emails and validation messages: **Brazilian Portuguese** (`lang="pt-BR"`).
-- Code, identifiers, comments, commits, docs: **English**.
+- Product/domain documentation (`docs/bdr/`, `docs/bdd/`, `docs/playbooks/`): **Brazilian Portuguese (`pt-BR`)** per PO decision, while Go code, identifiers, comments, commits, and architecture records (`docs/adr/`) stay in **English**.
 - Dates shown in `America/Fortaleza` (config `APP_TZ`), format `dd/mm/aaaa`, 24h time.
 
 ## Stack
@@ -159,6 +159,7 @@ Tokens are defined once in `web/static/css/tokens.css`; every other stylesheet u
   - `ACL-48` (`BDR-001`): `verify_email.tmpl` uses a nameless `"Olá!"` greeting (omitting untrusted signup `Name` from `VerifyEmailData`), while `existing_account.tmpl` keeps the stored account name;
   - `ACL-41` (`ADR-002`): `Limits` isolates IP (`Signup`, `EmailAction`) and email-hash (`SignupEmail`, `EmailActionEmail`) rate limiters, and `POST /cadastro` runs `accounts.ValidateSignup` before charging `SignupEmail`;
   - `ACL-39` (`BDR-001`): PO accepted the low-value two-step collective-name signup enumeration risk (closed community, 5/h IP limit, 7-day unconfirmed-signup purge); no code change.
+- BDD specification & test scaffolding (`docs/bdd/01..06-*.feature`, `docs/bdd/INDEX.md`, `internal/bdd/`): Gherkin specs use `# language: pt` and stay synced 1:1 with `docs/bdd/INDEX.md`; `internal/bdd/` is a stdlib-only test harness (never imported by production code) whose `TestBDDFeatureSpecsValid` enforces Gherkin syntax, `@BDR-00N` file links, and 1:1 `INDEX.md` status parity.
 
 ## Testing and checks
 
